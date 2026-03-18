@@ -1,0 +1,19 @@
+{
+  "slug": "agentic-parallel-orchestration",
+  "name": "Agentic Parallel Orchestration",
+  "description": "Designs complex multi-agent plans with controlled parallelism and robust handoffs.",
+  "tags": [
+    "agents",
+    "parallel",
+    "orchestration",
+    "handoff",
+    "verification"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.9121406,
+  "updated_at": 1773279835.9126,
+  "metadata": {
+    "preset": true
+  }
+}

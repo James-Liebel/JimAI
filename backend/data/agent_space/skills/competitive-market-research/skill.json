@@ -1,0 +1,19 @@
+{
+  "slug": "competitive-market-research",
+  "name": "Competitive and Market Research",
+  "description": "Runs structured competitor and market scans with evidence-backed recommendations.",
+  "tags": [
+    "market",
+    "competitive",
+    "research",
+    "pricing",
+    "positioning"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.9205935,
+  "updated_at": 1773279835.9210088,
+  "metadata": {
+    "preset": true
+  }
+}

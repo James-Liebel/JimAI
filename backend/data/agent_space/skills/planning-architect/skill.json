@@ -1,0 +1,18 @@
+{
+  "slug": "planning-architect",
+  "name": "Planning Architect",
+  "description": "Creates execution plans, milestones, and dependency-safe delivery strategy.",
+  "tags": [
+    "planning",
+    "architecture",
+    "dependencies",
+    "milestones"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.8982518,
+  "updated_at": 1773279835.8987067,
+  "metadata": {
+    "preset": true
+  }
+}

@@ -1,0 +1,49 @@
+{
+    "manifest_version": 3,
+    "name": "Private AI",
+    "version": "1.0.0",
+    "description": "Your local private AI — reads your screen, answers inline",
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "storage",
+        "contextMenus",
+        "sidePanel",
+        "tabs"
+    ],
+    "host_permissions": [
+        "http://localhost:8000/*",
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "js": ["content.js"],
+            "run_at": "document_idle"
+        }
+    ],
+    "side_panel": {
+        "default_path": "sidebar.html"
+    },
+    "action": {
+        "default_title": "Open Private AI",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png"
+        }
+    },
+    "commands": {
+        "toggle-sidebar": {
+            "suggested_key": { "default": "Alt+A" },
+            "description": "Toggle Private AI sidebar"
+        },
+        "capture-screen": {
+            "suggested_key": { "default": "Alt+S" },
+            "description": "Capture screenshot and open sidebar"
+        }
+    }
+}

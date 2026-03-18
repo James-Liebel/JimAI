@@ -1,0 +1,19 @@
+{
+  "slug": "security-guardrails",
+  "name": "Security and Guardrails",
+  "description": "Hardens execution, command policies, and data boundaries.",
+  "tags": [
+    "security",
+    "policy",
+    "sandbox",
+    "validation",
+    "auth"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.9078503,
+  "updated_at": 1773279835.9084847,
+  "metadata": {
+    "preset": true
+  }
+}

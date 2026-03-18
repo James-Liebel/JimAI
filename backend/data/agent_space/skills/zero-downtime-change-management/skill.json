@@ -1,0 +1,19 @@
+{
+  "slug": "zero-downtime-change-management",
+  "name": "Zero-Downtime Change Management",
+  "description": "Ships risky updates using staged rollout, verification, and fast rollback procedures.",
+  "tags": [
+    "rollout",
+    "staging",
+    "rollback",
+    "change-management",
+    "safety"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.9239898,
+  "updated_at": 1773279835.9244125,
+  "metadata": {
+    "preset": true
+  }
+}

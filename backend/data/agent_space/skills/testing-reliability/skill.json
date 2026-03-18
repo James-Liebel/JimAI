@@ -1,0 +1,19 @@
+{
+  "slug": "testing-reliability",
+  "name": "Testing and Reliability",
+  "description": "Adds targeted tests, regression checks, and failure recovery.",
+  "tags": [
+    "tests",
+    "reliability",
+    "qa",
+    "regression",
+    "retry"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.9066436,
+  "updated_at": 1773279835.9071012,
+  "metadata": {
+    "preset": true
+  }
+}

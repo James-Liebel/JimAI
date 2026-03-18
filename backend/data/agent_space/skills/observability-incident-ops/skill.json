@@ -1,0 +1,19 @@
+{
+  "slug": "observability-incident-ops",
+  "name": "Observability and Incident Ops",
+  "description": "Improves diagnostics with metrics/logs/traces and incident-ready operating procedures.",
+  "tags": [
+    "observability",
+    "metrics",
+    "logging",
+    "incident",
+    "monitoring"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.9174516,
+  "updated_at": 1773279835.9178236,
+  "metadata": {
+    "preset": true
+  }
+}

@@ -1,0 +1,394 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --sat: env(safe-area-inset-top);
+    --sab: env(safe-area-inset-bottom);
+    --sal: env(safe-area-inset-left);
+    --sar: env(safe-area-inset-right);
+
+    --bg-0: #000000;
+    --bg-1: #0a0b0d;
+    --bg-2: #111317;
+    --panel-0: #171a1f;
+    --panel-1: #21262d;
+    --line-0: rgba(255, 255, 255, 0.2);
+    --line-1: rgba(255, 255, 255, 0.3);
+
+    --text-0: #ffffff;
+    --text-1: #e3e3e3;
+    --text-2: #b7b7b7;
+
+    --focus: #ffffff;
+    --ok: #ededed;
+    --warn: #d9d9d9;
+    --bad: #f87979;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+    min-height: 100dvh;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.55;
+    font-family: 'Manrope', 'Segoe UI', sans-serif;
+}
+
+body {
+    color: var(--text-0);
+    letter-spacing: 0.01em;
+    background:
+        radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.16), transparent 34%),
+        radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.11), transparent 34%),
+        radial-gradient(circle at 50% 120%, rgba(255, 255, 255, 0.09), transparent 60%),
+        linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 44%, var(--bg-2) 100%);
+    background-attachment: fixed;
+}
+
+::selection {
+    background: rgba(255, 255, 255, 0.3);
+    color: #f8f8f8;
+}
+
+a {
+    color: #f8f8f8;
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(174, 182, 199, 0.65), rgba(240, 245, 255, 0.76));
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(184, 194, 211, 0.86), rgba(250, 252, 255, 0.92));
+    background-clip: content-box;
+}
+
+.katex {
+    color: #f1f1f1 !important;
+    font-size: 1em !important;
+}
+
+@keyframes blink {
+    0%,
+    50% {
+        opacity: 1;
+    }
+    51%,
+    100% {
+        opacity: 0;
+    }
+}
+
+.streaming-cursor::after {
+    content: '▊';
+    margin-left: 2px;
+    color: #ffffff;
+    animation: blink 1s infinite;
+}
+
+pre {
+    position: relative;
+    margin: 8px 0 !important;
+    border-radius: 12px !important;
+    border: 1px solid var(--line-0);
+    background: linear-gradient(180deg, rgba(24, 26, 31, 0.94), rgba(15, 17, 21, 0.92)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+pre code {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace !important;
+    font-size: 12.5px !important;
+}
+
+input,
+textarea,
+select {
+    appearance: none;
+    border: 1px solid var(--line-1);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(30, 32, 36, 0.95), rgba(19, 21, 24, 0.95));
+    color: var(--text-0);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.04),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+    transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        background 140ms ease,
+        filter 140ms ease;
+}
+
+select option {
+    color: #101214;
+    background: #ffffff;
+}
+
+select option:disabled {
+    color: #6b7280;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: var(--text-2);
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+    border-color: rgba(255, 255, 255, 0.34);
+    filter: brightness(1.04);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow:
+        0 0 0 3px rgba(255, 255, 255, 0.2),
+        0 10px 26px rgba(0, 0, 0, 0.28);
+    background: linear-gradient(180deg, rgba(27, 28, 31, 0.98), rgba(16, 17, 20, 0.96));
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+    cursor: not-allowed;
+    color: #8f8f8f;
+    border-color: rgba(127, 145, 175, 0.3);
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            rgba(22, 31, 47, 0.9),
+            rgba(22, 31, 47, 0.9) 8px,
+            rgba(17, 25, 39, 0.92) 8px,
+            rgba(17, 25, 39, 0.92) 16px
+        );
+    box-shadow: none;
+    opacity: 0.86;
+}
+
+input[readonly],
+textarea[readonly] {
+    border-style: dashed;
+    border-color: rgba(127, 145, 175, 0.52);
+    color: #9d9d9d;
+    background: rgba(17, 27, 44, 0.7);
+}
+
+/* Keep text readable when browsers force light autofill backgrounds. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+    -webkit-text-fill-color: #101214 !important;
+    caret-color: #101214 !important;
+    box-shadow: 0 0 0 1000px #ffffff inset !important;
+    border-color: rgba(0, 0, 0, 0.18) !important;
+}
+
+button {
+    transition:
+        transform 120ms ease,
+        filter 120ms ease,
+        box-shadow 120ms ease;
+}
+
+button:not(:disabled):hover {
+    filter: brightness(1.08);
+}
+
+button:not(:disabled):active {
+    transform: translateY(1px);
+}
+
+button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.24);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.builder-workspace {
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0)),
+        linear-gradient(180deg, rgba(24, 26, 30, 0.78), rgba(14, 16, 19, 0.62));
+}
+
+.builder-workspace .builder-input {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: linear-gradient(180deg, rgba(34, 36, 42, 0.98), rgba(20, 22, 26, 0.96));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 0 0 1px rgba(12, 18, 31, 0.2);
+    font-weight: 550;
+}
+
+.builder-workspace .builder-input:focus-visible {
+    border-color: rgba(255, 255, 255, 0.95);
+    box-shadow:
+        0 0 0 3px rgba(255, 255, 255, 0.2),
+        0 12px 30px rgba(0, 0, 0, 0.32);
+}
+
+.builder-workspace .builder-input:disabled {
+    border-color: rgba(127, 145, 175, 0.35);
+    background:
+        repeating-linear-gradient(
+            -45deg,
+            rgba(20, 29, 45, 0.94),
+            rgba(20, 29, 45, 0.94) 7px,
+            rgba(15, 23, 37, 0.95) 7px,
+            rgba(15, 23, 37, 0.95) 14px
+        );
+}
+
+.builder-workspace details > summary {
+    border-radius: 8px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.builder-workspace details > summary:hover {
+    background: rgba(127, 145, 175, 0.1);
+}
+
+.drag-overlay {
+    backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.prose pre {
+    background: linear-gradient(180deg, rgba(24, 26, 31, 0.94), rgba(15, 17, 21, 0.92)) !important;
+}
+
+.prose code,
+.prose h1,
+.prose h2,
+.prose h3,
+.prose strong {
+    color: #f0f0f0;
+}
+
+.prose p,
+.prose li {
+    color: #d1d1d1;
+}
+
+.prose table,
+.prose th,
+.prose td {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.react-flow__node {
+    font-size: 12px;
+}
+
+.react-flow__edge-path {
+    stroke: #f7faff;
+    stroke-width: 2;
+}
+
+.react-flow__background {
+    background: #14171b !important;
+}
+
+.react-flow__controls-button {
+    background: #15181d !important;
+    border-color: rgba(255, 255, 255, 0.25) !important;
+    color: #f2f2f2 !important;
+    fill: #f2f2f2 !important;
+}
+
+html,
+body {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (display-mode: standalone) {
+    body {
+        padding-top: var(--sat);
+        padding-bottom: var(--sab);
+    }
+}
+
+@media (max-width: 768px) {
+    pre {
+        max-width: 100vw;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    pre code {
+        font-size: 12px !important;
+    }
+
+    .katex-display {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .prose p,
+    .prose li {
+        font-size: 15px;
+        line-height: 1.62;
+    }
+
+    .prose h1 {
+        font-size: 1.38em;
+    }
+
+    .prose h2 {
+        font-size: 1.2em;
+    }
+
+    .prose h3 {
+        font-size: 1.08em;
+    }
+
+    .prose table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .builder-workspace {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}

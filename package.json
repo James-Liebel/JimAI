@@ -1,0 +1,25 @@
+{
+  "name": "agent-space-platform",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "agentspace:start": "python scripts/agentspace_lifecycle.py start",
+    "agentspace:start:n8n": "python scripts/agentspace_lifecycle.py start --with-n8n",
+    "agentspace:stop": "python scripts/agentspace_lifecycle.py stop",
+    "agentspace:open": "python scripts/agentspace_lifecycle.py open-ui",
+    "agentspace:desktop": "python scripts/agentspace_lifecycle.py desktop",
+    "agentspace:desktop:n8n": "python scripts/agentspace_lifecycle.py desktop --with-services --with-n8n",
+    "agentspace:shortcuts": "python scripts/agentspace_lifecycle.py shortcuts",
+    "agentspace:free:setup": "python scripts/agentspace_lifecycle.py free-stack-setup --start --open --shortcuts",
+    "agentspace:free:install:podman": "python scripts/agentspace_lifecycle.py free-stack-install-runtime --runtime podman",
+    "agentspace:free:install:docker": "python scripts/agentspace_lifecycle.py free-stack-install-runtime --runtime docker",
+    "agentspace:free:start": "python scripts/agentspace_lifecycle.py free-stack-start --open",
+    "agentspace:free:stop": "python scripts/agentspace_lifecycle.py free-stack-stop",
+    "agentspace:free:open": "python scripts/agentspace_lifecycle.py free-stack-open",
+    "agentspace:free:status": "python scripts/agentspace_lifecycle.py free-stack-status",
+    "desktop:shell": "npx electron desktop/main.cjs"
+  },
+  "devDependencies": {
+    "electron": "^35.1.4"
+  }
+}

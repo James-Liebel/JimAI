@@ -1,0 +1,19 @@
+{
+  "slug": "performance-optimizer",
+  "name": "Performance Optimizer",
+  "description": "Improves latency/throughput, compacts heavy flows, and removes bottlenecks.",
+  "tags": [
+    "performance",
+    "latency",
+    "throughput",
+    "optimization",
+    "async"
+  ],
+  "complexity": 3,
+  "source": "system-default",
+  "created_at": 1773279835.9099119,
+  "updated_at": 1773279835.9105794,
+  "metadata": {
+    "preset": true
+  }
+}

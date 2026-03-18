@@ -1,0 +1,19 @@
+{
+  "slug": "design-system-integrity",
+  "name": "Design System Integrity",
+  "description": "Enforces coherent visual language, spacing system, and component consistency.",
+  "tags": [
+    "design-system",
+    "ui",
+    "consistency",
+    "accessibility",
+    "components"
+  ],
+  "complexity": 3,
+  "source": "system-default",
+  "created_at": 1773279835.9196372,
+  "updated_at": 1773279835.9200957,
+  "metadata": {
+    "preset": true
+  }
+}

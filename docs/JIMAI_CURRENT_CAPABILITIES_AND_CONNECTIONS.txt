@@ -1,0 +1,216 @@
+jimAI (Agent Space) - Current Capabilities and Connections
+Generated: 2026-03-11
+
+1) What the app currently does
+
+- Runs as a local AI agent workspace (desktop + browser UI).
+- Uses local Ollama models for agent/chat/build tasks (no required external model API).
+- Supports multi-agent orchestration with roles, dependencies, planner-first flow, verification gates, and team message handoffs.
+- Can run autonomous build/self-improve runs with stop support and run event streaming.
+- Supports review-gated code changes:
+  - Changes are proposed as diffs first.
+  - Approve / reject / apply flow.
+  - Commit from review flow.
+  - Undo applied review (snapshot restore).
+  - Manual rollback to any snapshot.
+- Includes local tools for:
+  - repo file tree/read/write/replace
+  - shell command execution with policy profiles/gates
+  - local code indexing + search
+  - run memory summaries
+  - export selected app/module paths to a separate folder
+- Supports proactive goals/runs and scheduled autonomous behavior.
+- Supports browser automation for agents:
+  - open session, navigate, click, type, extract, screenshot
+  - cursor move/click/scroll/hover
+  - link extraction and page state capture
+- Supports web research:
+  - search + fetch with graceful offline handling
+  - chat auto web lookup for current-data prompts with live-source fallback correction when model returns stale "knowledge cutoff" style responses
+  - query rewrite + parallel multi-source search + deep page reads + SSE synthesis streaming + Qdrant semantic cache
+  - research cancel (abort in-flight SSE stream from UI)
+  - animated pipeline step labels ("Searching SearXNG · Bing...") during active search
+  - Try Again button on search failure
+- Supports open-source repo discovery/search for reusable components.
+- Supports local automation workflows (n8n-style open-source workflow graph engine) plus optional managed n8n runtime integration.
+- Supports app power controls:
+  - ON/OFF system state
+  - optional release GPU/models on OFF
+
+2) Main UI pages currently present
+
+- Dashboard
+- Builder (app build)
+- Workflow Review
+- Chat
+- Research
+- SelfCode (Improve jimAI itself)
+- Agent Browser
+- Automation
+- Agent Studio
+- System Audit
+- Notebook
+- Settings
+
+3) Desktop + browser modes
+
+- Desktop shell: Electron app title "jimAI" (loads local UI URL).
+- Browser access: UI is also reachable via local web URL.
+- Desktop launcher can coexist with browser access.
+
+4) Data and artifact locations
+
+- Base data root:
+  - data/agent_space
+- Review diffs:
+  - data/agent_space/reviews
+- Snapshots (rollback/undo source):
+  - data/agent_space/snapshots
+- Logs/metrics:
+  - data/agent_space/logs
+- Memory + run summaries:
+  - data/agent_space/memory
+- Code index:
+  - data/agent_space/index
+- Team specs/messages:
+  - data/agent_space/teams
+- Workflow graphs:
+  - data/agent_space/workflows
+- Export bundles:
+  - data/agent_space/exports
+- Runtime state:
+  - data/agent_space/runtime
+- Secure free-stack credentials/env:
+  - data/agent_space/secure/free-stack.env
+  - data/agent_space/secure/free-stack-credentials.txt
+  - data/agent_space/secure/all-local-secrets.txt
+- Settings audit log:
+  - data/agent_space/settings_audit.jsonl
+
+5) Current connections and integrations
+
+A) Core local AI/runtime
+- Ollama (local):
+  - default endpoint: http://localhost:11434 (configurable via OLLAMA_BASE_URL env var)
+  - used for chat, orchestration agents, self-improve, automation AI nodes
+- Git CLI:
+  - optional review commit flow
+  - optional checkpoint branch creation before apply
+
+B) Agent Browser connection
+- Playwright + local Chromium sessions:
+  - used for real browsing actions (navigate/click/type/scroll/screenshot/extract)
+
+C) Web research and discovery
+- SearXNG: configurable via SEARXNG_BASE_URL env var (auto-detect from free-stack if not set)
+- DuckDuckGo HTML endpoint (search tool):
+  - used by research APIs/tools
+- General web fetch (HTTP):
+  - used for reading page content in research flows
+- GitHub repository search API:
+  - used by open-source catalog/repo discovery
+
+D) Free Stack (optional local containers)
+- Managed by lifecycle scripts and docker compose in infra/free-stack.
+- Services include:
+  - Postgres
+  - pgAdmin
+  - Redis
+  - Redis Commander
+  - MinIO (API + Console)
+  - Prometheus
+  - Loki
+  - Grafana (configurable via GRAFANA_BASE_URL env var, default http://localhost:3000)
+  - Qdrant (configurable via QDRANT_BASE_URL env var, default http://localhost:6333)
+  - Gotify (phone push notifications)
+
+E) Automation integrations
+- Local open workflow engine (jimai-open-workflow):
+  - no n8n runtime required
+- Optional managed n8n runtime:
+  - local install/start/stop/status supported
+  - base URL configurable via N8N_BASE_URL env var (default http://localhost:5678)
+
+F) Jupyter integration
+- Notebook kernel: configurable via JUPYTER_BASE_URL env var (default http://localhost:8888)
+
+6) Key API endpoints
+
+- GET  /health                                    - multi-service health check (Ollama + ChromaDB + Qdrant)
+- GET  /api/agent-space/status                    - runtime status + metrics
+- POST /api/agent-space/power                     - power ON/OFF
+- GET  /api/agent-space/runs                      - list runs (?status=&limit=&offset=)
+- POST /api/agent-space/runs/start                - start autonomous run
+- POST /api/agent-space/runs/stop-all             - stop all running runs
+- GET  /api/agent-space/settings                  - read settings
+- POST /api/agent-space/settings                  - update settings (writes to audit log)
+- GET  /api/agent-space/settings/history          - read settings change audit trail
+- POST /api/agent-space/builder/launch            - launch from builder UI
+- GET  /api/agent-space/reviews                   - list reviews
+- POST /api/agent-space/reviews/{id}/approve      - approve a review diff
+- POST /api/agent-space/reviews/{id}/apply        - apply approved diff
+- POST /api/agent-space/reviews/undo              - undo last applied diff
+- POST /api/agent-space/rollback                  - rollback to snapshot
+- GET  /api/agent-space/admin/system-audit        - full system health audit
+- GET  /api/agent-space/research/status           - research pipeline status
+
+7) Key operational controls
+
+- Power ON/OFF state with optional Ollama unload on OFF.
+- Command policies:
+  - safe / dev / unrestricted profile
+  - blocked fragments for destructive shell commands
+- Review gate toggle for controlled code application.
+- Required checks and verification-aware workflows.
+- Run stop requests and graceful loop-step stopping.
+- Bulk stop: POST /api/agent-space/runs/stop-all stops all running runs at once.
+- Run filtering: GET /api/agent-space/runs?status=running&limit=50&offset=0.
+- Settings audit trail: every settings change written to data/agent_space/settings_audit.jsonl.
+
+8) Recent quality-of-life behavior available now (2026-03-11)
+
+- Multi-service /health endpoint (Ollama + ChromaDB + Qdrant status checks).
+- Settings change audit log (settings_audit.jsonl + GET /settings/history endpoint).
+- Run filtering by status with pagination (GET /runs?status=&limit=&offset=).
+- Bulk run stop (POST /runs/stop-all).
+- Request timeouts on all 100+ frontend API calls (30s default, 60s builder, 120s SSE streaming).
+- React Error Boundary: unhandled render errors show friendly screen with Reload button.
+- Dashboard: retry button on error, "last updated X seconds ago", backend-connection-lost banner.
+- Research: cancel in-flight search, animated step labels, Try Again on error.
+- Chat sidebar: session search with 200ms debounce, case-insensitive match on title + preview.
+- Speed mode tooltips updated with clear explanations for Fast/Balanced/Deep.
+- SystemAudit: color-coded status dots (green/amber/red/gray) + last-checked timestamps per check.
+- Settings: JSON validation on agentModels textarea with inline error + disabled save when invalid.
+- Builder launch: spinner + "Launching..." text, disabled to prevent double-submit.
+- All bare `pass` in agent_space except handlers replaced with descriptive logger calls.
+- Hardcoded localhost URLs for N8N, Qdrant, SearXNG, Jupyter, Grafana externalized to env vars.
+- Improve flow can create review diffs and apply them.
+- Review page shows change summaries (files/added/removed/reasons).
+- Undo support:
+  - Undo button on applied review
+  - Undo Last Applied Diff on Improve page
+- Run reliability controls:
+  - continue_on_subagent_failure to keep orchestration moving past non-planner failures
+  - planner auto-recovery with deterministic fallback plan generation on planner exceptions
+  - explicit non-autonomous team workflows now use deterministic planner/verifier fast-paths (no blocking model round-trip)
+  - planner/verifier model calls use bounded timeout windows with deterministic fallback
+  - deterministic objective runs skip autonomous self-learning unless explicitly forced
+  - automatic failure self-improvement: failed runs can auto-queue a guarded self-improve run with cooldown and daily caps
+  - exact-query fast memory path for repeated research requests in active runtime sessions
+  - validation coverage for continue-on-failure and chat live web lookup correction paths
+- Builder UX simplification:
+  - Simple mode (default) focuses on prompt/start/stop/run monitoring.
+  - Advanced mode exposes terminal/export/manual orchestration controls.
+  - Editable input areas are explicitly labeled in the Build page.
+- Workflow Review + SelfCode simplification:
+  - Simple mode (default) keeps core actions and monitoring visible.
+  - Advanced mode exposes deeper controls (commit/deep summaries/direct-run/apply-all/undo details).
+- Lifecycle startup reliability:
+  - Desktop/service launcher verifies backend/frontend readiness before declaring startup success.
+  - Early child-process exits now return explicit startup failure reasons.
+
+9) Important note
+
+- This file describes currently implemented capabilities and integrations in this repo state.
+- Some integrations are optional and require local runtime/setup (for example: Playwright browser binaries, Docker/Podman, managed n8n, or configured free-stack env values).
+- New configurable env vars: N8N_BASE_URL, QDRANT_BASE_URL, SEARXNG_BASE_URL, JUPYTER_BASE_URL, GRAFANA_BASE_URL (all default to localhost addresses if not set).

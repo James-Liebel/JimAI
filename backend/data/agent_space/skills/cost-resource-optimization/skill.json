@@ -1,0 +1,19 @@
+{
+  "slug": "cost-resource-optimization",
+  "name": "Cost and Resource Optimization",
+  "description": "Reduces compute/runtime cost with efficiency controls and budget-aware defaults.",
+  "tags": [
+    "cost",
+    "resource",
+    "optimization",
+    "budget",
+    "efficiency"
+  ],
+  "complexity": 3,
+  "source": "system-default",
+  "created_at": 1773279835.9229093,
+  "updated_at": 1773279835.9234955,
+  "metadata": {
+    "preset": true
+  }
+}

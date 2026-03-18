@@ -1,0 +1,19 @@
+{
+  "slug": "mobile-interaction-performance",
+  "name": "Mobile and Interaction Performance",
+  "description": "Optimizes mobile UI behavior, touch interactions, and render performance under constrained devices.",
+  "tags": [
+    "mobile",
+    "touch",
+    "responsive",
+    "performance",
+    "ux"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.9184055,
+  "updated_at": 1773279835.9190283,
+  "metadata": {
+    "preset": true
+  }
+}

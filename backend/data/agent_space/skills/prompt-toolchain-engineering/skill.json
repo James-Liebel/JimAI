@@ -1,0 +1,19 @@
+{
+  "slug": "prompt-toolchain-engineering",
+  "name": "Prompt and Toolchain Engineering",
+  "description": "Builds high-signal prompts, tool policies, and deterministic fallback paths for agent execution.",
+  "tags": [
+    "prompt",
+    "tools",
+    "llm",
+    "fallback",
+    "determinism"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.9133203,
+  "updated_at": 1773279835.9136927,
+  "metadata": {
+    "preset": true
+  }
+}

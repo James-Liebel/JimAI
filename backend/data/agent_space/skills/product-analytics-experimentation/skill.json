@@ -1,0 +1,19 @@
+{
+  "slug": "product-analytics-experimentation",
+  "name": "Product Analytics and Experimentation",
+  "description": "Establishes event instrumentation, KPI definitions, and experiment execution rigor.",
+  "tags": [
+    "analytics",
+    "kpi",
+    "events",
+    "experimentation",
+    "growth"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.921904,
+  "updated_at": 1773279835.92241,
+  "metadata": {
+    "preset": true
+  }
+}

@@ -1,0 +1,23 @@
+use_default_settings: true
+
+server:
+  secret_key: jimai-local-searxng-20260310
+  limiter: false
+  image_proxy: false
+
+search:
+  formats:
+    - html
+    - json
+
+engines:
+  - name: google
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: bing
+    disabled: true

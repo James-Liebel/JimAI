@@ -1,0 +1,19 @@
+{
+  "slug": "research-source-grounding",
+  "name": "Research and Source Grounding",
+  "description": "Runs broad source discovery and uses evidence before claims.",
+  "tags": [
+    "research",
+    "web",
+    "sources",
+    "validation",
+    "facts"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.903202,
+  "updated_at": 1773279835.9044406,
+  "metadata": {
+    "preset": true
+  }
+}

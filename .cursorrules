@@ -1,0 +1,31 @@
+This is a private AI system. Local inference only — no cloud AI APIs ever.
+
+SERVICES:
+- backend: FastAPI Python app, port 8000
+- frontend: React/TypeScript Vite app, port 5173
+- extension: Chrome Manifest V3 extension
+- vscode-ext: VS Code extension in TypeScript
+
+MODELS (all via Ollama at localhost:11434, three speed modes):
+Balanced (default): deepseek-r1:14b (math), qwen2.5-coder:14b (code), qwen3:8b (chat), qwen2.5vl:7b (vision), nomic-embed-text (embed)
+Fast: qwen2-math:7b-instruct (math), qwen2.5-coder:7b (code), qwen3:8b (chat), qwen2.5vl:7b (vision)
+Deep: qwen2.5:32b (all roles except vision), qwen2.5vl:7b (vision)
+Tab completion always uses qwen2.5-coder:7b regardless of speed mode.
+
+ARCHITECTURE:
+- Vector DB: ChromaDB at ./chroma_db
+- Agent framework: LangGraph, nodes in backend/agents/
+- Tools: backend/tools/ — python_exec, git, math (SymPy), web_search, file, test_runner
+- Memory: ChromaDB (semantic) + knowledge graph (data/graph.json) + session state
+- Speed mode: global server-side setting in backend/config/models.py, switchable via API
+
+RULES:
+- Always async/await in Python and TypeScript
+- Always type-hint Python functions
+- Always TypeScript strict mode
+- Use pathlib.Path for all file paths (Windows compatible)
+- When editing backend, check frontend/src/lib/api.ts for contract
+- When adding agents, wire into backend/agents/graph.py
+- Model strings are sacred — use exactly as listed above
+- Speed mode is global — all clients share the same mode
+- Deep mode requires VRAM unload of other models first

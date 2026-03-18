@@ -1,0 +1,19 @@
+{
+  "slug": "api-contract-governance",
+  "name": "API Contract Governance",
+  "description": "Maintains strict API contracts, versioning discipline, and backward compatibility checks.",
+  "tags": [
+    "api",
+    "contracts",
+    "versioning",
+    "schema",
+    "compatibility"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.9151268,
+  "updated_at": 1773279835.9156184,
+  "metadata": {
+    "preset": true
+  }
+}

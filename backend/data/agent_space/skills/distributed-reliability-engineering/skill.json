@@ -1,0 +1,19 @@
+{
+  "slug": "distributed-reliability-engineering",
+  "name": "Distributed Reliability Engineering",
+  "description": "Hardens long-running and multi-service flows against partial failure and degraded dependencies.",
+  "tags": [
+    "reliability",
+    "distributed",
+    "retries",
+    "timeouts",
+    "resilience"
+  ],
+  "complexity": 5,
+  "source": "system-default",
+  "created_at": 1773279835.9141698,
+  "updated_at": 1773279835.914639,
+  "metadata": {
+    "preset": true
+  }
+}

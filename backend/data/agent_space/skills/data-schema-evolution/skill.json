@@ -1,0 +1,19 @@
+{
+  "slug": "data-schema-evolution",
+  "name": "Data Schema Evolution",
+  "description": "Evolves data models safely with migration-aware patterns and rollback options.",
+  "tags": [
+    "data",
+    "schema",
+    "migration",
+    "rollback",
+    "storage"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.916135,
+  "updated_at": 1773279835.9165165,
+  "metadata": {
+    "preset": true
+  }
+}

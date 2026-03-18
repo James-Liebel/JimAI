@@ -1,0 +1,19 @@
+{
+  "slug": "ux-product-clarity",
+  "name": "UX and Product Clarity",
+  "description": "Simplifies UX, improves visual hierarchy, and removes user confusion.",
+  "tags": [
+    "ux",
+    "ui",
+    "accessibility",
+    "copy",
+    "product"
+  ],
+  "complexity": 3,
+  "source": "system-default",
+  "created_at": 1773279835.9051907,
+  "updated_at": 1773279835.9059744,
+  "metadata": {
+    "preset": true
+  }
+}

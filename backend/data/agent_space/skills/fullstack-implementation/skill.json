@@ -1,0 +1,19 @@
+{
+  "slug": "fullstack-implementation",
+  "name": "Fullstack Implementation",
+  "description": "Implements coherent backend/frontend changes with stable API contracts.",
+  "tags": [
+    "backend",
+    "frontend",
+    "api",
+    "integration",
+    "refactor"
+  ],
+  "complexity": 4,
+  "source": "system-default",
+  "created_at": 1773279835.90186,
+  "updated_at": 1773279835.9022877,
+  "metadata": {
+    "preset": true
+  }
+}

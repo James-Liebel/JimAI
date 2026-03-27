@@ -7,9 +7,11 @@ const MessageBubble = lazy(() => import('./MessageBubble'));
 interface Props {
     messages: Message[];
     isStreaming: boolean;
+    searchingWeb?: boolean;
+    searchStatus?: string;
 }
 
-export default function ChatThread({ messages, isStreaming }: Props) {
+export default function ChatThread({ messages, isStreaming, searchingWeb = false, searchStatus = '' }: Props) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const isMobile = useMediaQuery('(max-width: 768px)');
 
@@ -83,7 +85,9 @@ export default function ChatThread({ messages, isStreaming }: Props) {
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
-                            <span className="ml-2 text-[11px] text-text-muted">Thinking...</span>
+                            <span className="ml-2 text-[11px] text-text-muted">
+                                {searchingWeb ? (searchStatus || 'Searching web…') : 'Thinking...'}
+                            </span>
                         </div>
                     </div>
                 </div>

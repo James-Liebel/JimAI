@@ -21,6 +21,8 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -28,8 +30,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIR = REPO_ROOT / "frontend"
+FRONTEND_DEV_SCRIPT = REPO_ROOT / "scripts" / "start_frontend_dev.mjs"
+FRONTEND_STATIC_SCRIPT = REPO_ROOT / "scripts" / "start_frontend_static.py"
 DESKTOP_MAIN = REPO_ROOT / "desktop" / "main.cjs"
 PID_FILE = REPO_ROOT / "data" / "agent_space" / "runtime" / "pids.json"
+INSTANCE_STATE_FILE = PID_FILE.parent / "instances.json"
 FREE_STACK_DIR = REPO_ROOT / "infra" / "free-stack"
 FREE_STACK_COMPOSE = FREE_STACK_DIR / "docker-compose.yml"
 SECURE_DIR = REPO_ROOT / "data" / "agent_space" / "secure"
@@ -278,6 +283,22 @@ def _lifecycle_cmd(args: str) -> str:
     return f"\"{python_bin}\" scripts\\agentspace_lifecycle.py"
 
 
+def _cmd_shortcut_body(inner_command: str) -> str:
+    """Batch file content that pauses on error so Explorer double-clicks show failures."""
+    line = inner_command.strip().replace("\n", "\r\n")
+    return (
+        "@echo off\r\n"
+        f'cd /d "{REPO_ROOT}"\r\n'
+        f"{line}\r\n"
+        "if errorlevel 1 (\r\n"
+        "  echo.\r\n"
+        "  echo JimAI reported an error. Read the messages above, then press any key to close.\r\n"
+        "  pause\r\n"
+        "  exit /b 1\r\n"
+        ")\r\n"
+    )
+
+
 def _open_free_stack_urls(env_map: dict[str, str]) -> None:
     urls = [
         f"http://localhost:{env_map['GRAFANA_PORT']}",
@@ -311,7 +332,7 @@ def _create_free_stack_shortcuts(env_map: dict[str, str]) -> None:
         "jimAI - Launch Desktop + Free Stack.cmd": f"{_lifecycle_cmd('free-stack-start')} && {_lifecycle_cmd('desktop --with-services')}",
     }
     for filename, command in commands.items():
-        content = f"@echo off\r\ncd /d \"{REPO_ROOT}\"\r\n{command}\r\n"
+        content = _cmd_shortcut_body(command)
         try:
             (output_dir / filename).write_text(content, encoding="utf-8")
         except PermissionError:
@@ -365,6 +386,36 @@ def save_pids(data: dict) -> None:
     PID_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def load_instance_state() -> dict:
+    if not INSTANCE_STATE_FILE.exists():
+        return {}
+    try:
+        return json.loads(INSTANCE_STATE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_instance_state(data: dict) -> None:
+    ensure_runtime_dir()
+    INSTANCE_STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+def load_or_create_instance_state() -> dict:
+    state = load_instance_state()
+    if state:
+        return state
+    return {
+        "instances": {},
+        "instance_ttl_seconds": 45,
+        "stop_grace_seconds": 12,
+        "pending_stop_at": None,
+        "managed_ollama_pid": None,
+        "last_ollama_error": "",
+        "last_ollama_start_at": 0.0,
+        "updated_at": time.time(),
+    }
+
+
 def is_running(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -373,14 +424,237 @@ def is_running(pid: int) -> bool:
     return True
 
 
+def _normalize_probe_host(host: str) -> str:
+    host = str(host or "").strip()
+    if host in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return host
+
+
+def _http_probe(url: str, timeout_seconds: float = 2.5) -> tuple[bool, dict[str, object] | None]:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout_seconds) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            if status >= 500:
+                return False, None
+            payload = resp.read().decode("utf-8", errors="replace")
+            if not payload:
+                return True, None
+            try:
+                parsed = json.loads(payload)
+            except json.JSONDecodeError:
+                return True, None
+            return True, parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return False, None
+
+
+def _probe_backend_health(host: str, port: int) -> tuple[bool, dict[str, object]]:
+    probe_host = _normalize_probe_host(host)
+    ok, payload = _http_probe(f"http://{probe_host}:{int(port)}/health")
+    return ok, payload if isinstance(payload, dict) else {}
+
+
+def _probe_frontend_ui(host: str, port: int) -> bool:
+    probe_host = _normalize_probe_host(host)
+    try:
+        with urllib.request.urlopen(f"http://{probe_host}:{int(port)}/", timeout=2.5) as resp:
+            status = int(getattr(resp, "status", 200) or 200)
+            if status >= 500:
+                return False
+            body = resp.read(8192).decode("utf-8", errors="replace").lower()
+    except Exception:
+        return False
+    return 'id="root"' in body or "loading jimai" in body or "jimai" in body
+
+
+def _probe_http_service(host: str, port: int) -> bool:
+    probe_host = _normalize_probe_host(host)
+    ok, _ = _http_probe(f"http://{probe_host}:{int(port)}/")
+    return ok
+
+
+def _find_listening_pids(port: int) -> list[int]:
+    target_port = str(int(port))
+    pids: set[int] = set()
+
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano", "-p", "tcp"],
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        for raw_line in result.stdout.splitlines():
+            line = raw_line.strip()
+            if not line.lower().startswith("tcp"):
+                continue
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            local_address = parts[1]
+            state = parts[3].upper()
+            pid_raw = parts[4]
+            if state != "LISTENING":
+                continue
+            if local_address.rsplit(":", 1)[-1] != target_port:
+                continue
+            if pid_raw.isdigit():
+                pids.add(int(pid_raw))
+        return sorted(pids)
+
+    lsof_bin = shutil.which("lsof")
+    if not lsof_bin:
+        return []
+    try:
+        result = subprocess.run(
+            [lsof_bin, "-nP", f"-iTCP:{int(port)}", "-sTCP:LISTEN", "-t"],
+            cwd=REPO_ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    for raw_line in result.stdout.splitlines():
+        pid_raw = raw_line.strip()
+        if pid_raw.isdigit():
+            pids.add(int(pid_raw))
+    return sorted(pids)
+
+
+def _first_listening_pid(port: int) -> int:
+    pids = _find_listening_pids(port)
+    return int(pids[0]) if pids else 0
+
+
 def terminate_pid(pid: int) -> bool:
     if not pid:
         return False
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            return result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     try:
         os.kill(pid, signal.SIGTERM)
         return True
     except OSError:
         return False
+
+
+def stop_managed_ollama() -> bool:
+    state = load_instance_state()
+    pid = int(state.get("managed_ollama_pid", 0) or 0)
+    stopped = False
+    if pid and terminate_pid(pid):
+        print(f"Stopped managed Ollama ({pid}).")
+        stopped = True
+    if state:
+        state["instances"] = {}
+        state["pending_stop_at"] = None
+        state["managed_ollama_pid"] = None
+        state["updated_at"] = time.time()
+        save_instance_state(state)
+    return stopped
+
+
+def can_reach_ollama() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=2.0) as resp:
+            return int(getattr(resp, "status", 200) or 200) < 500
+    except Exception:
+        return False
+
+
+def choose_ollama() -> str | None:
+    ollama_bin = shutil.which("ollama")
+    if ollama_bin:
+        return ollama_bin
+    fallback = Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / ("ollama.exe" if os.name == "nt" else "ollama")
+    if fallback.exists():
+        return str(fallback)
+    return None
+
+
+def ensure_ollama_running(timeout_seconds: float = 30.0) -> dict[str, object]:
+    state = load_or_create_instance_state()
+    existing_pid = int(state.get("managed_ollama_pid", 0) or 0)
+    if can_reach_ollama():
+        state["last_ollama_error"] = ""
+        state["updated_at"] = time.time()
+        save_instance_state(state)
+        return {"ollama_running": True, "ollama_started": False, "managed_ollama_pid": existing_pid or None, "error": ""}
+
+    if existing_pid and is_running(existing_pid):
+        terminate_pid(existing_pid)
+        state["managed_ollama_pid"] = None
+
+    ollama_bin = choose_ollama()
+    if not ollama_bin:
+        error = "Ollama executable not found in PATH."
+        state["last_ollama_error"] = error
+        state["updated_at"] = time.time()
+        save_instance_state(state)
+        return {"ollama_running": False, "ollama_started": False, "managed_ollama_pid": None, "error": error}
+
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+    try:
+        proc = subprocess.Popen(
+            [ollama_bin, "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+    except Exception as exc:
+        error = f"Failed to start Ollama: {exc}"
+        state["last_ollama_error"] = error
+        state["updated_at"] = time.time()
+        save_instance_state(state)
+        return {"ollama_running": False, "ollama_started": False, "managed_ollama_pid": None, "error": error}
+
+    deadline = time.time() + max(5.0, float(timeout_seconds))
+    while time.time() < deadline:
+        if can_reach_ollama():
+            state["managed_ollama_pid"] = int(proc.pid)
+            state["last_ollama_error"] = ""
+            state["last_ollama_start_at"] = time.time()
+            state["updated_at"] = time.time()
+            save_instance_state(state)
+            return {
+                "ollama_running": True,
+                "ollama_started": True,
+                "managed_ollama_pid": int(proc.pid),
+                "error": "",
+            }
+        time.sleep(0.5)
+
+    terminate_pid(int(proc.pid))
+    error = "Timed out waiting for Ollama to start."
+    state["managed_ollama_pid"] = None
+    state["last_ollama_error"] = error
+    state["updated_at"] = time.time()
+    save_instance_state(state)
+    return {"ollama_running": False, "ollama_started": False, "managed_ollama_pid": None, "error": error}
 
 
 def _wait_for_tcp_ready(
@@ -455,30 +729,47 @@ def _start_frontend_static_server(
     args: argparse.Namespace,
     env: dict[str, str],
     creationflags: int,
+    *,
+    rebuild: bool = False,
 ) -> tuple[subprocess.Popen | None, str]:
     dist_dir = FRONTEND_DIR / "dist"
-    if not dist_dir.exists():
+    if rebuild or not dist_dir.exists():
         ok, reason = _build_frontend_bundle(env)
         if not ok:
             return None, f"static fallback build failed: {reason}"
     cmd = [
         choose_backend_python(),
-        "-m",
-        "http.server",
-        str(args.frontend_port),
-        "--bind",
+        str(FRONTEND_STATIC_SCRIPT),
+        "--host",
         args.host,
+        "--port",
+        str(args.frontend_port),
     ]
     try:
         proc = subprocess.Popen(
             cmd,
-            cwd=dist_dir,
+            cwd=REPO_ROOT,
             env=env,
             creationflags=creationflags,
         )
     except Exception as exc:
         return None, f"static fallback launch failed: {exc}"
     return proc, ""
+
+
+def choose_frontend_dev_command(args: argparse.Namespace) -> list[str]:
+    if FRONTEND_DEV_SCRIPT.exists():
+        return [choose_tool("node"), str(FRONTEND_DEV_SCRIPT)]
+    return [
+        choose_tool("npm"),
+        "run",
+        "dev",
+        "--",
+        "--host",
+        args.host,
+        "--port",
+        str(args.frontend_port),
+    ]
 
 
 def choose_electron() -> str:
@@ -533,25 +824,112 @@ def choose_n8n_command(args: argparse.Namespace) -> list[str]:
     )
 
 
+def _backend_port_busy_message(port: int, pids: list[int]) -> str:
+    pid_txt = ", ".join(str(pid) for pid in pids)
+    return (
+        f"Backend port {port} is already in use by PID(s) {pid_txt}, but "
+        f"http://127.0.0.1:{port}/health did not respond as the JimAI backend.\n"
+        "Another program may be using that port, or an old backend is stuck.\n\n"
+        "Try one of these:\n"
+        "  • From the JimAI repo folder run:    jimai stop\n"
+        "    then start again with:             jimai\n"
+        "  • Or one-shot (free port then start): jimai force\n"
+        f"  • Or manually:                       taskkill /PID {pids[0]} /T /F\n"
+        "  • Or with Python:\n"
+        "      cd private-ai\n"
+        "      backend\\.venv\\Scripts\\python.exe scripts\\agentspace_lifecycle.py "
+        "desktop --with-services --free-ports\n"
+    )
+
+
 def start_services(args: argparse.Namespace) -> None:
     pids = load_pids()
     backend_pid = int(pids.get("backend_pid", 0) or 0)
     frontend_pid = int(pids.get("frontend_pid", 0) or 0)
+    desktop_pid = int(pids.get("desktop_pid", 0) or 0)
     n8n_pid = int(pids.get("n8n_pid", 0) or 0)
     with_n8n = bool(getattr(args, "with_n8n", False))
-    if backend_pid and is_running(backend_pid):
+    requested_frontend_runtime = str(getattr(args, "frontend_runtime", "static") or "static").strip().lower()
+    if backend_pid and not is_running(backend_pid):
+        backend_pid = 0
+    if frontend_pid and not is_running(frontend_pid):
+        frontend_pid = 0
+    if desktop_pid and not is_running(desktop_pid):
+        desktop_pid = 0
+    if n8n_pid and not is_running(n8n_pid):
+        n8n_pid = 0
+
+    backend_ready, _backend_health = _probe_backend_health(args.host, args.backend_port)
+    frontend_ready = _probe_frontend_ui(args.host, args.frontend_port)
+    n8n_ready = bool(with_n8n and _probe_http_service(args.host, args.n8n_port))
+
+    if not backend_ready:
+        busy_backend_pids = _find_listening_pids(args.backend_port)
+        if busy_backend_pids:
+            deadline = time.time() + 5.0
+            while time.time() < deadline and not backend_ready:
+                time.sleep(0.5)
+                backend_ready, _backend_health = _probe_backend_health(args.host, args.backend_port)
+            if backend_ready and not backend_pid:
+                backend_pid = _first_listening_pid(args.backend_port)
+            elif not backend_ready:
+                if busy_backend_pids and bool(getattr(args, "free_ports", False)):
+                    print(
+                        f"JimAI: --free-ports: stopping listener(s) on port "
+                        f"{args.backend_port}: {', '.join(str(p) for p in busy_backend_pids)}"
+                    )
+                    for pid in busy_backend_pids:
+                        terminate_pid(pid)
+                    time.sleep(1.5)
+                    backend_ready, _backend_health = _probe_backend_health(args.host, args.backend_port)
+                    busy_backend_pids = _find_listening_pids(args.backend_port)
+                if not backend_ready and busy_backend_pids:
+                    raise SystemExit(_backend_port_busy_message(args.backend_port, busy_backend_pids))
+                if not backend_ready and not busy_backend_pids:
+                    pass
+
+    if backend_ready and not backend_pid:
+        backend_pid = _first_listening_pid(args.backend_port)
+    if frontend_ready and not frontend_pid:
+        frontend_pid = _first_listening_pid(args.frontend_port)
+    if n8n_ready and not n8n_pid:
+        n8n_pid = _first_listening_pid(args.n8n_port)
+
+    ollama_info = ensure_ollama_running()
+    ollama_error = str(ollama_info.get("error") or "").strip()
+    if bool(ollama_info.get("ollama_started")):
+        print(f"Ollama started (PID {int(ollama_info.get('managed_ollama_pid') or 0)}).")
+    elif bool(ollama_info.get("ollama_running")):
+        print("Ollama already running.")
+    elif ollama_error:
+        print(f"Ollama startup warning: {ollama_error}")
+    if backend_pid and backend_ready:
         print(f"Backend already running (PID {backend_pid}).")
-    if frontend_pid and is_running(frontend_pid):
+    elif backend_ready:
+        print(f"Backend already available on http://localhost:{args.backend_port}.")
+    if frontend_pid and frontend_ready:
         print(f"Frontend already running (PID {frontend_pid}).")
-    if with_n8n and n8n_pid and is_running(n8n_pid):
+    elif frontend_ready:
+        print(f"Frontend already available on http://localhost:{args.frontend_port}.")
+    if with_n8n and n8n_pid and n8n_ready:
         print(f"n8n already running (PID {n8n_pid}).")
-    if (
-        backend_pid
-        and is_running(backend_pid)
-        and frontend_pid
-        and is_running(frontend_pid)
-        and (not with_n8n or (n8n_pid and is_running(n8n_pid)))
-    ):
+    elif with_n8n and n8n_ready:
+        print(f"n8n already available on http://localhost:{args.n8n_port}.")
+    if backend_ready and frontend_ready and (not with_n8n or n8n_ready):
+        save_pids(
+            {
+                "backend_pid": backend_pid,
+                "frontend_pid": frontend_pid,
+                "desktop_pid": desktop_pid if desktop_pid and is_running(desktop_pid) else 0,
+                "n8n_pid": n8n_pid if with_n8n else 0,
+                "backend_port": args.backend_port,
+                "frontend_port": args.frontend_port,
+                "n8n_port": args.n8n_port,
+                "frontend_mode": str(pids.get("frontend_mode") or "").strip()
+                or ("prod-static" if requested_frontend_runtime == "static" else "dev-vite"),
+                "started_at": float(pids.get("started_at") or time.time()),
+            }
+        )
         if args.open:
             open_ui(args)
         return
@@ -586,41 +964,55 @@ def start_services(args: argparse.Namespace) -> None:
         "--port",
         str(args.backend_port),
     ]
-    frontend_cmd = [
-        choose_tool("npm"),
-        "run",
-        "dev",
-        "--",
-        "--host",
-        args.host,
-        "--port",
-        str(args.frontend_port),
-    ]
 
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
-    backend_proc = subprocess.Popen(
-        backend_cmd,
-        cwd=BACKEND_DIR,
-        env=env,
-        creationflags=creationflags,
-    )
-    try:
-        time.sleep(1)
-        frontend_proc = subprocess.Popen(
-            frontend_cmd,
-            cwd=FRONTEND_DIR,
+    backend_proc: subprocess.Popen | None = None
+    frontend_proc: subprocess.Popen | None = None
+    if not backend_ready:
+        backend_proc = subprocess.Popen(
+            backend_cmd,
+            cwd=BACKEND_DIR,
             env=env,
             creationflags=creationflags,
         )
+    try:
+        time.sleep(1)
+        if not frontend_ready:
+            if requested_frontend_runtime == "static":
+                frontend_proc, frontend_err = _start_frontend_static_server(
+                    args,
+                    env,
+                    creationflags,
+                    rebuild=True,
+                )
+                if frontend_proc is None:
+                    print(frontend_err or "Static frontend failed to start. Falling back to dev server.")
+                    requested_frontend_runtime = "dev"
+                    frontend_cmd = choose_frontend_dev_command(args)
+                    frontend_proc = subprocess.Popen(
+                        frontend_cmd,
+                        cwd=FRONTEND_DIR,
+                        env=env,
+                        creationflags=creationflags,
+                    )
+            else:
+                frontend_cmd = choose_frontend_dev_command(args)
+                frontend_proc = subprocess.Popen(
+                    frontend_cmd,
+                    cwd=FRONTEND_DIR,
+                    env=env,
+                    creationflags=creationflags,
+                )
     except Exception:
-        terminate_pid(backend_proc.pid)
+        if backend_proc is not None:
+            terminate_pid(backend_proc.pid)
         raise
 
     n8n_proc: subprocess.Popen | None = None
-    if with_n8n and not (n8n_pid and is_running(n8n_pid)):
+    if with_n8n and not n8n_ready:
         n8n_cmd = choose_n8n_command(args)
         try:
             n8n_proc = subprocess.Popen(
@@ -633,25 +1025,33 @@ def start_services(args: argparse.Namespace) -> None:
             # n8n is optional for service launch; keep backend/frontend alive.
             n8n_proc = None
 
-    frontend_mode = "dev-vite"
+    frontend_mode = str(pids.get("frontend_mode") or "").strip() or (
+        "prod-static" if requested_frontend_runtime == "static" else "dev-vite"
+    )
     frontend_fallback_note = ""
-    backend_ok, backend_msg = _wait_for_tcp_ready(
-        "backend",
-        host=args.host,
-        port=int(args.backend_port),
-        timeout_seconds=20,
-        proc=backend_proc,
-    )
-    frontend_ok, frontend_msg = _wait_for_tcp_ready(
-        "frontend",
-        host=args.host,
-        port=int(args.frontend_port),
-        timeout_seconds=25,
-        proc=frontend_proc,
-    )
-    if not frontend_ok:
+    if backend_proc is not None:
+        backend_ok, backend_msg = _wait_for_tcp_ready(
+            "backend",
+            host=args.host,
+            port=int(args.backend_port),
+            timeout_seconds=20,
+            proc=backend_proc,
+        )
+    else:
+        backend_ok, backend_msg = True, ""
+    if frontend_proc is not None:
+        frontend_ok, frontend_msg = _wait_for_tcp_ready(
+            "frontend",
+            host=args.host,
+            port=int(args.frontend_port),
+            timeout_seconds=25,
+            proc=frontend_proc,
+        )
+    else:
+        frontend_ok, frontend_msg = True, ""
+    if frontend_proc is not None and not frontend_ok and requested_frontend_runtime != "static":
         terminate_pid(frontend_proc.pid)
-        fallback_proc, fallback_err = _start_frontend_static_server(args, env, creationflags)
+        fallback_proc, fallback_err = _start_frontend_static_server(args, env, creationflags, rebuild=True)
         if fallback_proc is not None:
             frontend_proc = fallback_proc
             frontend_mode = "prod-static"
@@ -666,8 +1066,10 @@ def start_services(args: argparse.Namespace) -> None:
         elif fallback_err:
             frontend_msg = f"{frontend_msg} {fallback_err}".strip()
     if not backend_ok or not frontend_ok:
-        terminate_pid(frontend_proc.pid)
-        terminate_pid(backend_proc.pid)
+        if frontend_proc is not None:
+            terminate_pid(frontend_proc.pid)
+        if backend_proc is not None:
+            terminate_pid(backend_proc.pid)
         if n8n_proc is not None:
             terminate_pid(n8n_proc.pid)
         failures = [msg for msg in (backend_msg, frontend_msg) if msg]
@@ -678,22 +1080,39 @@ def start_services(args: argparse.Namespace) -> None:
     # processes and child processes exit immediately after spawn.
     time.sleep(1.0)
     exited_msgs: list[str] = []
-    if backend_proc.poll() is not None:
+    if backend_proc is not None and backend_proc.poll() is not None:
         exited_msgs.append(f"backend exited early (code {backend_proc.returncode})")
-    if frontend_proc.poll() is not None:
+    if frontend_proc is not None and frontend_proc.poll() is not None:
         exited_msgs.append(f"frontend exited early (code {frontend_proc.returncode})")
     if exited_msgs:
-        terminate_pid(frontend_proc.pid)
-        terminate_pid(backend_proc.pid)
+        if frontend_proc is not None:
+            terminate_pid(frontend_proc.pid)
+        if backend_proc is not None:
+            terminate_pid(backend_proc.pid)
         if n8n_proc is not None:
             terminate_pid(n8n_proc.pid)
         hint = "requested ports may already be in use."
         raise SystemExit(f"Service startup failed. {'; '.join(exited_msgs)} ({hint})")
 
+    if backend_proc is not None:
+        backend_pid = backend_proc.pid
+    elif backend_ready and not backend_pid:
+        backend_pid = _first_listening_pid(args.backend_port)
+    if frontend_proc is not None:
+        frontend_pid = frontend_proc.pid
+        frontend_mode = "prod-static" if requested_frontend_runtime == "static" else "dev-vite"
+    elif frontend_ready and not frontend_pid:
+        frontend_pid = _first_listening_pid(args.frontend_port)
+    if n8n_proc is not None:
+        n8n_pid = int(n8n_proc.pid)
+    elif with_n8n and n8n_ready and not n8n_pid:
+        n8n_pid = _first_listening_pid(args.n8n_port)
+
     data = {
-        "backend_pid": backend_proc.pid,
-        "frontend_pid": frontend_proc.pid,
-        "n8n_pid": int(n8n_proc.pid) if n8n_proc else (n8n_pid if n8n_pid and is_running(n8n_pid) else 0),
+        "backend_pid": backend_pid,
+        "frontend_pid": frontend_pid,
+        "desktop_pid": desktop_pid if desktop_pid and is_running(desktop_pid) else 0,
+        "n8n_pid": n8n_pid if n8n_pid and is_running(n8n_pid) else 0,
         "backend_port": args.backend_port,
         "frontend_port": args.frontend_port,
         "n8n_port": args.n8n_port,
@@ -701,8 +1120,14 @@ def start_services(args: argparse.Namespace) -> None:
         "started_at": time.time(),
     }
     save_pids(data)
-    print(f"Backend started (PID {backend_proc.pid}) on http://localhost:{args.backend_port}")
-    print(f"Frontend started (PID {frontend_proc.pid}) on http://localhost:{args.frontend_port} [{frontend_mode}]")
+    if backend_proc is not None:
+        print(f"Backend started (PID {backend_proc.pid}) on http://localhost:{args.backend_port}")
+    elif backend_ready:
+        print(f"Backend reused on http://localhost:{args.backend_port}")
+    if frontend_proc is not None:
+        print(f"Frontend started (PID {frontend_proc.pid}) on http://localhost:{args.frontend_port} [{frontend_mode}]")
+    elif frontend_ready:
+        print(f"Frontend reused on http://localhost:{args.frontend_port} [{frontend_mode}]")
     if frontend_fallback_note:
         print(frontend_fallback_note)
     if n8n_proc:
@@ -716,11 +1141,28 @@ def start_services(args: argparse.Namespace) -> None:
 def stop_services(_: argparse.Namespace) -> None:
     pids = load_pids()
     stopped_any = False
+    stopped_pids: set[int] = set()
     for key in ("frontend_pid", "backend_pid", "desktop_pid", "n8n_pid"):
         pid = int(pids.get(key, 0) or 0)
         if pid and terminate_pid(pid):
             print(f"Stopped {key} ({pid}).")
             stopped_any = True
+            stopped_pids.add(pid)
+    port_targets = {
+        "frontend": int(pids.get("frontend_port", 5173) or 5173),
+        "backend": int(pids.get("backend_port", 8000) or 8000),
+        "n8n": int(pids.get("n8n_port", 5678) or 5678),
+    }
+    for label, port in port_targets.items():
+        for pid in _find_listening_pids(port):
+            if pid in stopped_pids:
+                continue
+            if terminate_pid(pid):
+                print(f"Stopped {label} listener ({pid}) on port {port}.")
+                stopped_any = True
+                stopped_pids.add(pid)
+    if stop_managed_ollama():
+        stopped_any = True
     if not stopped_any:
         print("No recorded Agent Space processes were running.")
     if PID_FILE.exists():
@@ -728,6 +1170,16 @@ def stop_services(_: argparse.Namespace) -> None:
 
 
 def open_ui(args: argparse.Namespace) -> None:
+    backend_ok, _ = _probe_backend_health(args.host, args.backend_port)
+    frontend_ok = _probe_frontend_ui(args.host, args.frontend_port)
+    if not backend_ok or not frontend_ok:
+        print("UI services are not fully running. Starting missing services first...")
+        auto_args = argparse.Namespace(**vars(args))
+        auto_args.open = False
+        if not hasattr(auto_args, "with_n8n"):
+            auto_args.with_n8n = False
+        start_services(auto_args)
+
     url = f"http://localhost:{args.frontend_port}"
     _open_url(url)
     print(f"Opened {url}")
@@ -742,6 +1194,9 @@ def start_desktop(args: argparse.Namespace) -> None:
 
     env = os.environ.copy()
     env["AGENTSPACE_UI_URL"] = f"http://localhost:{args.frontend_port}"
+    env["AGENTSPACE_AUTO_STOP"] = "1" if args.with_services else "0"
+    env["AGENTSPACE_PYTHON"] = sys.executable
+    env.pop("ELECTRON_RUN_AS_NODE", None)
     electron_bin = choose_electron()
     if " " in electron_bin and electron_bin.endswith("cli.js"):
         # Fallback path for non-Windows environments with JS entrypoint.
@@ -754,6 +1209,9 @@ def start_desktop(args: argparse.Namespace) -> None:
     proc = subprocess.Popen(electron_cmd, cwd=REPO_ROOT, env=env, creationflags=creationflags)
     time.sleep(0.8)
     if proc.poll() is not None:
+        if proc.returncode == 0:
+            print("Desktop app already running.")
+            return
         raise SystemExit(f"Desktop app failed to start (exit code {proc.returncode}).")
 
     pids = load_pids()
@@ -787,7 +1245,7 @@ def create_shortcuts(_: argparse.Namespace) -> None:
         "jimAI - Free Stack Open Dashboards.cmd": _lifecycle_cmd("free-stack-open"),
     }
     for filename, command in commands.items():
-        content = f"@echo off\r\ncd /d \"{REPO_ROOT}\"\r\n{command}\r\n"
+        content = _cmd_shortcut_body(command)
         try:
             (output_dir / filename).write_text(content, encoding="utf-8")
         except PermissionError:
@@ -890,6 +1348,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--backend-port", type=int, default=8000)
     parser.add_argument("--frontend-port", type=int, default=5173)
+    parser.add_argument("--frontend-runtime", choices=["static", "dev"], default="dev")
     parser.add_argument("--model", default="qwen2.5-coder:14b")
     parser.add_argument("--command-profile", default="safe", choices=["safe", "dev", "unrestricted"])
     parser.add_argument("--review-gate", dest="review_gate", action="store_true", default=True)
@@ -910,12 +1369,24 @@ def build_parser() -> argparse.ArgumentParser:
     start = sub.add_parser("start", help="Start backend + frontend.")
     start.add_argument("--open", action="store_true", default=False)
     start.add_argument("--with-n8n", action="store_true", default=False)
+    start.add_argument(
+        "--free-ports",
+        action="store_true",
+        default=False,
+        help="If the backend port is taken but /health fails, terminate listener PIDs and retry once.",
+    )
 
     sub.add_parser("stop", help="Stop recorded Agent Space processes.")
     sub.add_parser("open-ui", help="Open UI in browser.")
     desktop = sub.add_parser("desktop", help="Start desktop app shell.")
     desktop.add_argument("--with-services", action="store_true", default=False)
     desktop.add_argument("--with-n8n", action="store_true", default=False)
+    desktop.add_argument(
+        "--free-ports",
+        action="store_true",
+        default=False,
+        help="If the backend port is taken but /health fails, terminate listener PIDs and retry once.",
+    )
     sub.add_parser("shortcuts", help="Create desktop shortcut .cmd files.")
 
     free_setup = sub.add_parser(

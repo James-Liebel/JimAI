@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
@@ -9,6 +9,7 @@ import InputBar from '../components/InputBar';
 import FileUpload from '../components/FileUpload';
 import AgentStatus from '../components/AgentStatus';
 import SessionSidebar from '../components/SessionSidebar';
+import { consumeQueuedChatPrompt } from '../lib/chatBridge';
 import { cn } from '../lib/utils';
 import type { SpeedMode } from '../lib/types';
 
@@ -21,6 +22,8 @@ export default function Chat() {
     const {
         messages,
         isStreaming,
+        searchingWeb,
+        searchStatus,
         sendMessage,
         newChat,
         sessionId,
@@ -59,6 +62,12 @@ export default function Chat() {
         newChat();
         if (isMobile) setShowMobileDrawer(false);
     }, [newChat, isMobile]);
+
+    useEffect(() => {
+        const pendingPrompt = consumeQueuedChatPrompt();
+        if (!pendingPrompt) return;
+        sendMessage(pendingPrompt).catch(() => {});
+    }, [sendMessage]);
 
     const isDeep = speedMode === 'deep';
 
@@ -137,6 +146,11 @@ export default function Chat() {
                         <p className="text-text-secondary">
                             Auto mode: web research and browser-style lookup run in the background when your prompt needs external info.
                         </p>
+                        {searchingWeb && (
+                            <span className="rounded-full border border-accent-blue/30 bg-accent-blue/10 px-2 py-1 text-accent-blue">
+                                {searchStatus || 'Searching web…'}
+                            </span>
+                        )}
                         {lastAssistantMessage && (
                             <>
                                 {lastSourceCount > 0 && (
@@ -179,7 +193,12 @@ export default function Chat() {
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 flex flex-col min-w-0">
                         <div className="flex-1 overflow-hidden">
-                            <ChatThread messages={messages} isStreaming={isStreaming} />
+                            <ChatThread
+                                messages={messages}
+                                isStreaming={isStreaming}
+                                searchingWeb={searchingWeb}
+                                searchStatus={searchStatus}
+                            />
                         </div>
 
                         <div className={`flex-shrink-0 ${isMobile ? 'px-2 pb-2 pt-1' : 'px-4 pb-3 pt-2'}`}>

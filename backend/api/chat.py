@@ -351,6 +351,11 @@ def _build_live_source_fallback_response(sources: list[dict], user_message: str)
     )
 
 
+def _source_url(value: str) -> str:
+    raw = str(value or "").strip()
+    return raw if raw.startswith(("http://", "https://")) else ""
+
+
 async def _build_auto_web_research_context(
     message: str,
     limit: int = 8,
@@ -671,6 +676,7 @@ async def _stream_chat(
     requires_live_answer = _requires_live_web_answer(message)
     auto_research_attempted = _should_auto_web_research(message, mode)
     if auto_research_attempted:
+        yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': True, 'search_status': 'Searching web…'})}\n\n"
         try:
             auto_research_context, auto_research_sources, auto_research_meta = await _build_auto_web_research_context(
                 message,
@@ -687,6 +693,7 @@ async def _stream_chat(
                 "fetched_pages": 0,
                 "domain_count": 0,
             }
+        yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': 'Web lookup complete'})}\n\n"
     if requires_live_answer and (not auto_research_sources):
         fallback = (
             "I could not retrieve live web results for this current-data request, so I cannot provide reliable "
@@ -721,14 +728,21 @@ async def _stream_chat(
             f"{augmented_prompt}\n\n"
             f"{auto_research_context}\n"
             "Use this web context as primary evidence for current facts. Do not claim a static knowledge cutoff when web context is present. "
-            "If exact data is missing, say what was found and what remains uncertain."
+            "If exact data is missing, say what was found and what remains uncertain. "
+            "When citing web-backed claims, reference them inline with [1], [2], etc. matching the source order."
         )
     sources = [
-        {"text": c["text"][:200], "source": c["source"], "score": c["score"]}
+        {"text": c["text"][:200], "source": c["source"], "score": c["score"], "url": _source_url(c["source"])}
         for c in rag_chunks
     ]
     if auto_research_sources:
-        sources = [*auto_research_sources, *sources][:8]
+        sources = [
+            {
+                **row,
+                "url": _source_url(str(row.get("url") or row.get("source") or "")),
+            }
+            for row in [*auto_research_sources, *sources][:8]
+        ]
 
     # Get model config for this mode
     config = get_model_config(mode)

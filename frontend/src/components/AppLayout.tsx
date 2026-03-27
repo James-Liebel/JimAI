@@ -7,12 +7,15 @@ import MobileNav from './MobileNav';
 import type { SpeedMode } from '../lib/types';
 import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
+import { apiUrl } from '../lib/backendBase';
 
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
-    { to: '/builder', label: 'Build' },
-    { to: '/automation', label: 'Automate' },
-    { to: '/self-code', label: 'Improve' },
+    { to: '/builder', label: 'Builder' },
+    { to: '/agents', label: 'Agents' },
+    { to: '/automation', label: 'Automation' },
+    { to: '/system', label: 'System' },
+    { to: '/self-code', label: 'SelfCode' },
 ];
 
 const TERMINAL_RUN_EVENTS = new Set(['run.completed', 'run.failed', 'run.stopped']);
@@ -59,8 +62,15 @@ export default function AppLayout() {
     const [phoneNotificationsEnabled, setPhoneNotificationsEnabled] = useState(false);
     const [phoneNotificationMinSeconds, setPhoneNotificationMinSeconds] = useState(120);
     const [phoneNotificationsOnFailure, setPhoneNotificationsOnFailure] = useState(true);
+    const [ollamaHealth, setOllamaHealth] = useState<{ checked: boolean; ok: boolean; url: string; backendReachable: boolean }>({
+        checked: false,
+        ok: true,
+        url: 'http://localhost:11434',
+        backendReachable: true,
+    });
     const notifiedRunIdsRef = useRef<Set<string>>(new Set());
     const runStartTimesRef = useRef<Map<string, number>>(new Map());
+    const ollamaHealthFailuresRef = useRef(0);
     const appInstanceIdRef = useRef('');
     const appInstanceHeartbeatRef = useRef<number | null>(null);
     const appInstanceClosedRef = useRef(false);
@@ -113,18 +123,12 @@ export default function AppLayout() {
             if (!id) return;
             appInstanceClosedRef.current = true;
             const payload = JSON.stringify({ instance_id: id, reason });
-            if (navigator.sendBeacon) {
-                try {
-                    const blob = new Blob([payload], { type: 'application/json' });
-                    navigator.sendBeacon('/api/agent-space/instances/unregister', blob);
-                    return;
-                } catch {
-                    // fallback to fetch
-                }
-            }
-            fetch('/api/agent-space/instances/unregister', {
+            fetch(apiUrl('/api/agent-space/instances/unregister'), {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-JimAI-CSRF': '1',
+                },
                 body: payload,
                 keepalive: true,
             }).catch(() => {});
@@ -160,6 +164,33 @@ export default function AppLayout() {
         const id = window.setInterval(loadNotificationSettings, 15000);
         return () => window.clearInterval(id);
     }, [loadNotificationSettings]);
+
+    useEffect(() => {
+        const checkHealth = async () => {
+            try {
+                const health = await api.getHealth();
+                ollamaHealthFailuresRef.current = 0;
+                setOllamaHealth({
+                    checked: true,
+                    ok: Boolean(health.services?.ollama),
+                    url: String(health.ollama_url || 'http://localhost:11434'),
+                    backendReachable: true,
+                });
+            } catch {
+                ollamaHealthFailuresRef.current += 1;
+                if (ollamaHealthFailuresRef.current < 3) return;
+                setOllamaHealth((current) => ({
+                    checked: true,
+                    ok: false,
+                    url: current.url || 'http://localhost:11434',
+                    backendReachable: false,
+                }));
+            }
+        };
+        checkHealth().catch(() => undefined);
+        const id = window.setInterval(() => checkHealth().catch(() => undefined), 5000);
+        return () => window.clearInterval(id);
+    }, []);
 
     useEffect(() => {
         // Mobile users should land on chat-first texting UX.
@@ -300,6 +331,20 @@ export default function AppLayout() {
                 <div className="flex-shrink-0 px-4 py-1.5 bg-accent/10 border-b border-accent/25 text-accent text-xs text-center animate-fade-in">
                     {deepWarning}
                     <button onClick={() => setDeepWarning('')} className="ml-3 text-accent hover:text-text-primary">✕</button>
+                </div>
+            )}
+
+            {ollamaHealth.checked && !ollamaHealth.ok && (
+                <div className="flex-shrink-0 border-b border-accent-red/30 bg-accent-red/10 px-4 py-2 text-xs text-accent-red">
+                    {ollamaHealth.backendReachable ? (
+                        <>
+                            Ollama is not reachable at {ollamaHealth.url}. Start it with <span className="font-mono">ollama serve</span> and confirm your Ollama URL in Settings.
+                        </>
+                    ) : (
+                        <>
+                            Backend health is not reachable at <span className="font-mono">http://localhost:8000</span>. Start the backend first; Ollama may still be running normally.
+                        </>
+                    )}
                 </div>
             )}
 

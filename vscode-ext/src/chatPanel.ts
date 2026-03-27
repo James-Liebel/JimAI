@@ -46,6 +46,12 @@ export class ChatPanel {
         this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     }
 
+    async sendPrompt(content: string, mode: string = 'chat'): Promise<void> {
+        this.panel.reveal(vscode.ViewColumn.Beside);
+        this.panel.webview.postMessage({ type: 'SEND_PROMPT', text: content });
+        await this.handleChat(content, mode);
+    }
+
     private async handleChat(content: string, mode: string): Promise<void> {
         try {
             const resp = await fetch(`${this.backendUrl}/api/chat`, {
@@ -152,6 +158,10 @@ export class ChatPanel {
 
     window.addEventListener('message', (e) => {
       const msg = e.data;
+      if (msg.type === 'SEND_PROMPT') {
+        addMessage('user', msg.text || '');
+        currentAssistant = addMessage('assistant', '');
+      }
       if (msg.type === 'CHUNK' && currentAssistant) {
         currentAssistant.textContent += msg.text;
         currentAssistant.scrollIntoView({ behavior: 'smooth' });

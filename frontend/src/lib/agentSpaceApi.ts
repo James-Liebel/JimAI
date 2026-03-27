@@ -1,4 +1,4 @@
-const BASE = '';
+import { API_BASE as BASE, apiUrl } from './backendBase';
 
 // ── Timeout-aware fetch ───────────────────────────────────────────────
 
@@ -34,6 +34,8 @@ async function fetchWithTimeout(
         clearTimeout(timer);
     }
 }
+
+export { apiUrl };
 
 export interface AgentSpaceRunSummary {
     id: string;
@@ -382,6 +384,13 @@ export interface ToolShellResult {
     stderr?: string;
     exit_code?: number;
     [key: string]: unknown;
+}
+
+export interface ToolWriteResult {
+    mode: 'review' | 'direct';
+    path?: string;
+    snapshot_id?: string;
+    review?: AgentSpaceReview;
 }
 
 export interface SystemAuditCheck {
@@ -1140,6 +1149,36 @@ export async function toolsRead(path: string): Promise<{ path: string; content: 
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `tools read failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export async function toolsWrite(payload: {
+    path: string;
+    content: string;
+    review_gate?: boolean;
+}): Promise<ToolWriteResult> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/tools/write`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `tools write failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export async function createWorkspaceDirectory(path: string): Promise<{ path: string }> {
+    const resp = await fetchWithTimeout(`${BASE}/api/workspace/directory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+    });
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `create directory failed: ${resp.status}`);
     }
     return resp.json();
 }

@@ -119,6 +119,18 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('private-ai.runCustomAgent', () =>
             commands.runCustomAgent(backendUrl),
         ),
+        vscode.commands.registerCommand('private-ai.runSystemAgent', () =>
+            commands.runSystemAgent(backendUrl),
+        ),
+        vscode.commands.registerCommand('private-ai.analyzeCurrentFile', () =>
+            commands.analyzeCurrentFile(backendUrl),
+        ),
+        vscode.commands.registerCommand('private-ai.explainSelection', () =>
+            commands.explainSelection(backendUrl),
+        ),
+        vscode.commands.registerCommand('private-ai.openFileInChat', () =>
+            commands.openFileInChat(backendUrl, context),
+        ),
         vscode.commands.registerCommand('private-ai.profileDataset', () =>
             dataScience.profileDataset(backendUrl),
         ),

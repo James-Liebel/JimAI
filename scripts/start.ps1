@@ -52,10 +52,24 @@ foreach ($model in $optionalModels) {
     }
 }
 
-# Start backend (bind to 0.0.0.0 for Tailscale access)
-# Use the backend's virtualenv Python explicitly so dependencies and versions are correct.
+Write-Host ""
+Write-Host "Checking system agent dependencies..." -ForegroundColor Cyan
 $backendPath = Join-Path $PSScriptRoot "..\backend"
 $backendPython = Join-Path $backendPath ".venv\Scripts\python.exe"
+$packages = @("psutil", "mss", "PIL")
+foreach ($pkg in $packages) {
+    & $backendPython -c "import $pkg" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $installName = if ($pkg -eq "PIL") { "pillow" } else { $pkg.ToLower() }
+        Write-Host "  Installing $installName..." -ForegroundColor Yellow
+        & $backendPython -m pip install $installName --quiet
+    } else {
+        Write-Host "  [OK] $pkg" -ForegroundColor Green
+    }
+}
+
+# Start backend (bind to 0.0.0.0 for Tailscale access)
+# Use the backend's virtualenv Python explicitly so dependencies and versions are correct.
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; & '$backendPython' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 
 Start-Sleep 2

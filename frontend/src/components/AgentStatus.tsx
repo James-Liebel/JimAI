@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { AgentUpdate } from '../lib/types';
 import { cn } from '../lib/utils';
+import { apiUrl } from '../lib/backendBase';
 
 interface Props {
     onClose?: () => void;
@@ -16,7 +17,7 @@ export default function AgentStatus({ onClose }: Props) {
         let eventSource: EventSource | null = null;
 
         const connect = () => {
-            eventSource = new EventSource('/api/agents/status');
+            eventSource = new EventSource(apiUrl('/api/agents/status'));
 
             eventSource.onmessage = (event) => {
                 try {

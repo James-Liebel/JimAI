@@ -5,9 +5,12 @@ import AppLayout from './components/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 
+const SERVICE_WORKER_VERSION = '2026-03-22-1';
+
 const Chat = lazy(() => import('./pages/Chat'));
 const Notebook = lazy(() => import('./pages/Notebook'));
 const AgentStudio = lazy(() => import('./pages/AgentStudio'));
+const Agents = lazy(() => import('./pages/Agents'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const WorkflowReview = lazy(() => import('./pages/WorkflowReview'));
 const Research = lazy(() => import('./pages/Research'));
@@ -17,6 +20,38 @@ const AgentBrowser = lazy(() => import('./pages/AgentBrowser'));
 const Builder = lazy(() => import('./pages/Builder'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const Automation = lazy(() => import('./pages/Automation'));
+const SystemPanel = lazy(() => import('./pages/SystemPanel'));
+
+async function clearExistingServiceWorkersForDev(): Promise<void> {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(
+                keys
+                    .filter((key) => key.startsWith('private-ai-') || key.startsWith('jimai-'))
+                    .map((key) => caches.delete(key)),
+            );
+        }
+    } catch (err) {
+        console.warn('Service worker cleanup failed:', err);
+    }
+}
+
+async function setupServiceWorker(): Promise<void> {
+    if (!('serviceWorker' in navigator)) return;
+    if (import.meta.env.DEV) {
+        await clearExistingServiceWorkersForDev();
+        return;
+    }
+    try {
+        await navigator.serviceWorker.register(`/sw.js?v=${SERVICE_WORKER_VERSION}`);
+    } catch (err) {
+        console.warn('Service worker registration failed:', err);
+    }
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
@@ -39,11 +74,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/browser" element={<AgentBrowser />} />
                         <Route path="/builder" element={<Builder />} />
                         <Route path="/automation" element={<Automation />} />
+                        <Route path="/system" element={<SystemPanel />} />
                         <Route path="/self-code" element={<SelfCode />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/audit" element={<SystemAudit />} />
                         <Route path="/notebook" element={<Notebook />} />
-                        <Route path="/agents" element={<AgentStudio />} />
+                        <Route path="/agents" element={<Agents />} />
+                        <Route path="/agent-studio" element={<AgentStudio />} />
                     </Route>
                 </Routes>
             </Suspense>
@@ -54,8 +91,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(err => {
-            console.warn('Service worker registration failed:', err);
-        });
+        void setupServiceWorker();
     });
 }

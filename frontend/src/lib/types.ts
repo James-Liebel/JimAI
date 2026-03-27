@@ -12,6 +12,7 @@ export interface Source {
     text: string;
     source: string;
     score: number;
+    url?: string;
 }
 
 export interface JudgeResult {
@@ -63,6 +64,7 @@ export interface RoutingDecision {
     auto_web_research_fetched_pages?: number;
     auto_web_research_domain_count?: number;
     auto_web_research_query_count?: number;
+    auto_web_research_status?: string;
 }
 
 export interface Message {

@@ -1,5 +1,106 @@
 import * as vscode from 'vscode';
 import { ChatPanel } from './chatPanel';
+import { SystemAgentPanel } from './systemAgentPanel';
+
+function createSystemSessionId(): string {
+    return `vscode-system-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function streamSystemAgentTask(
+    backendUrl: string,
+    task: string,
+    panel: SystemAgentPanel,
+    mode: 'supervised' | 'autonomous' = 'supervised',
+): Promise<void> {
+    const sessionId = createSystemSessionId();
+    panel.reset(task);
+    panel.log(`Mode: ${mode}`);
+
+    const resp = await fetch(`${backendUrl}/api/system-agent/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            task,
+            session_id: sessionId,
+            mode,
+        }),
+    });
+
+    if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(text || `System agent failed: ${resp.status}`);
+    }
+    if (!resp.body) throw new Error('System agent response body missing');
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+                const parsed = JSON.parse(line.slice(6)) as {
+                    type: string;
+                    data: Record<string, any>;
+                };
+                const data = parsed.data || {};
+
+                if (parsed.type === 'plan') {
+                    panel.setPlan(data.steps || []);
+                    continue;
+                }
+                if (parsed.type === 'step_start') {
+                    panel.stepStart(Number(data.step || 0), String(data.description || data.tool || ''));
+                    continue;
+                }
+                if (parsed.type === 'step_result') {
+                    panel.stepResult(Number(data.step || 0), data);
+                    continue;
+                }
+                if (parsed.type === 'step_error') {
+                    panel.stepResult(Number(data.step || 0), { error: data.error });
+                    continue;
+                }
+                if (parsed.type === 'confirmation_needed') {
+                    panel.log(`Confirmation required: ${String(data.description || '')}`, data.risk === 'destructive' ? 'warn' : 'default');
+                    const picked = await vscode.window.showWarningMessage(
+                        String(data.description || 'Approve this action?'),
+                        { modal: true },
+                        'Approve',
+                        'Deny',
+                    );
+                    await fetch(`${backendUrl}/api/system-agent/confirm`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            session_id: sessionId,
+                            approved: picked === 'Approve',
+                        }),
+                    });
+                    continue;
+                }
+                if (parsed.type === 'text') {
+                    panel.log(String(data.text || ''));
+                    continue;
+                }
+                if (parsed.type === 'complete') {
+                    panel.complete(
+                        `Task complete: ${Number(data.steps_executed || 0)} of ${Number(data.steps_planned || 0)} steps executed.`,
+                    );
+                }
+            } catch {
+                // Ignore malformed stream chunks.
+            }
+        }
+    }
+}
 
 /**
  * Explain the currently active file.
@@ -358,6 +459,122 @@ export async function runCustomAgent(backendUrl: string): Promise<void> {
                 } catch { /* skip */ }
             }
         }
+    } catch (err) {
+        vscode.window.showErrorMessage(`Private AI: ${err}`);
+    }
+}
+
+export async function runSystemAgent(backendUrl: string): Promise<void> {
+    const task = await vscode.window.showInputBox({
+        prompt: 'What would you like the system agent to do?',
+        placeHolder: 'e.g. Find all TODO comments in the project and summarize them',
+    });
+    if (!task) return;
+
+    const modePick = await vscode.window.showQuickPick(
+        [
+            { label: 'Supervised', mode: 'supervised' as const },
+            { label: 'Autonomous', mode: 'autonomous' as const },
+        ],
+        { placeHolder: 'Choose execution mode' },
+    );
+    if (!modePick) return;
+
+    const panel = SystemAgentPanel.createOrShow();
+    try {
+        await streamSystemAgentTask(backendUrl, task, panel, modePick.mode);
+    } catch (err) {
+        panel.log(String(err), 'bad');
+        vscode.window.showErrorMessage(`Private AI: ${err}`);
+    }
+}
+
+export async function analyzeCurrentFile(backendUrl: string): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showWarningMessage('No active file to analyze');
+        return;
+    }
+
+    const question = await vscode.window.showInputBox({
+        prompt: 'What should the system agent analyze about this file?',
+        value: 'Summarize this file and identify any potential issues.',
+    });
+    if (!question) return;
+
+    const task = `Analyze the file "${editor.document.fileName}". ${question}`;
+    const panel = SystemAgentPanel.createOrShow();
+    try {
+        await streamSystemAgentTask(backendUrl, task, panel, 'supervised');
+    } catch (err) {
+        panel.log(String(err), 'bad');
+        vscode.window.showErrorMessage(`Private AI: ${err}`);
+    }
+}
+
+export async function explainSelection(backendUrl: string): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showWarningMessage('No active selection');
+        return;
+    }
+    const selection = editor.document.getText(editor.selection);
+    if (!selection.trim()) {
+        vscode.window.showWarningMessage('Select the code or text you want explained');
+        return;
+    }
+
+    const resp = await fetch(`${backendUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            message: `Explain this selection in context and point out risks or mistakes:\n\n${selection}`,
+            mode: 'code',
+            session_id: 'vscode-selection',
+            history: [],
+        }),
+    });
+
+    if (!resp.body) return;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        for (const line of text.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+                const data = JSON.parse(line.slice(6));
+                if (data.text) fullResponse += data.text;
+            } catch {
+                // ignore malformed chunks
+            }
+        }
+    }
+
+    const channel = vscode.window.createOutputChannel('Private AI - Explain Selection');
+    channel.appendLine(fullResponse);
+    channel.show();
+}
+
+export async function openFileInChat(
+    backendUrl: string,
+    context: vscode.ExtensionContext,
+): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        vscode.window.showWarningMessage('No active file to send to chat');
+        return;
+    }
+
+    const content = editor.document.getText();
+    const prompt = `Use this file as context and help me with it.\n\nPath: ${editor.document.fileName}\n\n${content.slice(0, 8000)}`;
+    const panel = ChatPanel.createOrShow(context.extensionUri, backendUrl);
+    try {
+        await panel.sendPrompt(prompt, 'code');
     } catch (err) {
         vscode.window.showErrorMessage(`Private AI: ${err}`);
     }

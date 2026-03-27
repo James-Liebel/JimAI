@@ -1,6 +1,5 @@
 import type { Source, RoutingDecision, SpeedModeResponse } from './types';
-
-const BASE = '';
+import { API_BASE as BASE, apiUrl } from './backendBase';
 
 // ── Timeout-aware fetch ───────────────────────────────────────────────
 
@@ -37,6 +36,8 @@ export async function fetchWithTimeout(
     }
 }
 
+export { apiUrl };
+
 // ── Speed mode ───────────────────────────────────────────────────────
 
 export async function getSpeedMode(): Promise<SpeedModeResponse> {
@@ -62,6 +63,7 @@ export async function streamChat(
     onSources: (sources: Source[]) => void,
     onRouting: (routing: RoutingDecision) => void,
     onDone: () => void,
+    onProgress?: (progress: { searchingWeb?: boolean; searchStatus?: string }) => void,
     modelOverride?: string,
     imageBase64?: string,
 ): Promise<void> {
@@ -102,6 +104,12 @@ export async function streamChat(
             if (!line.startsWith('data: ')) continue;
             try {
                 const data = JSON.parse(line.slice(6));
+                if (typeof onProgress === 'function' && (typeof data.searching_web === 'boolean' || typeof data.search_status === 'string')) {
+                    onProgress({
+                        searchingWeb: typeof data.searching_web === 'boolean' ? data.searching_web : undefined,
+                        searchStatus: typeof data.search_status === 'string' ? data.search_status : undefined,
+                    });
+                }
                 if (data.text) onChunk(data.text);
                 if (data.done && data.sources) onSources(data.sources);
                 if (data.done && data.routing) onRouting({
@@ -168,8 +176,13 @@ export async function executeCode(code: string): Promise<{
 
 export async function getHealth(): Promise<{
     status: string;
-    ollama_running: boolean;
-    models_available: string[];
+    services: {
+        ollama: boolean;
+        chromadb: boolean;
+        qdrant: boolean;
+    };
+    ollama_url?: string;
+    version?: string;
 }> {
     const resp = await fetchWithTimeout(`${BASE}/health`);
     return resp.json();

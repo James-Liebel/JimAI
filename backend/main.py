@@ -172,11 +172,17 @@ async def health():
 
     from config.settings import OLLAMA_BASE_URL
 
+    try:
+        from agent_space.runtime import settings_store as agent_space_settings_store
+        ollama_base_url = str(agent_space_settings_store.get().get("ollama_url") or OLLAMA_BASE_URL)
+    except Exception:
+        ollama_base_url = OLLAMA_BASE_URL
+
     # Check Ollama
     ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{OLLAMA_BASE_URL}/api/tags")
+            resp = await client.get(f"{ollama_base_url}/api/tags")
             ollama_ok = resp.status_code < 500
     except Exception:
         ollama_ok = False
@@ -208,6 +214,7 @@ async def health():
             "chromadb": chromadb_ok,
             "qdrant": qdrant_ok,
         },
+        "ollama_url": ollama_base_url,
         "version": "1.0.0",
     }
 
@@ -217,23 +224,31 @@ from api.chat import router as chat_router
 from api.upload import router as upload_router
 from api.vision import router as vision_router
 from api.agents_api import router as agents_router
+from api.teams_api import router as teams_router
 from api.feedback import router as feedback_router
 from api.completion import router as completion_router
 from api.settings_api import router as settings_router
+from api.system_agent_api import router as system_agent_router
 from api.webtools import router as webtools_router
 from agents.builder import router as builder_router
 from agent_space.api import router as agent_space_router
+from routers.github import router as github_router
+from routers.workspace import router as workspace_router
 
 app.include_router(chat_router)
 app.include_router(upload_router)
 app.include_router(vision_router)
 app.include_router(agents_router)
+app.include_router(teams_router)
 app.include_router(feedback_router)
 app.include_router(completion_router)
 app.include_router(settings_router)
+app.include_router(system_agent_router)
 app.include_router(webtools_router)
 app.include_router(builder_router)
 app.include_router(agent_space_router)
+app.include_router(github_router)
+app.include_router(workspace_router)
 
 
 # ── Prometheus metrics ─────────────────────────────────────────────────

@@ -8,6 +8,8 @@ const SAVE_DEBOUNCE_MS = 2000;
 export function useChat() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
+    const [searchingWeb, setSearchingWeb] = useState(false);
+    const [searchStatus, setSearchStatus] = useState('');
     const [modelOverride, setModelOverride] = useState<string>('');
     const [chatId, setChatId] = useState(uuid());
     const [chatTitle, setChatTitle] = useState('');
@@ -69,6 +71,8 @@ export function useChat() {
 
             setMessages((prev) => [...prev, userMsg, assistantMsg]);
             setIsStreaming(true);
+            setSearchingWeb(false);
+            setSearchStatus('');
 
             const appendChunk = (text: string) => {
                 setMessages((prev) => {
@@ -120,6 +124,8 @@ export function useChat() {
                     return updated;
                 });
                 setIsStreaming(false);
+                setSearchingWeb(false);
+                setSearchStatus('');
             };
 
             try {
@@ -136,12 +142,18 @@ export function useChat() {
                     setSources,
                     setRouting,
                     onDone,
+                    (progress) => {
+                        if (typeof progress.searchingWeb === 'boolean') setSearchingWeb(progress.searchingWeb);
+                        if (typeof progress.searchStatus === 'string') setSearchStatus(progress.searchStatus);
+                    },
                     modelOverride || undefined,
                     imageBase64,
                 );
             } catch (err) {
                 appendChunk(`\n\n**Error:** ${err instanceof Error ? err.message : 'Unknown error'}`);
                 setIsStreaming(false);
+                setSearchingWeb(false);
+                setSearchStatus('');
             }
         },
         [messages, modelOverride, chatTitle, autoSave],
@@ -182,6 +194,8 @@ export function useChat() {
     return {
         messages,
         isStreaming,
+        searchingWeb,
+        searchStatus,
         modelOverride,
         setModelOverride,
         sendMessage,

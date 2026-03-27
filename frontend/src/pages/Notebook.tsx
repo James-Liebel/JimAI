@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { v4 as uuid } from 'uuid';
 import * as api from '../lib/api';
+import { apiUrl } from '../lib/backendBase';
 
 interface Cell {
     id: string;
@@ -54,7 +55,7 @@ export default function Notebook() {
         setCells((prev) => prev.map((c) => (c.id === id ? { ...c, running: true } : c)));
 
         try {
-            const resp = await fetch('/api/chat', {
+            const resp = await api.fetchWithTimeout(apiUrl('/api/chat'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -63,7 +64,8 @@ export default function Notebook() {
                     session_id: 'notebook',
                     history: [],
                 }),
-            });
+            }, 120000);
+            if (!resp.ok) throw new Error(`Notebook chat failed: ${resp.status}`);
 
             const reader = resp.body?.getReader();
             if (!reader) return;

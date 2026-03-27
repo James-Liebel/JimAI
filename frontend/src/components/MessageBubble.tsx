@@ -28,6 +28,21 @@ function sourceConfidence(score: number): string {
     return 'unscored';
 }
 
+function normalizeSourceUrl(source: { source?: string; url?: string }): string {
+    const candidate = String(source.url || source.source || '').trim();
+    return /^https?:\/\//i.test(candidate) ? candidate : '';
+}
+
+function sourceDisplayLabel(source: { source?: string; url?: string }): string {
+    const url = normalizeSourceUrl(source);
+    if (!url) return String(source.source || 'source');
+    try {
+        return new URL(url).hostname.replace(/^www\./i, '');
+    } catch {
+        return url;
+    }
+}
+
 export default function MessageBubble({ message }: Props) {
     const [showSources, setShowSources] = useState(false);
     const [feedbackState, setFeedbackState] = useState<'none' | 'noting-up' | 'noting-down' | 'done'>('none');
@@ -175,15 +190,28 @@ export default function MessageBubble({ message }: Props) {
                         {hasSources && (
                             <div className="flex flex-wrap gap-1.5">
                                 {rankedSources.slice(0, 3).map((s, i) => (
-                                    <button
+                                    normalizeSourceUrl(s) ? (
+                                        <a
                                         key={`${s.source}-${i}`}
-                                        type="button"
-                                        onClick={() => setShowSources((prev) => !prev)}
+                                        href={normalizeSourceUrl(s)}
+                                        target="_blank"
+                                        rel="noreferrer"
                                         className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                                         title={s.text}
                                     >
-                                        #{i + 1} {s.source}
-                                    </button>
+                                        #{i + 1} {sourceDisplayLabel(s)}
+                                        </a>
+                                    ) : (
+                                        <button
+                                            key={`${s.source}-${i}`}
+                                            type="button"
+                                            onClick={() => setShowSources((prev) => !prev)}
+                                            className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
+                                            title={s.text}
+                                        >
+                                            #{i + 1} {sourceDisplayLabel(s)}
+                                        </button>
+                                    )
                                 ))}
                                 {rankedSources.length > 3 && (
                                     <button
@@ -210,7 +238,7 @@ export default function MessageBubble({ message }: Props) {
                             <div className="mt-1.5 space-y-1">
                                 {rankedSources.map((s, i) => (
                                     <div key={i} className="text-[11px] text-text-muted bg-surface-2 rounded p-2">
-                                        <span className="font-medium text-text-secondary">#{i + 1} {s.source}</span>
+                                        <span className="font-medium text-text-secondary">#{i + 1} {sourceDisplayLabel(s)}</span>
                                         {typeof s.score === 'number' && Number.isFinite(s.score) && (
                                             <>
                                                 {' '}
@@ -220,6 +248,16 @@ export default function MessageBubble({ message }: Props) {
                                             </>
                                         )}
                                         <p className="mt-0.5 opacity-75 line-clamp-2">{s.text}</p>
+                                        {normalizeSourceUrl(s) && (
+                                            <a
+                                                href={normalizeSourceUrl(s)}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="mt-1 inline-block text-accent hover:underline"
+                                            >
+                                                {normalizeSourceUrl(s)}
+                                            </a>
+                                        )}
                                     </div>
                                 ))}
                             </div>

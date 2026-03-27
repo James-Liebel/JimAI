@@ -1,12 +1,14 @@
 import { NavLink } from 'react-router-dom';
-import { GitPullRequest, MessageSquare, Settings, Hammer, Wrench, Workflow } from 'lucide-react';
+import { GitPullRequest, MessageSquare, Settings, Hammer, Wrench, Workflow, Bot, Monitor } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const TABS = [
     { to: '/chat', label: 'Chat', icon: MessageSquare },
-    { to: '/builder', label: 'Build', icon: Hammer },
-    { to: '/automation', label: 'Automate', icon: Workflow },
-    { to: '/self-code', label: 'Improve', icon: Wrench },
+    { to: '/builder', label: 'Builder', icon: Hammer },
+    { to: '/agents', label: 'Agents', icon: Bot },
+    { to: '/automation', label: 'Automation', icon: Workflow },
+    { to: '/system', label: 'System', icon: Monitor },
+    { to: '/self-code', label: 'SelfCode', icon: Wrench },
 ];
 
 const QUICK_ACTIONS = [

@@ -67,6 +67,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "free_stack_gotify_enabled": os.getenv("AGENT_SPACE_FREE_STACK_GOTIFY_ENABLED", "false").lower() in ("1", "true", "yes"),
     "free_stack_gotify_url": os.getenv("AGENT_SPACE_FREE_STACK_GOTIFY_URL", ""),
     "free_stack_gotify_token": os.getenv("AGENT_SPACE_FREE_STACK_GOTIFY_TOKEN", ""),
+    "ollama_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+    "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
+    "github_token": os.getenv("GITHUB_TOKEN", ""),
     "agent_models": {},
 }
 
@@ -127,6 +130,9 @@ class AgentSpaceRuntimeConfig:
     free_stack_gotify_enabled: bool
     free_stack_gotify_url: str
     free_stack_gotify_token: str
+    ollama_url: str
+    anthropic_api_key: str
+    github_token: str
     agent_models: dict[str, str]
 
 
@@ -219,5 +225,8 @@ class SettingsStore:
             free_stack_gotify_enabled=bool(cfg.get("free_stack_gotify_enabled", False)),
             free_stack_gotify_url=str(cfg.get("free_stack_gotify_url", "")),
             free_stack_gotify_token=str(cfg.get("free_stack_gotify_token", "")),
+            ollama_url=str(cfg.get("ollama_url", "http://localhost:11434")),
+            anthropic_api_key=str(cfg.get("anthropic_api_key", "")),
+            github_token=str(cfg.get("github_token", "")),
             agent_models=dict(cfg.get("agent_models", {})),
         )

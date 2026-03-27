@@ -1,176 +1,145 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import * as agentApi from '../lib/agentSpaceApi';
-import { readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
+import GitHubPanel from '../components/GitHubPanel';
+import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
 
-type OrchestrationStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+type NodeStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+type PendingCreate = { parentPath: string; kind: 'file' | 'folder'; value: string };
+type TerminalRow = { id: string; command: string; cwd: string; exitCode: number; stdout: string; stderr: string; timestamp: number };
+type FlowNode = { id: string; role: string; workerLevel: number; dependsOn: string[]; description?: string; status?: NodeStatus };
+type FileTab = { id: string; type: 'file'; title: string; path: string; content: string; dirty: boolean; language: string };
+type DiffTab = { id: string; type: 'diff'; title: string; path: string; reviewId: string; reviewStatus: string; original: string; modified: string };
+type Tab = FileTab | DiffTab;
 
-type OrchestrationNode = {
-    id: string;
-    role: string;
-    workerLevel: number;
-    model?: string;
-    dependsOn: string[];
-    description?: string;
-    status?: OrchestrationStatus;
+const detectLanguage = (path: string) => {
+    const lower = path.toLowerCase();
+    if (lower.endsWith('.tsx') || lower.endsWith('.ts')) return 'typescript';
+    if (lower.endsWith('.jsx') || lower.endsWith('.js')) return 'javascript';
+    if (lower.endsWith('.py')) return 'python';
+    if (lower.endsWith('.json')) return 'json';
+    if (lower.endsWith('.md')) return 'markdown';
+    if (lower.endsWith('.html')) return 'html';
+    if (lower.endsWith('.css')) return 'css';
+    if (lower.endsWith('.yml') || lower.endsWith('.yaml')) return 'yaml';
+    return 'plaintext';
 };
-
-type AgentMessageRow = {
-    from: string;
-    to: string;
-    channel: string;
+const normalizeProfile = (value: unknown): 'safe' | 'dev' | 'unrestricted' => (value === 'dev' || value === 'unrestricted' ? value : 'safe');
+const joinRepoPath = (parentPath: string, childName: string) => (parentPath && parentPath !== '.' ? `${parentPath}/${childName}` : childName).replace(/\\/g, '/');
+const parentDirectory = (path: string) => {
+    const parts = String(path || '').replace(/\\/g, '/').split('/');
+    parts.pop();
+    return parts.filter(Boolean).join('/') || '.';
 };
+const formatTime = (ts?: number) => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--');
+const statusTone = (status: NodeStatus) => status === 'running' ? 'border-accent/40 bg-accent/10' : status === 'completed' ? 'border-accent-green/40 bg-accent-green/10' : status === 'failed' ? 'border-accent-red/40 bg-accent-red/10' : 'border-surface-3 bg-surface-1';
 
-type TerminalRow = {
-    id: string;
-    command: string;
-    cwd: string;
-    exitCode: number;
-    stdout: string;
-    stderr: string;
-    timestamp: number;
-};
-
-const APP_CREATIONS_DIR = 'data/app_creations';
-const APP_CREATIONS_INDEX = `${APP_CREATIONS_DIR}/APP_CREATIONS.md`;
-const APP_CREATIONS_HINT = `Store each generated app under ${APP_CREATIONS_DIR}/<app_name>/ and update ${APP_CREATIONS_INDEX}.`;
-
-function humanizeOptionKey(key: string): string {
-    return String(key || '')
-        .replace(/_/g, ' ')
-        .replace(/\b\w/g, (char) => char.toUpperCase())
-        .trim();
-}
-
-function parseSubagentId(message: string, eventType: string): string {
+function parseSubagentId(message: string, type: string) {
     if (!message) return '';
-    if (eventType === 'subagent.started') {
-        const m = message.match(/Starting\s+([^\s]+)\s+\(/i);
-        return m ? m[1] : '';
-    }
-    if (eventType === 'subagent.completed') {
-        const m = message.match(/(?:Planner|Tester|Verifier|Subagent)\s+([^\s]+)\s+completed/i);
-        return m ? m[1] : '';
-    }
-    if (eventType === 'subagent.error') {
-        const m = message.match(/Subagent\s+([^\s]+)\s+failed/i);
-        return m ? m[1] : '';
-    }
+    if (type === 'subagent.started') return message.match(/Starting\s+([^\s]+)/i)?.[1] || '';
+    if (type === 'subagent.completed') return message.match(/(?:Planner|Tester|Verifier|Subagent)\s+([^\s]+)\s+completed/i)?.[1] || '';
+    if (type === 'subagent.error') return message.match(/Subagent\s+([^\s]+)\s+failed/i)?.[1] || '';
     return '';
 }
 
-function extractWorkflowNodesFromEvents(events: agentApi.AgentSpaceEvent[]): OrchestrationNode[] {
+function extractWorkflowNodes(events: agentApi.AgentSpaceEvent[]): FlowNode[] {
     for (let i = events.length - 1; i >= 0; i -= 1) {
         const evt = events[i];
         if (evt.type !== 'run.workflow') continue;
-        const subagents = (evt.data as { subagents?: unknown })?.subagents;
-        if (!Array.isArray(subagents)) continue;
-        const rows: OrchestrationNode[] = [];
-        for (const item of subagents) {
-            const row = item as Record<string, unknown>;
-            const id = String(row.id || '').trim();
-            if (!id) continue;
-            rows.push({
-                id,
+        const rows = Array.isArray((evt.data as { subagents?: unknown })?.subagents) ? (evt.data as { subagents?: Array<Record<string, unknown>> }).subagents || [] : [];
+        return rows
+            .map((row) => ({
+                id: String(row.id || '').trim(),
                 role: String(row.role || 'coder'),
                 workerLevel: Number(row.worker_level || 1) || 1,
-                model: String(row.model || ''),
-                dependsOn: Array.isArray(row.depends_on)
-                    ? row.depends_on.map((dep) => String(dep || '').trim()).filter(Boolean)
-                    : [],
+                dependsOn: Array.isArray(row.depends_on) ? row.depends_on.map((dep) => String(dep || '').trim()).filter(Boolean) : [],
                 description: String(row.description || ''),
-            });
-        }
-        return rows;
+            }))
+            .filter((row) => row.id);
     }
     return [];
 }
 
-function statusTone(status: OrchestrationStatus): string {
-    if (status === 'running') return 'border-accent/40 bg-accent/10';
-    if (status === 'completed') return 'border-accent-green/40 bg-accent-green/10';
-    if (status === 'failed') return 'border-accent-red/40 bg-accent-red/10';
-    if (status === 'pending') return 'border-surface-3 bg-surface-2';
-    return 'border-surface-3 bg-surface-1';
-}
-
-function normalizeProfile(value: unknown): 'safe' | 'dev' | 'unrestricted' {
-    const v = String(value || 'safe');
-    if (v === 'dev' || v === 'unrestricted') return v;
-    return 'safe';
+function buildDiffTab(review: agentApi.AgentSpaceReview, path: string): DiffTab | null {
+    const change = (review.changes || []).find((row) => row.path === path) || review.changes?.[0];
+    if (!change) return null;
+    return {
+        id: `review:${review.id}:${path}`,
+        type: 'diff',
+        title: `${path.split('/').pop() || path} · diff`,
+        path,
+        reviewId: review.id,
+        reviewStatus: review.status,
+        original: String(change.old_content || ''),
+        modified: String(change.new_content || ''),
+    };
 }
 
 export default function Builder() {
     const [prompt, setPrompt] = useState('');
     const [context, setContext] = useState('');
-    const [advancedMode, setAdvancedMode] = useState(false);
-
+    const [message, setMessage] = useState('');
+    const [error, setError] = useState('');
+    const [settings, setSettings] = useState<Record<string, unknown>>({});
+    const [preview, setPreview] = useState<agentApi.BuilderPreviewResponse | null>(null);
+    const [loadingPreview, setLoadingPreview] = useState(false);
+    const [loadingLaunch, setLoadingLaunch] = useState(false);
+    const [loadingStop, setLoadingStop] = useState(false);
     const [runId, setRunId] = useState('');
     const [runStatus, setRunStatus] = useState('');
     const [runs, setRuns] = useState<agentApi.AgentSpaceRunSummary[]>([]);
     const [events, setEvents] = useState<agentApi.AgentSpaceEvent[]>([]);
-    const [preview, setPreview] = useState<agentApi.BuilderPreviewResponse | null>(null);
-
-    const [settings, setSettings] = useState<Record<string, unknown>>({});
-    const [loadingLaunch, setLoadingLaunch] = useState(false);
-    const [loadingStop, setLoadingStop] = useState(false);
-    const [loadingPreview, setLoadingPreview] = useState(false);
-
-    const [message, setMessage] = useState('');
-    const [error, setError] = useState('');
-    const [recommendedSkills, setRecommendedSkills] = useState<agentApi.AgentSkillSummary[]>([]);
-    const [recommendedSkillContext, setRecommendedSkillContext] = useState('');
-    const [loadingRecommendedSkills, setLoadingRecommendedSkills] = useState(false);
+    const [runReviews, setRunReviews] = useState<agentApi.AgentSpaceReview[]>([]);
+    const [loadingReviews, setLoadingReviews] = useState(false);
     const [sharedTeamName, setSharedTeamName] = useState('Auto Build Team');
     const [sharedSavedTeamId, setSharedSavedTeamId] = useState('');
     const [sharedSavedTeamName, setSharedSavedTeamName] = useState('');
     const [sharedSelectedSkills, setSharedSelectedSkills] = useState<Array<{ slug: string; name: string }>>([]);
     const [sharedLastRunId, setSharedLastRunId] = useState('');
     const [sharedLastRunStatus, setSharedLastRunStatus] = useState('');
-
-    const [treePath, setTreePath] = useState('.');
+    const [showGitHubPanel, setShowGitHubPanel] = useState(false);
+    const [recommendedSkills, setRecommendedSkills] = useState<agentApi.AgentSkillSummary[]>([]);
+    const [recommendedSkillContext, setRecommendedSkillContext] = useState('');
+    const [loadingRecommendedSkills, setLoadingRecommendedSkills] = useState(false);
     const [treeData, setTreeData] = useState<agentApi.RepoTreeResponse | null>(null);
     const [loadingTree, setLoadingTree] = useState(false);
-    const [fullTreeMode, setFullTreeMode] = useState(false);
-    const [selectedFile, setSelectedFile] = useState('');
-    const [selectedFileContent, setSelectedFileContent] = useState('');
+    const [selectedDirectory, setSelectedDirectory] = useState('.');
+    const [pendingCreate, setPendingCreate] = useState<PendingCreate | null>(null);
+    const [creatingNode, setCreatingNode] = useState(false);
+    const [tabs, setTabs] = useState<Tab[]>([]);
+    const [activeTabId, setActiveTabId] = useState('');
     const [loadingFile, setLoadingFile] = useState(false);
-
+    const [savingFile, setSavingFile] = useState(false);
+    const [editorWriteMode, setEditorWriteMode] = useState<'direct' | 'review'>('review');
     const [terminalCwd, setTerminalCwd] = useState('.');
     const [terminalCommand, setTerminalCommand] = useState('');
     const [terminalRows, setTerminalRows] = useState<TerminalRow[]>([]);
     const [runningTerminal, setRunningTerminal] = useState(false);
-
     const [agentTo, setAgentTo] = useState('');
     const [agentChannel, setAgentChannel] = useState('change-request');
     const [agentMessage, setAgentMessage] = useState('');
     const [sendingAgentMessage, setSendingAgentMessage] = useState(false);
 
-    const [exportTarget, setExportTarget] = useState('app-build-export');
-    const [exportPaths, setExportPaths] = useState(APP_CREATIONS_DIR);
-    const [exporting, setExporting] = useState(false);
+    const currentRun = useMemo(() => runs.find((row) => row.id === runId) || null, [runId, runs]);
+    const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
 
     const refreshRuns = useCallback(async () => {
         const rows = await agentApi.listRuns(50);
         setRuns(rows);
-        if (runId) {
-            const current = rows.find((row) => row.id === runId);
-            if (current) setRunStatus(current.status);
-        }
+        const current = rows.find((row) => row.id === runId);
+        if (current) setRunStatus(current.status);
     }, [runId]);
 
     const refreshTree = useCallback(async () => {
         setLoadingTree(true);
         try {
-            const depth = fullTreeMode ? 16 : 8;
-            const limit = fullTreeMode ? 30000 : 10000;
-            const data = await agentApi.listRepoTree(treePath || '.', depth, limit, false);
-            setTreeData(data);
+            setTreeData(await agentApi.listRepoTree('.', 12, 30000, false));
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load file tree.');
         } finally {
             setLoadingTree(false);
         }
-    }, [fullTreeMode, treePath]);
+    }, []);
 
     useEffect(() => {
         const shared = readSharedWorkspaceDraft();
@@ -179,12 +148,7 @@ export default function Builder() {
         if (shared.teamName) setSharedTeamName(String(shared.teamName));
         if (shared.savedTeamId) setSharedSavedTeamId(String(shared.savedTeamId));
         if (shared.savedTeamName) setSharedSavedTeamName(String(shared.savedTeamName));
-        if (Array.isArray(shared.selectedSkills)) {
-            setSharedSelectedSkills(shared.selectedSkills.map((row) => ({
-                slug: String(row.slug || ''),
-                name: String(row.name || ''),
-            })).filter((row) => row.slug));
-        }
+        if (Array.isArray(shared.selectedSkills)) setSharedSelectedSkills(shared.selectedSkills.map((row) => ({ slug: String(row.slug || ''), name: String(row.name || '') })).filter((row) => row.slug));
         if (shared.lastRunId) setSharedLastRunId(String(shared.lastRunId));
         if (shared.lastRunStatus) setSharedLastRunStatus(String(shared.lastRunStatus));
     }, []);
@@ -195,12 +159,7 @@ export default function Builder() {
             setSharedTeamName(String(shared.teamName || 'Auto Build Team'));
             setSharedSavedTeamId(String(shared.savedTeamId || ''));
             setSharedSavedTeamName(String(shared.savedTeamName || ''));
-            setSharedSelectedSkills(Array.isArray(shared.selectedSkills)
-                ? shared.selectedSkills.map((row) => ({
-                    slug: String(row.slug || ''),
-                    name: String(row.name || ''),
-                })).filter((row) => row.slug)
-                : []);
+            setSharedSelectedSkills(Array.isArray(shared.selectedSkills) ? shared.selectedSkills.map((row) => ({ slug: String(row.slug || ''), name: String(row.name || '') })).filter((row) => row.slug) : []);
             setSharedLastRunId(String(shared.lastRunId || ''));
             setSharedLastRunStatus(String(shared.lastRunStatus || ''));
         };
@@ -209,34 +168,32 @@ export default function Builder() {
     }, []);
 
     useEffect(() => {
-        agentApi.getSettings()
-            .then((cfg) => setSettings(cfg))
-            .catch(() => {});
-        refreshRuns().catch(() => {});
-        refreshTree().catch(() => {});
+        agentApi.getSettings().then(setSettings).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load settings.'));
+        refreshRuns().catch(() => undefined);
+        refreshTree().catch(() => undefined);
     }, [refreshRuns, refreshTree]);
 
     useEffect(() => {
-        const id = window.setInterval(() => refreshRuns().catch(() => {}), 2500);
-        return () => window.clearInterval(id);
+        setEditorWriteMode(Boolean(settings.review_gate ?? true) ? 'review' : 'direct');
+    }, [settings.review_gate]);
+
+    useEffect(() => {
+        const timer = window.setInterval(() => refreshRuns().catch(() => undefined), 2500);
+        return () => window.clearInterval(timer);
     }, [refreshRuns]);
 
     useEffect(() => {
         writeSharedWorkspaceDraft({
             prompt,
             context,
-            teamName: sharedTeamName,
+            teamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
+            selectedSkills: sharedSelectedSkills,
         });
-    }, [context, prompt, sharedTeamName]);
+    }, [context, prompt, sharedSavedTeamName, sharedSelectedSkills, sharedTeamName]);
 
     useEffect(() => {
         if (!runId) return;
-        const unsubscribe = agentApi.subscribeRunEvents(
-            runId,
-            (event) => setEvents((prev) => [...prev.slice(-499), event]),
-            () => {},
-        );
-        return unsubscribe;
+        return agentApi.subscribeRunEvents(runId, (event) => setEvents((prev) => [...prev.slice(-499), event]), () => undefined);
     }, [runId]);
 
     useEffect(() => {
@@ -246,29 +203,20 @@ export default function Builder() {
         }
         let active = true;
         setLoadingPreview(true);
-        const id = window.setTimeout(() => {
+        const timer = window.setTimeout(() => {
             agentApi.builderPreview({
                 prompt: prompt.trim(),
                 context: context.trim(),
-                team_name: 'Auto Build Team',
+                team_name: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
                 auto_agent_packs: true,
                 use_saved_teams: true,
-            })
-                .then((data) => {
-                    if (active) setPreview(data);
-                })
-                .catch(() => {
-                    if (active) setPreview(null);
-                })
-                .finally(() => {
-                    if (active) setLoadingPreview(false);
-                });
-        }, 450);
+            }).then((data) => active && setPreview(data)).catch(() => active && setPreview(null)).finally(() => active && setLoadingPreview(false));
+        }, 400);
         return () => {
             active = false;
-            window.clearTimeout(id);
+            window.clearTimeout(timer);
         };
-    }, [prompt, context]);
+    }, [context, prompt, sharedSavedTeamName, sharedTeamName]);
 
     useEffect(() => {
         const objective = [prompt.trim(), context.trim()].filter(Boolean).join('\n\n');
@@ -280,12 +228,8 @@ export default function Builder() {
         }
         let active = true;
         setLoadingRecommendedSkills(true);
-        const id = window.setTimeout(() => {
-            agentApi.selectSkills({
-                objective,
-                limit: 8,
-                include_context: true,
-            })
+        const timer = window.setTimeout(() => {
+            agentApi.selectSkills({ objective, limit: 8, include_context: true })
                 .then((data) => {
                     if (!active) return;
                     setRecommendedSkills(Array.isArray(data.selected) ? data.selected : []);
@@ -296,31 +240,174 @@ export default function Builder() {
                     setRecommendedSkills([]);
                     setRecommendedSkillContext('');
                 })
-                .finally(() => {
-                    if (active) setLoadingRecommendedSkills(false);
-                });
-        }, 500);
+                .finally(() => active && setLoadingRecommendedSkills(false));
+        }, 450);
         return () => {
             active = false;
-            window.clearTimeout(id);
+            window.clearTimeout(timer);
         };
     }, [context, prompt]);
 
+    useEffect(() => {
+        const reviewIds = currentRun?.review_ids || [];
+        if (!runId || reviewIds.length === 0) {
+            setRunReviews([]);
+            return;
+        }
+        let active = true;
+        setLoadingReviews(true);
+        Promise.all(reviewIds.slice(-6).map((reviewId) => agentApi.getReview(reviewId)))
+            .then((rows) => active && setRunReviews(rows))
+            .catch(() => active && setRunReviews([]))
+            .finally(() => active && setLoadingReviews(false));
+        return () => {
+            active = false;
+        };
+    }, [currentRun, runId]);
+
+    const upsertTab = useCallback((nextTab: Tab, activate = true) => {
+        setTabs((prev) => {
+            const idx = prev.findIndex((tab) => tab.id === nextTab.id);
+            if (idx === -1) return [...prev, nextTab];
+            const clone = [...prev];
+            clone[idx] = nextTab;
+            return clone;
+        });
+        if (activate) setActiveTabId(nextTab.id);
+    }, []);
+
     const openFile = useCallback(async (path: string) => {
         if (!path || path === '.') return;
-        setSelectedFile(path);
         setLoadingFile(true);
         setError('');
         try {
             const row = await agentApi.toolsRead(path);
-            setSelectedFileContent(row.content || '');
+            upsertTab({
+                id: `file:${row.path}`,
+                type: 'file',
+                title: row.path.split('/').pop() || row.path,
+                path: row.path,
+                content: row.content || '',
+                dirty: false,
+                language: detectLanguage(row.path),
+            }, true);
+            setSelectedDirectory(parentDirectory(row.path));
         } catch (err) {
-            setSelectedFileContent('');
             setError(err instanceof Error ? err.message : 'Failed to open file.');
         } finally {
             setLoadingFile(false);
         }
-    }, []);
+    }, [upsertTab]);
+
+    const openReviewDiff = useCallback((review: agentApi.AgentSpaceReview, path: string) => {
+        const tab = buildDiffTab(review, path);
+        if (tab) upsertTab(tab, true);
+    }, [upsertTab]);
+
+    const updateActiveTabContent = useCallback((content: string) => {
+        setTabs((prev) => prev.map((tab) => tab.id === activeTabId && tab.type === 'file' ? { ...tab, content, dirty: true } : tab));
+    }, [activeTabId]);
+
+    const closeTab = useCallback((tabId: string) => {
+        setTabs((prev) => {
+            const next = prev.filter((tab) => tab.id !== tabId);
+            if (activeTabId === tabId) setActiveTabId(next[next.length - 1]?.id || '');
+            return next;
+        });
+    }, [activeTabId]);
+
+    const handleWriteResult = useCallback(async (result: agentApi.ToolWriteResult, options: { path: string; content: string; successMessage: string; reviewMessage: string }) => {
+        if (result.mode === 'review' && result.review) {
+            const review = result.review;
+            setRunReviews((prev) => {
+                const withoutCurrent = prev.filter((row) => row.id !== review.id);
+                return [review, ...withoutCurrent];
+            });
+            openReviewDiff(review, options.path);
+            setTabs((prev) => prev.map((tab) => tab.id === `file:${options.path}` && tab.type === 'file' ? { ...tab, content: options.content, dirty: false } : tab));
+            setMessage(options.reviewMessage);
+            return;
+        }
+        setTabs((prev) => prev.map((tab) => tab.id === `file:${options.path}` && tab.type === 'file' ? { ...tab, content: options.content, dirty: false } : tab));
+        await refreshTree();
+        setMessage(options.successMessage);
+    }, [openReviewDiff, refreshTree]);
+
+    const saveActiveFile = useCallback(async () => {
+        if (!activeTab || activeTab.type !== 'file') return;
+        setSavingFile(true);
+        setMessage('');
+        setError('');
+        try {
+            const result = await agentApi.toolsWrite({
+                path: activeTab.path,
+                content: activeTab.content,
+                review_gate: editorWriteMode === 'review',
+            });
+            await handleWriteResult(result, {
+                path: activeTab.path,
+                content: activeTab.content,
+                successMessage: `Saved ${activeTab.path}.`,
+                reviewMessage: `Submitted ${activeTab.path} for review.`,
+            });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to save file.');
+        } finally {
+            setSavingFile(false);
+        }
+    }, [activeTab, editorWriteMode, handleWriteResult]);
+
+    const createWorkspaceNode = useCallback(async () => {
+        if (!pendingCreate) return;
+        const name = pendingCreate.value.trim();
+        if (!name) {
+            setError(`Enter a ${pendingCreate.kind} name first.`);
+            return;
+        }
+        const nextPath = joinRepoPath(pendingCreate.parentPath, name);
+        setCreatingNode(true);
+        setMessage('');
+        setError('');
+        try {
+            if (pendingCreate.kind === 'folder') {
+                await agentApi.createWorkspaceDirectory(nextPath);
+                setSelectedDirectory(nextPath);
+                setMessage(`Created folder ${nextPath}.`);
+            } else {
+                const result = await agentApi.toolsWrite({
+                    path: nextPath,
+                    content: '',
+                    review_gate: editorWriteMode === 'review',
+                });
+                setSelectedDirectory(parentDirectory(nextPath));
+                await handleWriteResult(result, {
+                    path: nextPath,
+                    content: '',
+                    successMessage: `Created file ${nextPath}.`,
+                    reviewMessage: `Submitted new file ${nextPath} for review.`,
+                });
+                if (result.mode !== 'review') {
+                    await openFile(nextPath);
+                } else {
+                    upsertTab({
+                        id: `file:${nextPath}`,
+                        type: 'file',
+                        title: nextPath.split('/').pop() || nextPath,
+                        path: nextPath,
+                        content: '',
+                        dirty: false,
+                        language: detectLanguage(nextPath),
+                    }, true);
+                }
+            }
+            setPendingCreate(null);
+            await refreshTree();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : `Failed to create ${pendingCreate.kind}.`);
+        } finally {
+            setCreatingNode(false);
+        }
+    }, [editorWriteMode, handleWriteResult, openFile, pendingCreate, refreshTree, upsertTab]);
 
     const launchBuild = useCallback(async () => {
         const cleanPrompt = prompt.trim();
@@ -333,11 +420,8 @@ export default function Builder() {
         setLoadingLaunch(true);
         setEvents([]);
         try {
-            const launchContext = [context.trim(), APP_CREATIONS_HINT].filter(Boolean).join('\n\n');
-            const preferredSkills = sharedSelectedSkills.map((skill) => skill.name).filter(Boolean);
-            const finalContext = preferredSkills.length > 0
-                ? [launchContext, `Preferred skills from Agent Studio:\n- ${preferredSkills.join('\n- ')}`].filter(Boolean).join('\n\n')
-                : launchContext;
+            const skillNames = sharedSelectedSkills.map((skill) => skill.name).filter(Boolean);
+            const finalContext = skillNames.length ? [context.trim(), `Preferred skills from Agent Studio:\n- ${skillNames.join('\n- ')}`].filter(Boolean).join('\n\n') : context.trim();
             const response = await agentApi.builderLaunch({
                 prompt: cleanPrompt,
                 context: finalContext,
@@ -356,38 +440,35 @@ export default function Builder() {
             setRunStatus(response.run.status);
             setSharedLastRunId(response.run.id);
             setSharedLastRunStatus(response.run.status);
-            const refs = Array.isArray(response.open_source_refs) ? response.open_source_refs.length : 0;
-            setMessage(
-                refs > 0
-                    ? `Build run started: ${response.run.id}. Open-source refs attached: ${refs}.`
-                    : `Build run started: ${response.run.id}.`,
-            );
             writeSharedWorkspaceDraft({
                 prompt: cleanPrompt,
                 context,
                 teamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
+                savedTeamId: sharedSavedTeamId,
                 savedTeamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
                 selectedSkills: sharedSelectedSkills,
                 lastRunId: response.run.id,
                 lastRunStatus: response.run.status,
                 lastRunObjective: cleanPrompt,
             });
+            setMessage(`Build run started: ${response.run.id}.`);
             await refreshRuns();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to start build run.');
         } finally {
             setLoadingLaunch(false);
         }
-    }, [context, prompt, refreshRuns, settings.allow_shell, settings.command_profile, settings.review_gate, sharedSavedTeamName, sharedSelectedSkills, sharedTeamName]);
+    }, [context, prompt, refreshRuns, settings.allow_shell, settings.command_profile, settings.continue_on_subagent_failure, settings.review_gate, sharedSavedTeamId, sharedSavedTeamName, sharedSelectedSkills, sharedTeamName]);
 
     const stopBuild = useCallback(async () => {
         if (!runId) return;
+        setLoadingStop(true);
         setError('');
         setMessage('');
-        setLoadingStop(true);
         try {
-            await agentApi.stopRun(runId, 'Stopped from Builder workspace.');
+            await agentApi.stopRun(runId, 'Stopped from Builder IDE.');
             setRunStatus('stopped');
+            setSharedLastRunStatus('stopped');
             setMessage(`Run ${runId} stop requested.`);
             await refreshRuns();
         } catch (err) {
@@ -398,29 +479,28 @@ export default function Builder() {
     }, [refreshRuns, runId]);
 
     const sendAgentControl = useCallback(async () => {
-        const note = agentMessage.trim();
-        if (!note) {
-            setError('Enter an orchestration message first.');
+        if (!agentMessage.trim()) {
+            setError('Enter an agent task or instruction first.');
             return;
         }
         if (!runId) {
             setError('No active run selected.');
             return;
         }
+        setSendingAgentMessage(true);
         setError('');
         setMessage('');
-        setSendingAgentMessage(true);
         try {
             await agentApi.postRunMessage(runId, {
                 from_agent: 'user',
                 to_agent: agentTo.trim(),
                 channel: agentChannel.trim() || 'general',
-                content: note,
+                content: agentMessage.trim(),
             });
             setAgentMessage('');
             setMessage(`Sent ${agentChannel} message to ${agentTo || 'agent team'}.`);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to send orchestration message.');
+            setError(err instanceof Error ? err.message : 'Failed to send agent instruction.');
         } finally {
             setSendingAgentMessage(false);
         }
@@ -432,13 +512,8 @@ export default function Builder() {
         setRunningTerminal(true);
         setError('');
         try {
-            const result = await agentApi.toolsShell({
-                command,
-                cwd: terminalCwd.trim() || '.',
-                profile: normalizeProfile(settings.command_profile),
-                timeout: 180,
-            });
-            const row: TerminalRow = {
+            const result = await agentApi.toolsShell({ command, cwd: terminalCwd.trim() || '.', profile: normalizeProfile(settings.command_profile), timeout: 180 });
+            setTerminalRows((prev) => [{
                 id: `${Date.now()}-${Math.random()}`,
                 command,
                 cwd: terminalCwd.trim() || '.',
@@ -446,11 +521,10 @@ export default function Builder() {
                 stdout: String(result.stdout || ''),
                 stderr: String(result.stderr || ''),
                 timestamp: Date.now(),
-            };
-            setTerminalRows((prev) => [row, ...prev].slice(0, 80));
+            }, ...prev].slice(0, 120));
             setTerminalCommand('');
         } catch (err) {
-            const row: TerminalRow = {
+            setTerminalRows((prev) => [{
                 id: `${Date.now()}-${Math.random()}`,
                 command,
                 cwd: terminalCwd.trim() || '.',
@@ -458,651 +532,201 @@ export default function Builder() {
                 stdout: '',
                 stderr: err instanceof Error ? err.message : 'Terminal command failed.',
                 timestamp: Date.now(),
-            };
-            setTerminalRows((prev) => [row, ...prev].slice(0, 80));
+            }, ...prev].slice(0, 120));
         } finally {
             setRunningTerminal(false);
         }
     }, [settings.command_profile, terminalCommand, terminalCwd]);
 
-    const exportBuildOutput = useCallback(async () => {
-        setError('');
+    const handleReviewAction = useCallback(async (reviewId: string, action: 'approve' | 'apply' | 'undo') => {
         setMessage('');
-        setExporting(true);
+        setError('');
         try {
-            const includePaths = exportPaths
-                .split('\n')
-                .map((line) => line.trim())
-                .filter(Boolean);
-            if (includePaths.length === 0) {
-                setError('Add at least one export include path.');
-                return;
-            }
-            const result = await agentApi.exportBundle(
-                exportTarget.trim() || 'app-build-export',
-                includePaths,
-                'build-page-export',
-            );
-            setMessage(`Exported ${result.count} path(s) to ${result.target_folder}.`);
+            if (action === 'approve') await agentApi.approveReview(reviewId);
+            if (action === 'apply') await agentApi.applyReview(reviewId);
+            if (action === 'undo') await agentApi.undoReview(reviewId);
+            const refreshed = await agentApi.getReview(reviewId);
+            setRunReviews((prev) => prev.map((row) => row.id === reviewId ? refreshed : row));
+            if (action !== 'approve') await refreshTree();
+            await refreshRuns();
+            setMessage(`Review ${reviewId.slice(0, 8)} ${action}d.`);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Export failed.');
-        } finally {
-            setExporting(false);
+            setError(err instanceof Error ? err.message : `Failed to ${action} review.`);
         }
-    }, [exportPaths, exportTarget]);
+    }, [refreshRuns, refreshTree]);
 
-    const previewNodes = useMemo<OrchestrationNode[]>(
-        () => (preview?.team_agents || []).map((agent) => ({
-            id: agent.id,
-            role: agent.role,
-            workerLevel: Number(agent.worker_level || 1) || 1,
-            model: String(agent.model || ''),
-            dependsOn: agent.depends_on || [],
-            description: agent.description || '',
-        })),
-        [preview],
-    );
+    const previewNodes = useMemo<FlowNode[]>(() => (preview?.team_agents || []).map((agent) => ({
+        id: agent.id,
+        role: agent.role,
+        workerLevel: Number(agent.worker_level || 1) || 1,
+        dependsOn: agent.depends_on || [],
+        description: agent.description || '',
+    })), [preview]);
 
-    const optionHelpEntries = useMemo(
-        () => Object.entries(preview?.option_help || {}),
-        [preview],
-    );
+    const visualNodes = useMemo<FlowNode[]>(() => {
+        const base = extractWorkflowNodes(events).length > 0 ? extractWorkflowNodes(events) : previewNodes;
+        const statuses = new Map<string, NodeStatus>();
+        base.forEach((node) => statuses.set(node.id, 'pending'));
+        events.forEach((evt) => {
+            const agentId = parseSubagentId(String(evt.message || ''), evt.type);
+            if (!agentId) return;
+            if (evt.type === 'subagent.started') statuses.set(agentId, 'running');
+            if (evt.type === 'subagent.completed') statuses.set(agentId, 'completed');
+            if (evt.type === 'subagent.error') statuses.set(agentId, 'failed');
+        });
+        return base.map((node) => ({ ...node, status: statuses.get(node.id) || 'pending' }));
+    }, [events, previewNodes]);
 
-    const liveNodes = useMemo<OrchestrationNode[]>(() => extractWorkflowNodesFromEvents(events), [events]);
-
-    const orchestrationNodes = useMemo<OrchestrationNode[]>(
-        () => (liveNodes.length > 0 ? liveNodes : previewNodes),
-        [liveNodes, previewNodes],
-    );
-
-    const orchestrationStatuses = useMemo(() => {
-        const statusMap = new Map<string, OrchestrationStatus>();
-        for (const node of orchestrationNodes) {
-            statusMap.set(node.id, runId ? 'pending' : 'idle');
-        }
-        for (const evt of events) {
-            const id = parseSubagentId(String(evt.message || ''), evt.type);
-            if (!id) continue;
-            if (evt.type === 'subagent.started') statusMap.set(id, 'running');
-            if (evt.type === 'subagent.completed') statusMap.set(id, 'completed');
-            if (evt.type === 'subagent.error') statusMap.set(id, 'failed');
-        }
-        return statusMap;
-    }, [events, orchestrationNodes, runId]);
-
-    const visualNodes = useMemo<OrchestrationNode[]>(
-        () => orchestrationNodes.map((node) => ({ ...node, status: orchestrationStatuses.get(node.id) || 'idle' })),
-        [orchestrationNodes, orchestrationStatuses],
-    );
-
-    const agentIds = useMemo(() => {
-        const ids = new Set<string>();
-        for (const node of visualNodes) ids.add(node.id);
-        if (ids.size === 0) ids.add('planner');
-        return Array.from(ids);
-    }, [visualNodes]);
-
-    const messageFlow = useMemo<AgentMessageRow[]>(() => {
-        const rows: AgentMessageRow[] = [];
-        for (const evt of events) {
-            if (evt.type !== 'agent.message') continue;
-            const payload = (evt.data as { message?: Record<string, unknown> })?.message;
-            if (payload && typeof payload === 'object') {
-                rows.push({
-                    from: String(payload.from || ''),
-                    to: String(payload.to || 'broadcast') || 'broadcast',
-                    channel: String(payload.channel || 'general'),
-                });
-                continue;
-            }
-            const line = String(evt.message || '');
-            const m = line.match(/^(.+?)\s->\s(.+?)\s\[(.+?)\]$/);
-            if (m) rows.push({ from: m[1], to: m[2], channel: m[3] });
-        }
-        return rows.slice(-40).reverse();
-    }, [events]);
+    const agentIds = useMemo(() => visualNodes.map((node) => node.id), [visualNodes]);
+    const activityRows = useMemo(() => [...events.map((evt, index) => ({
+        id: `event:${index}:${evt.type}`,
+        timestamp: Number(evt.timestamp || 0),
+        title: evt.type,
+        prefix: 'agent',
+        body: String(evt.message || ''),
+        tone: evt.type.includes('error') || evt.type.includes('failed') ? 'text-accent-red' : evt.type.includes('completed') ? 'text-accent-green' : 'text-text-secondary',
+    })), ...terminalRows.map((row) => ({
+        id: `terminal:${row.id}`,
+        timestamp: row.timestamp,
+        title: `${row.cwd} $ ${row.command}`,
+        prefix: 'terminal',
+        body: [row.stdout, row.stderr].filter(Boolean).join('\n') || `exit_code: ${row.exitCode}`,
+        tone: row.exitCode === 0 ? 'text-text-secondary' : 'text-accent-red',
+    }))].sort((a, b) => b.timestamp - a.timestamp).slice(0, 200), [events, terminalRows]);
 
     return (
-        <div className="builder-workspace h-full min-h-0 overflow-auto p-3 md:p-6">
-            <div className="mx-auto min-h-full w-full max-w-[1720px] grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_360px] gap-4">
-                <aside className="rounded-card border border-surface-3 bg-surface-1 flex flex-col overflow-hidden md:min-h-0">
-                    <div className="px-4 py-3 border-b border-surface-3">
-                        <p className="text-sm font-semibold text-text-primary">File Structure</p>
-                        <p className="text-[11px] text-text-secondary">
-                            Full repository tree + app creations hub.
-                            {advancedMode ? ' Advanced controls are visible.' : ' Simple mode is active.'}
-                        </p>
-                    </div>
-                    <div className="p-3 border-b border-surface-3 flex flex-col gap-2">
-                        <p className="text-[11px] uppercase tracking-wide text-text-secondary">Editable</p>
-                        <div className="flex items-center gap-2">
-                            <input
-                                value={treePath}
-                                onChange={(e) => setTreePath(e.target.value)}
-                                className="builder-input flex-1 bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                placeholder="."
-                            />
-                            <button
-                                type="button"
-                                onClick={() => refreshTree().catch(() => {})}
-                                className="px-2 py-1.5 rounded-btn border border-accent/40 text-accent text-xs"
-                            >
-                                {loadingTree ? '...' : 'Refresh'}
-                            </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setTreePath('.')}
-                                className="px-2 py-1 rounded-btn border border-surface-4 text-xs text-text-secondary hover:bg-surface-2"
-                            >
-                                Full Repo
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setFullTreeMode((prev) => !prev)}
-                                className={`px-2 py-1 rounded-btn border text-xs ${
-                                    fullTreeMode
-                                        ? 'border-accent/40 text-accent bg-accent/10'
-                                        : 'border-surface-4 text-text-secondary hover:bg-surface-2'
-                                }`}
-                                disabled={!advancedMode}
-                            >
-                                {fullTreeMode ? 'Full Tree ON' : 'Fast Tree'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setTreePath(APP_CREATIONS_DIR)}
-                                className="px-2 py-1 rounded-btn border border-accent/40 text-xs text-accent"
-                            >
-                                App Creations
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => openFile(APP_CREATIONS_INDEX).catch(() => {})}
-                                className="px-2 py-1 rounded-btn border border-surface-4 text-xs text-text-secondary hover:bg-surface-2"
-                            >
-                                Open Index File
-                            </button>
-                        </div>
-                        <p className="text-[11px] text-text-muted">
-                            mode: {fullTreeMode ? 'full tree (slower)' : 'fast tree'}
-                        </p>
-                        {!advancedMode && (
-                            <p className="text-[11px] text-text-muted">
-                                Turn on advanced mode to enable deep tree scanning and preview panes.
-                            </p>
-                        )}
-                    </div>
-                    <div className="flex-1 overflow-auto p-3 md:min-h-0">
-                        {!treeData && <p className="text-xs text-text-secondary">No tree loaded.</p>}
-                        {treeData && (
-                            <>
-                                <p className="text-[11px] text-text-muted mb-2">
-                                    root: {treeData.root} • scanned: {treeData.scanned}
-                                    {treeData.truncated ? ' • truncated' : ''}
-                                </p>
-                                <RepoTreeNodeView
-                                    node={treeData.tree}
-                                    selectedFile={selectedFile}
-                                    onOpenFile={openFile}
-                                    depth={0}
-                                />
-                            </>
-                        )}
-                    </div>
-                    {advancedMode && (
-                        <div className="border-t border-surface-3 p-3 h-[220px] md:h-[38%] min-h-[160px] overflow-auto">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">File Preview</p>
-                            <p className="text-[11px] text-text-muted mt-1 truncate">{selectedFile || 'No file selected'}</p>
-                            <pre className="mt-2 text-xs text-text-primary whitespace-pre-wrap bg-surface-0 border border-surface-3 rounded-btn p-2 max-h-[240px] overflow-auto">
-                                {loadingFile ? 'Loading file...' : (selectedFileContent || 'Select a file to preview.')}
-                            </pre>
-                        </div>
-                    )}
-                </aside>
-
-                <main className="flex flex-col gap-4 overflow-auto md:min-h-0 md:pr-1">
-                    <section className="rounded-card border border-surface-3 bg-surface-1 p-4 md:p-5">
-                        <div className="flex items-center justify-between gap-2">
-                            <div>
-                                <h1 className="text-base font-semibold text-text-primary">App Builder Workspace</h1>
-                                <p className="text-[11px] text-text-secondary">
-                                    Prompt the build and monitor progress. New apps are saved to {APP_CREATIONS_DIR}.
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="text-xs text-text-secondary">
-                                    run: {runId ? `${runId.slice(0, 8)} • ${runStatus || 'running'}` : 'none'}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setAdvancedMode((prev) => !prev)}
-                                    className={`px-2.5 py-1.5 rounded-btn border text-xs ${
-                                        advancedMode
-                                            ? 'border-accent/40 text-accent bg-accent/10'
-                                            : 'border-surface-4 text-text-secondary hover:bg-surface-2'
-                                    }`}
-                                >
-                                    {advancedMode ? 'Advanced: ON' : 'Simple: ON'}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="mt-4 grid md:grid-cols-2 gap-3">
-                            <div>
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary mb-1">Build Prompt (Editable)</p>
-                                <textarea
-                                    rows={4}
-                                    value={prompt}
-                                    onChange={(e) => setPrompt(e.target.value)}
-                                    className="builder-input w-full bg-surface-0 border border-surface-4 rounded-btn px-3 py-2 text-xs text-text-primary"
-                                    placeholder="Describe the app to build..."
-                                />
-                            </div>
-                            <div>
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary mb-1">Context (Editable)</p>
-                                <textarea
-                                    rows={4}
-                                    value={context}
-                                    onChange={(e) => setContext(e.target.value)}
-                                    className="builder-input w-full bg-surface-0 border border-surface-4 rounded-btn px-3 py-2 text-xs text-text-primary"
-                                    placeholder="Optional implementation context..."
-                                />
-                            </div>
-                        </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                disabled={loadingLaunch}
-                                onClick={launchBuild}
-                                className="px-3 py-2 rounded-btn border border-accent-green/40 text-accent-green text-xs disabled:opacity-40 flex items-center gap-1.5"
-                            >
-                                {loadingLaunch && (
-                                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
-                                )}
-                                {loadingLaunch ? 'Launching...' : 'Start Autonomous Build'}
-                            </button>
-                            <button
-                                type="button"
-                                disabled={!runId || loadingStop}
-                                onClick={stopBuild}
-                                className="px-3 py-2 rounded-btn border border-accent-red/40 text-accent-red text-xs disabled:opacity-40"
-                            >
-                                {loadingStop ? 'Stopping...' : 'Stop Build'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => refreshRuns().catch(() => {})}
-                                className="px-3 py-2 rounded-btn border border-accent/40 text-accent text-xs"
-                            >
-                                Refresh Runs
-                            </button>
-                            {loadingPreview && <span className="text-xs text-text-muted self-center">previewing agents...</span>}
-                            {!loadingPreview && preview && (
-                                <span className="text-xs text-text-muted self-center">
-                                    agents: {preview.team_agent_count} • complexity: {preview.complexity?.level || 'n/a'}
-                                </span>
-                            )}
-                            {!advancedMode && (
-                                <span className="text-xs text-text-muted self-center">
-                                    Simple mode hides terminal/export/manual orchestration.
-                                </span>
-                            )}
-                        </div>
-                        <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-3">
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary">What Builder Will Do</p>
-                                <div className="mt-2 space-y-1 text-xs text-text-secondary">
-                                    <p>1. Interpret your prompt and choose an agent plan.</p>
-                                    <p>2. Auto-select skills that fit the build objective.</p>
-                                    <p>3. Research when the task needs current or external information.</p>
-                                    <p>4. Write changes into the repo and surface them in Review.</p>
-                                </div>
-                                {preview && (
-                                    <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                                        <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
-                                            {preview.team_agent_count} agents
-                                        </span>
-                                        <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
-                                            complexity {preview.complexity?.level || 'n/a'}
-                                        </span>
-                                        <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
-                                            saved teams {preview.used_saved_teams.length}
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary">Auto-Selected Skills</p>
-                                <div className="mt-2 min-h-[58px]">
-                                    {loadingRecommendedSkills && (
-                                        <p className="text-xs text-text-muted">matching skills to objective...</p>
-                                    )}
-                                    {!loadingRecommendedSkills && recommendedSkills.length === 0 && (
-                                        <p className="text-xs text-text-secondary">No skill recommendations yet. Start describing the app and jimAI will infer them automatically.</p>
-                                    )}
-                                    {!loadingRecommendedSkills && recommendedSkills.length > 0 && (
-                                        <div className="flex flex-wrap gap-2">
-                                            {recommendedSkills.slice(0, 8).map((skill) => (
-                                                <span
-                                                    key={skill.slug}
-                                                    className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent"
-                                                    title={skill.description}
-                                                >
-                                                    {skill.name}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                {advancedMode && recommendedSkillContext && (
-                                    <details className="mt-3">
-                                        <summary className="cursor-pointer text-[11px] text-text-primary">Skill context preview</summary>
-                                        <pre className="mt-2 max-h-36 overflow-auto rounded-btn border border-surface-3 bg-surface-1 p-2 text-[10px] text-text-secondary whitespace-pre-wrap">
-                                            {recommendedSkillContext}
-                                        </pre>
-                                    </details>
-                                )}
-                            </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary">Auto Decisions</p>
-                                <div className="mt-2 space-y-2 text-xs text-text-secondary">
-                                    {optionHelpEntries.length === 0 && (
-                                        <p>Builder decisions appear here once the prompt preview is ready.</p>
-                                    )}
-                                    {optionHelpEntries.slice(0, 5).map(([key, value]) => (
-                                        <div key={key}>
-                                            <p className="text-text-primary">{humanizeOptionKey(key)}</p>
-                                            <p>{String(value || '')}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-3 rounded-btn border border-surface-3 bg-surface-0 p-3">
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                                <span className="text-text-secondary">Connected workspace:</span>
-                                <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
-                                    team {sharedSavedTeamName || sharedTeamName || 'Auto Build Team'}
-                                </span>
-                                {sharedSelectedSkills.slice(0, 4).map((skill) => (
-                                    <span key={skill.slug} className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
-                                        {skill.name}
-                                    </span>
-                                ))}
-                                {(sharedLastRunId || sharedSavedTeamId) && (
-                                    <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
-                                        {sharedSavedTeamId ? `saved ${sharedSavedTeamId.slice(0, 8)} · ` : ''}
-                                        {sharedLastRunId ? `last run ${sharedLastRunStatus || 'unknown'} · ${sharedLastRunId.slice(0, 8)}` : 'team connected'}
-                                    </span>
-                                )}
-                            </div>
-                            <p className="mt-2 text-[11px] text-text-muted">
-                                Agent Studio saves the active team and selected skills here automatically so Builder can reuse them.
-                            </p>
-                        </div>
-                    </section>
-
-                    <section className="md:flex-1 md:min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] gap-4 overflow-visible">
-                        <div className="rounded-card border border-surface-3 bg-surface-1 p-4 md:min-h-0 flex flex-col">
-                            <p className="text-sm font-semibold text-text-primary">Live Run Events</p>
-                            <div className="mt-3 flex-1 overflow-auto space-y-2 md:min-h-0">
-                                {events.length === 0 && <p className="text-xs text-text-secondary">No events yet.</p>}
-                                {events.map((evt, idx) => (
-                                    <div key={`${idx}-${evt.type}`} className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                        <p className="text-[11px] text-text-primary">{evt.type}</p>
-                                        <p className="text-[11px] text-text-secondary">{String(evt.message || '')}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="rounded-card border border-surface-3 bg-surface-1 p-4 md:min-h-0 flex flex-col">
-                            <p className="text-sm font-semibold text-text-primary">Recent Runs</p>
-                            <div className="mt-2 flex-1 overflow-auto space-y-2 md:min-h-0">
-                                {runs.map((row) => (
-                                    <button
-                                        key={row.id}
-                                        type="button"
-                                        onClick={() => {
-                                            setRunId(row.id);
-                                            setRunStatus(row.status);
-                                            setEvents([]);
-                                        }}
-                                        className={`w-full text-left rounded-btn border p-2 ${
-                                            runId === row.id ? 'border-accent/50 bg-surface-2' : 'border-surface-3 bg-surface-0'
-                                        }`}
-                                    >
-                                        <p className="text-xs text-text-primary truncate">{row.objective}</p>
-                                        <p className="text-[11px] text-text-secondary mt-1">{row.status} • actions {row.action_count}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </section>
-
-                    {advancedMode && (
-                        <section className="rounded-card border border-surface-3 bg-surface-1 p-4 min-h-[280px] md:min-h-[220px] flex flex-col">
-                            <p className="text-sm font-semibold text-text-primary">Terminal</p>
-                            <p className="text-[11px] text-text-secondary">Run repository commands with policy/profile gates.</p>
-                            <div className="mt-2 grid grid-cols-1 md:grid-cols-[160px_minmax(0,1fr)_120px] gap-2">
-                                <input
-                                    value={terminalCwd}
-                                    onChange={(e) => setTerminalCwd(e.target.value)}
-                                    className="builder-input bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                    placeholder="cwd"
-                                />
-                                <input
-                                    value={terminalCommand}
-                                    onChange={(e) => setTerminalCommand(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') runTerminalCommand().catch(() => {});
-                                    }}
-                                    className="builder-input bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                    placeholder="npm test"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => runTerminalCommand().catch(() => {})}
-                                    disabled={runningTerminal}
-                                    className="px-3 py-1.5 rounded-btn border border-accent/40 text-accent text-xs disabled:opacity-40"
-                                >
-                                    {runningTerminal ? 'Running...' : 'Run'}
-                                </button>
-                            </div>
-                            <div className="mt-2 flex-1 overflow-auto space-y-2 md:min-h-0">
-                                {terminalRows.length === 0 && <p className="text-xs text-text-secondary">No terminal output yet.</p>}
-                                {terminalRows.map((row) => (
-                                    <div key={row.id} className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                        <p className="text-[11px] text-text-primary">
-                                            {row.cwd} $ {row.command}
-                                        </p>
-                                        <p className={`text-[11px] mt-1 ${row.exitCode === 0 ? 'text-accent-green' : 'text-accent-red'}`}>
-                                            exit_code: {row.exitCode}
-                                        </p>
-                                        {row.stdout && (
-                                            <pre className="mt-1 text-[11px] text-text-secondary whitespace-pre-wrap">{row.stdout}</pre>
-                                        )}
-                                        {row.stderr && (
-                                            <pre className="mt-1 text-[11px] text-accent-red whitespace-pre-wrap">{row.stderr}</pre>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
-                    )}
-
-                    {advancedMode && (
-                        <section className="rounded-card border border-surface-3 bg-surface-1 p-4 md:p-5">
-                            <p className="text-sm font-semibold text-text-primary">Export App</p>
-                            <p className="text-[11px] text-text-secondary mt-1">
-                                Export built app folders for separate repos/deploy pipelines.
-                            </p>
-                            <div className="mt-3 grid md:grid-cols-[260px_minmax(0,1fr)_120px] gap-2">
-                                <input
-                                    value={exportTarget}
-                                    onChange={(e) => setExportTarget(e.target.value)}
-                                    className="builder-input bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                    placeholder="target folder"
-                                />
-                                <textarea
-                                    rows={2}
-                                    value={exportPaths}
-                                    onChange={(e) => setExportPaths(e.target.value)}
-                                    className="builder-input bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                    placeholder="one include path per line"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => exportBuildOutput().catch(() => {})}
-                                    disabled={exporting}
-                                    className="px-3 py-1.5 rounded-btn border border-accent/40 text-accent text-xs disabled:opacity-40"
-                                >
-                                    {exporting ? 'Exporting...' : 'Export'}
-                                </button>
-                            </div>
-                        </section>
-                    )}
-                </main>
-
-                <aside className="rounded-card border border-surface-3 bg-surface-1 flex flex-col overflow-hidden md:min-h-0">
-                    <div className="px-4 py-3 border-b border-surface-3">
-                        <p className="text-sm font-semibold text-text-primary">Agent Panel</p>
-                        <p className="text-[11px] text-text-secondary">Orchestrate agents, inspect levels, and send control messages.</p>
-                    </div>
-                    <div className="p-3 border-b border-surface-3">
-                        <div className="grid grid-cols-3 gap-2 text-[11px]">
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                <p className="text-text-muted">Agents</p>
-                                <p className="text-text-primary">{visualNodes.length || 0}</p>
-                            </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                <p className="text-text-muted">Run</p>
-                                <p className="text-text-primary">{runStatus || 'idle'}</p>
-                            </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                <p className="text-text-muted">Messages</p>
-                                <p className="text-text-primary">{messageFlow.length}</p>
-                            </div>
-                        </div>
-                    </div>
-                    {advancedMode && (
-                        <div className="p-3 border-b border-surface-3 space-y-3">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Orchestrate (Editable)</p>
-                            <select
-                                value={agentTo}
-                                onChange={(e) => setAgentTo(e.target.value)}
-                                className="builder-input w-full bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                            >
-                                <option value="">All / Planner</option>
-                                {agentIds.map((id) => (
-                                    <option key={id} value={id}>{id}</option>
-                                ))}
-                            </select>
-                            <select
-                                value={agentChannel}
-                                onChange={(e) => setAgentChannel(e.target.value)}
-                                className="builder-input w-full bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                            >
-                                <option value="change-request">change-request</option>
-                                <option value="handoff">handoff</option>
-                                <option value="verification">verification</option>
-                                <option value="general">general</option>
-                            </select>
-                            <textarea
-                                rows={3}
-                                value={agentMessage}
-                                onChange={(e) => setAgentMessage(e.target.value)}
-                                className="builder-input w-full bg-surface-0 border border-surface-4 rounded-btn px-2 py-1.5 text-xs text-text-primary"
-                                placeholder="Tell agents what to modify, prioritize, or validate..."
-                            />
-                            <button
-                                type="button"
-                                disabled={!runId || sendingAgentMessage}
-                                onClick={() => sendAgentControl().catch(() => {})}
-                                className="w-full px-3 py-2 rounded-btn border border-accent/40 text-accent text-xs disabled:opacity-40"
-                            >
-                                {sendingAgentMessage ? 'Sending...' : 'Send Orchestration Message'}
-                            </button>
-                        </div>
-                    )}
-                    <div className="flex-1 overflow-auto p-3 space-y-3 md:min-h-0">
-                        <p className="text-[11px] uppercase tracking-wide text-text-secondary">Agents & Levels</p>
-                        {visualNodes.length === 0 && <p className="text-xs text-text-secondary">No agent plan yet.</p>}
-                        {visualNodes.map((node) => (
-                            <div key={node.id} className={`rounded-btn border p-2 ${statusTone(node.status || 'idle')}`}>
-                                <p className="text-xs text-text-primary">{node.id}</p>
-                                <p className="text-[11px] text-text-secondary mt-1">
-                                    {node.role} • L{node.workerLevel}
-                                </p>
-                                {node.dependsOn.length > 0 && (
-                                    <p className="text-[11px] text-text-muted mt-1">depends: {node.dependsOn.join(', ')}</p>
-                                )}
-                            </div>
-                        ))}
-                        {advancedMode && (
-                            <>
-                                <p className="text-[11px] uppercase tracking-wide text-text-secondary pt-2">Agent Messages</p>
-                                {messageFlow.length === 0 && <p className="text-xs text-text-secondary">No agent messages yet.</p>}
-                                {messageFlow.map((row, idx) => (
-                                    <div key={`${idx}-${row.from}-${row.to}`} className="rounded-btn border border-surface-3 bg-surface-0 p-2">
-                                        <p className="text-[11px] text-text-secondary">
-                                            {row.from} {'->'} {row.to} [{row.channel}]
-                                        </p>
-                                    </div>
-                                ))}
-                            </>
-                        )}
-                    </div>
-                </aside>
+        <div className="h-full min-h-0 flex flex-col bg-surface-0 text-text-primary">
+            <div className="flex items-center justify-between gap-4 border-b border-surface-3 bg-surface-1 px-4 py-3">
+                <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-text-secondary">Builder IDE</p>
+                    <h1 className="mt-1 text-lg font-semibold">Cursor-style build workspace</h1>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <button type="button" onClick={() => setShowGitHubPanel(true)} className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1 text-text-primary hover:bg-surface-2">
+                        GitHub
+                    </button>
+                    <span className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1">team {sharedSavedTeamName || sharedTeamName || 'Auto Build Team'}</span>
+                    {sharedSelectedSkills.slice(0, 4).map((skill) => <span key={skill.slug} className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-accent">{skill.name}</span>)}
+                    {(runId || sharedLastRunId) && <span className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1">{runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}</span>}
+                </div>
             </div>
-            {message && <p className="mt-2 text-sm text-accent-green">{message}</p>}
-            {error && <p className="mt-2 text-sm text-accent-red">{error}</p>}
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_360px] xl:grid-rows-[minmax(0,1fr)_240px]">
+                <aside className="border-b border-r border-surface-3 bg-surface-1 xl:row-span-2 flex min-h-[260px] flex-col xl:min-h-0">
+                    <div className="border-b border-surface-3 px-3 py-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Explorer</p><p className="mt-1 text-sm text-text-primary">Repo tree</p></div>
+                            <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-btn border border-surface-4 px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-2">{loadingTree ? 'Refreshing…' : 'Refresh'}</button>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                            <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1.5 text-[11px] text-text-primary hover:bg-surface-2">+ File</button>
+                            <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1.5 text-[11px] text-text-primary hover:bg-surface-2">+ Folder</button>
+                        </div>
+                    </div>
+                    <div className="min-h-0 flex-1 overflow-auto p-2">
+                        {treeData ? <FileTreeNode node={treeData.tree} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} /> : <p className="px-2 py-3 text-xs text-text-secondary">Loading repository tree…</p>}
+                    </div>
+                </aside>
+
+                <section className="flex min-h-[340px] min-w-0 flex-col xl:min-h-0">
+                    <div className="border-b border-surface-3 bg-surface-1">
+                        <div className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Editor</p><p className="truncate text-sm text-text-primary">{activeTab ? activeTab.path : 'Open a file or diff from the explorer or review panel.'}</p></div>
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center rounded-btn border border-surface-4 bg-surface-0 p-1 text-[11px]">
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditorWriteMode('review')}
+                                        className={cn('rounded px-2 py-1', editorWriteMode === 'review' ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')}
+                                    >
+                                        Review mode
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditorWriteMode('direct')}
+                                        className={cn('rounded px-2 py-1', editorWriteMode === 'direct' ? 'bg-accent-green/15 text-accent-green' : 'text-text-secondary hover:bg-surface-2')}
+                                    >
+                                        Direct mode
+                                    </button>
+                                </div>
+                                {activeTab?.type === 'file' && <button type="button" onClick={() => saveActiveFile().catch(() => undefined)} disabled={savingFile || !activeTab.dirty} className="rounded-btn border border-accent/40 px-3 py-1.5 text-xs text-accent disabled:opacity-50">{savingFile ? (editorWriteMode === 'review' ? 'Submitting…' : 'Saving…') : activeTab.dirty ? (editorWriteMode === 'review' ? 'Submit for Review' : 'Save File') : editorWriteMode === 'review' ? 'In Review' : 'Saved'}</button>}
+                                {loadingFile && <span className="text-[11px] text-text-secondary">Opening…</span>}
+                            </div>
+                        </div>
+                        <div className="flex gap-1 overflow-auto border-t border-surface-3 px-2 py-2">
+                            {tabs.length === 0 && <span className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-1 text-[11px] text-text-secondary">No open tabs</span>}
+                            {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTabId(tab.id)} className={cn('group flex items-center gap-2 rounded-btn border px-3 py-1.5 text-xs', activeTabId === tab.id ? 'border-accent/40 bg-surface-0 text-text-primary' : 'border-surface-4 bg-surface-1 text-text-secondary hover:bg-surface-2')}><span className="truncate max-w-[180px]">{tab.title}{tab.type === 'file' && tab.dirty ? ' *' : ''}</span><span onClick={(event) => { event.stopPropagation(); closeTab(tab.id); }} className="rounded px-1 text-text-muted hover:bg-surface-2 hover:text-text-primary">×</span></button>)}
+                        </div>
+                    </div>
+                    <div className="min-h-0 flex-1 bg-[#0d1117]">
+                        {activeTab?.type === 'file' && <Editor height="100%" language={activeTab.language} value={activeTab.content} theme="vs-dark" onChange={(value) => updateActiveTabContent(value || '')} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />}
+                        {activeTab?.type === 'diff' && <DiffEditor height="100%" original={activeTab.original} modified={activeTab.modified} theme="vs-dark" language={detectLanguage(activeTab.path)} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true }} />}
+                        {!activeTab && <div className="flex h-full items-center justify-center p-8"><div className="max-w-2xl rounded-card border border-surface-3 bg-surface-1 p-6"><p className="text-xs uppercase tracking-wide text-text-secondary">Workspace Ready</p><h2 className="mt-2 text-xl font-semibold text-text-primary">Edit the repo, run agents, review diffs, and monitor logs in one page.</h2><div className="mt-4 grid gap-3 md:grid-cols-2"><div className="rounded-btn border border-surface-3 bg-surface-0 p-3"><p className="text-sm text-text-primary">Prompt preview</p><p className="mt-2 text-xs text-text-secondary">{loadingPreview ? 'Preparing builder preview…' : preview ? `${preview.team_agent_count} agents ready for the current objective.` : 'Start typing a build objective to generate the agent plan.'}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-3"><p className="text-sm text-text-primary">Suggested skills</p><p className="mt-2 text-xs text-text-secondary">{loadingRecommendedSkills ? 'Selecting skills…' : recommendedSkills.length > 0 ? recommendedSkills.slice(0, 4).map((skill) => skill.name).join(', ') : 'Skills appear here once the objective is clear enough.'}</p></div></div></div></div>}
+                    </div>
+                </section>
+
+                <aside className="border-b border-l border-surface-3 bg-surface-1 xl:min-h-0 flex min-h-[300px] flex-col">
+                    <div className="border-b border-surface-3 px-4 py-3"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent interface</p><p className="mt-1 text-sm text-text-primary">Run and supervise agents from the editor</p></div>
+                    <div className="min-h-0 flex-1 overflow-auto p-4 space-y-4">
+                        <div className="grid grid-cols-3 gap-2 text-[11px]"><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Agents</p><p className="mt-1 text-text-primary">{visualNodes.length || previewNodes.length || 0}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Run</p><p className="mt-1 text-text-primary">{runStatus || 'idle'}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Reviews</p><p className="mt-1 text-text-primary">{runReviews.length}</p></div></div>
+                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Task</p>
+                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none" placeholder="Describe the app to build" />
+                            <textarea rows={4} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-3 py-2 text-xs text-black outline-none" placeholder="Optional repo context, constraints, or acceptance criteria" />
+                            <div className="mt-3 flex gap-2"><button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{loadingLaunch ? 'Launching...' : 'Start Autonomous Build'}</button><button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-btn border border-accent-red/40 px-3 py-2 text-xs text-accent-red disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button></div>
+                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">{skill.name}</span>)}</div>}
+                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer text-text-primary">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-btn border border-surface-3 bg-surface-1 p-2 text-[10px]">{recommendedSkillContext}</pre></details>}
+                        </div>
+                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Current agent team</p>
+                            <div className="mt-3 space-y-2">{visualNodes.length === 0 ? <p className="text-xs text-text-secondary">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-btn border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{node.id}</p><p className="mt-1 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-full border border-surface-4 px-2 py-1 text-[10px] text-text-secondary">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
+                        </div>
+                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent control</p>
+                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
+                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
+                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-2 text-xs text-black outline-none" placeholder="Tell the active team what to change, prioritize, or verify." />
+                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
+                        </div>
+                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
+                            <div className="flex items-center justify-between gap-2"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent diffs</p>{loadingReviews && <span className="text-[11px] text-text-secondary">Loading…</span>}</div>
+                            <div className="mt-3 space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-secondary">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-btn border border-surface-3 bg-surface-1 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{review.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-full border border-surface-4 bg-surface-0 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-btn border border-accent/40 px-2 py-1 text-[11px] text-accent">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-btn border border-accent-green/40 px-2 py-1 text-[11px] text-accent-green">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-btn border border-accent-red/40 px-2 py-1 text-[11px] text-accent-red">Undo</button></div></div>)}</div>
+                        </div>
+                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
+                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Recent runs</p>
+                            <div className="mt-3 space-y-2">{runs.length === 0 ? <p className="text-xs text-text-secondary">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-btn border p-2 text-left', runId === row.id ? 'border-accent/40 bg-surface-1' : 'border-surface-3 bg-surface-0')}><p className="truncate text-xs text-text-primary">{row.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{row.status} · {row.action_count} actions</p></button>)}</div>
+                        </div>
+                    </div>
+                </aside>
+
+                <section className="col-span-1 border-t border-surface-3 bg-[#0a0f14] xl:col-span-2 xl:col-start-2 xl:border-l">
+                    <div className="flex items-center justify-between gap-3 border-b border-surface-3 px-3 py-2">
+                        <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Terminal / agent log</p><p className="text-xs text-text-muted">Shell output and live agent events stream here.</p></div>
+                        <div className="flex items-center gap-2"><input value={terminalCwd} onChange={(e) => setTerminalCwd(e.target.value)} className="w-36 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="cwd" /><input value={terminalCommand} onChange={(e) => setTerminalCommand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runTerminalCommand().catch(() => undefined); }} className="w-64 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="npm test" /><button type="button" onClick={() => runTerminalCommand().catch(() => undefined)} disabled={runningTerminal} className="rounded-btn border border-accent/40 px-3 py-1 text-xs text-accent disabled:opacity-50">{runningTerminal ? 'Running…' : 'Run'}</button></div>
+                    </div>
+                    <div className="h-[240px] overflow-auto px-3 py-3 font-mono text-[11px] leading-5 text-text-secondary">{activityRows.length === 0 ? <p className="text-text-muted">No terminal output or agent events yet.</p> : activityRows.map((row) => <div key={row.id} className="border-b border-surface-3/40 py-2 last:border-b-0"><div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted"><span>{formatTime(row.timestamp)}</span><span>{row.prefix}</span><span className="text-text-primary normal-case tracking-normal">{row.title}</span></div><pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>{row.body || '(no output)'}</pre></div>)}</div>
+                </section>
+            </div>
+
+            {(message || error) && <div className="border-t border-surface-3 bg-surface-1 px-4 py-2">{message && <p className="text-sm text-accent-green">{message}</p>}{error && <p className="text-sm text-accent-red">{error}</p>}</div>}
+            <GitHubPanel open={showGitHubPanel} onClose={() => setShowGitHubPanel(false)} onRepositoryChanged={refreshTree} />
         </div>
     );
 }
 
-function RepoTreeNodeView({
-    node,
-    selectedFile,
-    onOpenFile,
-    depth,
-}: {
-    node: agentApi.RepoTreeNode;
-    selectedFile: string;
-    onOpenFile: (path: string) => void;
-    depth: number;
-}) {
+function FileTreeNode({ node, depth, selectedDirectory, selectedFilePath, pendingCreate, onOpenFile, onSelectDirectory, onRequestCreate, onChangePendingValue, onCreate, onCancelCreate, creatingNode, writeMode }: { node: agentApi.RepoTreeNode; depth: number; selectedDirectory: string; selectedFilePath: string; pendingCreate: PendingCreate | null; onOpenFile: (path: string) => void; onSelectDirectory: (path: string) => void; onRequestCreate: (parentPath: string, kind: 'file' | 'folder') => void; onChangePendingValue: (value: string) => void; onCreate: () => void | Promise<void>; onCancelCreate: () => void; creatingNode: boolean; writeMode: 'direct' | 'review'; }) {
     if (node.type === 'file') {
-        return (
-            <button
-                type="button"
-                onClick={() => onOpenFile(node.path)}
-                className={`block w-full text-left text-xs rounded-btn px-2 py-1 ${
-                    selectedFile === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2'
-                }`}
-                style={{ paddingLeft: `${depth * 12 + 8}px` }}
-            >
-                {node.name}
-            </button>
-        );
+        return <button type="button" onClick={() => onOpenFile(node.path)} className={cn('flex w-full items-center rounded-btn px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 10}px` }}><span className="truncate">{node.name}</span></button>;
     }
-
     const children = Array.isArray(node.children) ? node.children : [];
+    const isSelected = selectedDirectory === node.path;
+    const showInlineCreate = pendingCreate?.parentPath === node.path;
     return (
-        <details open={depth < 1} className="mb-0.5">
-            <summary className="cursor-pointer text-xs text-text-primary select-none" style={{ paddingLeft: `${depth * 12 + 6}px` }}>
-                {node.name}
-            </summary>
+        <details open={depth < 1 || selectedDirectory.startsWith(node.path === '.' ? '' : `${node.path}/`) || isSelected} className="mb-0.5">
+            <summary className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-btn px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 8}px` }} onClick={() => onSelectDirectory(node.path)}><span className="truncate">{node.name}</span><span className="flex shrink-0 items-center gap-1"><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'file'); }} className="rounded px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New file">+F</button><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'folder'); }} className="rounded px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New folder">+D</button></span></summary>
             <div className="mt-0.5">
-                {children.map((child) => (
-                    <RepoTreeNodeView
-                        key={`${child.path}-${child.name}`}
-                        node={child}
-                        selectedFile={selectedFile}
-                        onOpenFile={onOpenFile}
-                        depth={depth + 1}
-                    />
-                ))}
+                {showInlineCreate && <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}><div className="rounded-btn border border-surface-4 bg-surface-0 p-2"><p className="text-[10px] text-text-secondary">New {pendingCreate.kind} in {pendingCreate.parentPath} · {writeMode === 'review' && pendingCreate.kind === 'file' ? 'submit to review' : 'write directly'}</p><input value={pendingCreate.value} onChange={(e) => onChangePendingValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onCreate(); if (e.key === 'Escape') onCancelCreate(); }} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none" placeholder={`Enter ${pendingCreate.kind} name`} /><div className="mt-2 flex gap-2"><button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-btn border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{creatingNode ? (writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submit Review' : 'Create'}</button><button type="button" onClick={onCancelCreate} className="rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">Cancel</button></div></div></div>}
+                {children.map((child) => <FileTreeNode key={`${child.path}-${child.name}`} node={child} depth={depth + 1} selectedDirectory={selectedDirectory} selectedFilePath={selectedFilePath} pendingCreate={pendingCreate} onOpenFile={onOpenFile} onSelectDirectory={onSelectDirectory} onRequestCreate={onRequestCreate} onChangePendingValue={onChangePendingValue} onCreate={onCreate} onCancelCreate={onCancelCreate} creatingNode={creatingNode} writeMode={writeMode} />)}
             </div>
         </details>
     );

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
+import { getStoredGitHubToken, setStoredGitHubToken } from '../lib/githubApi';
 
 export default function Settings() {
     const [settings, setSettings] = useState<Record<string, unknown>>({});
@@ -28,6 +29,9 @@ export default function Settings() {
                 agentApi.listProactiveGoals(200),
                 agentApi.getFreeStackStatus(true),
             ]);
+            if (!settingsData.github_token && getStoredGitHubToken()) {
+                settingsData.github_token = getStoredGitHubToken();
+            }
             setSettings(settingsData);
             setLogs(logRows);
             setProactiveStatus(proactiveData);
@@ -404,6 +408,30 @@ export default function Settings() {
                 </div>
                 <div className="mt-4 grid md:grid-cols-2 gap-4">
                     <InputField
+                        label="Ollama URL"
+                        value={String(settings.ollama_url ?? 'http://localhost:11434')}
+                        onChange={(value) => patchSetting({ ollama_url: value.trim() || 'http://localhost:11434' })}
+                        placeholder="http://localhost:11434"
+                    />
+                    <InputField
+                        label="Anthropic API Key"
+                        value={String(settings.anthropic_api_key ?? '')}
+                        onChange={(value) => patchSetting({ anthropic_api_key: value.trim() })}
+                        placeholder="Optional local key"
+                        type="password"
+                    />
+                    <InputField
+                        label="GitHub Token"
+                        value={String(settings.github_token ?? '')}
+                        onChange={(value) => {
+                            const next = value.trim();
+                            setStoredGitHubToken(next);
+                            patchSetting({ github_token: next });
+                        }}
+                        placeholder="Used by the GitHub panel"
+                        type="password"
+                    />
+                    <InputField
                         label="Self Learning Focus"
                         value={String(settings.self_learning_focus ?? 'general')}
                         onChange={(value) => patchSetting({ self_learning_focus: value || 'general' })}
@@ -465,7 +493,7 @@ export default function Settings() {
                                 JSON.parse(e.target.value || '{}');
                                 setJsonError(null);
                             } catch {
-                                setJsonError('Invalid JSON format');
+                                setJsonError('Invalid JSON format.');
                             }
                         }}
                         className={`mt-2 w-full bg-surface-1 border rounded-btn px-3 py-2 text-xs text-text-primary ${jsonError ? 'border-accent-red/60' : 'border-surface-4'}`}
@@ -673,11 +701,13 @@ function InputField({
     value,
     onChange,
     placeholder = '',
+    type = 'text',
 }: {
     label: string;
     value: string;
     onChange: (value: string) => void;
     placeholder?: string;
+    type?: string;
 }) {
     const [draft, setDraft] = useState(value);
 
@@ -693,6 +723,7 @@ function InputField({
         <label className="bg-surface-0 border border-surface-4 rounded-btn px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-text-secondary">{label}</p>
             <input
+                type={type}
                 value={draft}
                 placeholder={placeholder}
                 onChange={(e) => setDraft(e.target.value)}

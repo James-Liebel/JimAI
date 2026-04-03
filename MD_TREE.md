@@ -44,11 +44,10 @@ JimAI-1/
 │       ├── ux-product-clarity/
 │       └── zero-downtime-change-management/
 │
-└── reports/                         Generated artifacts, not source docs
+└── [reports — generated artifacts, not source docs]
     ├── COMPLETION_REPORT.md
     ├── ORIENTATION_REPORT.md
     ├── SEARCH_FIX_VALIDATION.md
-    ├── SEARCH_TEST_RESULTS.md
-    ├── backend_SEARCH_TEST_RESULTS.md
+    ├── SEARCH_TEST_RESULTS.md        (also duplicated at backend/)
     └── SECURITY_REVIEW.md
 ```

@@ -12,8 +12,9 @@ set "PROJECT_DIR=%~dp0"
 set "PY=%PROJECT_DIR%backend\.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 
-REM Same click again: stops backend, frontend, and desktop when both are up.
-"%PY%" scripts\agentspace_lifecycle.py toggle
+REM Always start or reuse backend + frontend + desktop (same as jimai.cmd).
+REM Use: jimai stop   or   jimai toggle   from CMD if you want to stop the stack.
+"%PY%" scripts\agentspace_lifecycle.py desktop --with-services --free-ports
 if errorlevel 1 (
   echo.
   echo Something went wrong. Read the messages above.

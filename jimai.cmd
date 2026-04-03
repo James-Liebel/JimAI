@@ -68,9 +68,9 @@ exit /b 0
 
 :help
 echo Usage:
-echo   Open JimAI.cmd   Double-click: start or stop the stack
-echo   jimai            Start desktop + backend + frontend
-echo   jimai toggle     Same as Open JimAI.cmd
+echo   Open JimAI.cmd   Double-click: start ^(or reuse^) desktop + backend + frontend
+echo   jimai            Same as Open JimAI.cmd
+echo   jimai toggle     Stop stack if UI+API are up; otherwise start ^(one-click on/off^)
 echo   jimai stop       Stop services and listeners
 echo   jimai restart    Stop then start
 echo   jimai browser    Open UI in browser ^(starts services if needed^)

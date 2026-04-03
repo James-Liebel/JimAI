@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { Menu, Monitor, X } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
 import { useUpload } from '../hooks/useUpload';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -10,6 +10,8 @@ import FileUpload from '../components/FileUpload';
 import AgentStatus from '../components/AgentStatus';
 import SessionSidebar from '../components/SessionSidebar';
 import { consumeQueuedChatPrompt } from '../lib/chatBridge';
+import { detectLikelySystemTask } from '../lib/detectSystemIntent';
+import { queueSystemTask } from '../lib/systemTaskBridge';
 import { cn } from '../lib/utils';
 import type { SpeedMode } from '../lib/types';
 
@@ -19,6 +21,7 @@ interface OutletCtx {
 }
 
 export default function Chat() {
+    const navigate = useNavigate();
     const {
         messages,
         isStreaming,
@@ -33,6 +36,8 @@ export default function Chat() {
         loadChat,
         deleteChat,
     } = useChat();
+
+    const [systemBannerPrompt, setSystemBannerPrompt] = useState<string | null>(null);
 
     const { speedMode, onSpeedModeChange } = (useOutletContext<OutletCtx>() ?? {
         speedMode: 'balanced' as SpeedMode,
@@ -60,8 +65,19 @@ export default function Chat() {
 
     const handleNewChat = useCallback(() => {
         newChat();
+        setSystemBannerPrompt(null);
         if (isMobile) setShowMobileDrawer(false);
     }, [newChat, isMobile]);
+
+    const handleSend = useCallback(
+        async (content: string, imageBase64?: string) => {
+            await sendMessage(content, imageBase64);
+            if (!imageBase64 && detectLikelySystemTask(content)) {
+                setSystemBannerPrompt(content.trim());
+            }
+        },
+        [sendMessage],
+    );
 
     useEffect(() => {
         const pendingPrompt = consumeQueuedChatPrompt();
@@ -190,6 +206,52 @@ export default function Chat() {
                     </div>
                 </div>
 
+                {systemBannerPrompt && (
+                    <div className="flex-shrink-0 border-b border-accent-blue/25 bg-accent-blue/10 px-3 py-2 md:px-4">
+                        <div className="flex items-start gap-3">
+                            <Monitor className="mt-0.5 h-4 w-4 flex-shrink-0 text-accent-blue" aria-hidden />
+                            <div className="min-w-0 flex-1 space-y-2">
+                                <p className="text-xs text-text-primary">
+                                    This looks like a request to use <strong>your PC</strong> (folders, drives, or processes). Chat works with uploads and indexed docs; the{' '}
+                                    <strong>System</strong> panel runs the local agent with real filesystem tools.
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            queueSystemTask(systemBannerPrompt);
+                                            setSystemBannerPrompt(null);
+                                            navigate('/system');
+                                        }}
+                                        className="rounded-btn border border-accent-blue/40 bg-accent-blue/15 px-3 py-1.5 text-xs font-medium text-accent-blue hover:bg-accent-blue/25"
+                                    >
+                                        Open System with this prompt
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            queueSystemTask(systemBannerPrompt);
+                                            setSystemBannerPrompt(null);
+                                            navigate('/system');
+                                        }}
+                                        className="text-xs text-text-secondary underline hover:text-text-primary"
+                                    >
+                                        System panel (same prompt)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSystemBannerPrompt(null)}
+                                        className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-2 hover:text-text-primary"
+                                        aria-label="Dismiss"
+                                    >
+                                        <X size={14} /> Dismiss
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 flex flex-col min-w-0">
                         <div className="flex-1 overflow-hidden">
@@ -203,7 +265,7 @@ export default function Chat() {
 
                         <div className={`flex-shrink-0 ${isMobile ? 'px-2 pb-2 pt-1' : 'px-4 pb-3 pt-2'}`}>
                             <InputBar
-                                onSend={sendMessage}
+                                onSend={handleSend}
                                 isStreaming={isStreaming}
                                 modelOverride={modelOverride}
                                 onModelOverrideChange={setModelOverride}

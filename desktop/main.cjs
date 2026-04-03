@@ -1,8 +1,10 @@
 const { spawn } = require('child_process');
+const http = require('http');
 const path = require('path');
 const { app, BrowserWindow, Menu, shell } = require('electron');
 
-const DEFAULT_UI_URL = process.env.AGENTSPACE_UI_URL || 'http://localhost:5173';
+// 127.0.0.1 avoids Windows resolving "localhost" to ::1 while Vite is IPv4-only.
+const DEFAULT_UI_URL = process.env.AGENTSPACE_UI_URL || 'http://127.0.0.1:5173';
 const ALLOW_DEVTOOLS = process.env.AGENTSPACE_DEVTOOLS === '1';
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PYTHON_BIN = process.env.AGENTSPACE_PYTHON || 'python';
@@ -64,6 +66,66 @@ async function showUnavailablePage(window, message) {
     await window.loadURL(`data:text/html,${encodeURIComponent(html)}`);
 }
 
+function probeUiReachable(urlString) {
+    return new Promise((resolve) => {
+        let u;
+        try {
+            u = new URL(urlString);
+        } catch {
+            resolve(false);
+            return;
+        }
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+            resolve(false);
+            return;
+        }
+        const mod = u.protocol === 'https:' ? require('https') : http;
+        const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+        const req = mod.request(
+            {
+                hostname: u.hostname,
+                port,
+                path: u.pathname || '/',
+                method: 'GET',
+                timeout: 2500,
+            },
+            (res) => {
+                res.resume();
+                resolve(res.statusCode != null && res.statusCode < 500);
+            },
+        );
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(false);
+        });
+        req.end();
+    });
+}
+
+async function waitForUiReady(urlString, maxWaitMs = 90000) {
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+        if (await probeUiReachable(urlString)) return true;
+        await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+}
+
+async function showWaitingPage(window) {
+    if (window.isDestroyed()) return;
+    const html = `
+        <html><head><meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+        </head>
+        <body style="font-family: Segoe UI, sans-serif; background:#0b1020; color:#e6edf7; padding:24px;">
+        <h2>jimAI</h2>
+        <p>Starting the UI server… This can take a minute the first time.</p>
+        <p style="opacity:0.8;font-size:14px;">${DEFAULT_UI_URL}</p>
+        </body></html>`;
+    await window.loadURL(`data:text/html,${encodeURIComponent(html)}`);
+}
+
 async function loadUi(window, { ignoreCache = false } = {}) {
     if (!window || window.isDestroyed()) return;
     if (reloadInFlight) return;
@@ -73,6 +135,15 @@ async function loadUi(window, { ignoreCache = false } = {}) {
             try {
                 await window.webContents.session.clearCache();
             } catch {}
+        }
+        await showWaitingPage(window);
+        const ready = await waitForUiReady(DEFAULT_UI_URL);
+        if (!ready) {
+            await showUnavailablePage(
+                window,
+                'The UI server did not become ready in time. Use jimai / Open JimAI.cmd to start services, or Reload from the menu.',
+            );
+            return;
         }
         await window.loadURL(DEFAULT_UI_URL);
     } catch {
@@ -89,7 +160,7 @@ function createWindow() {
         void loadUi(mainWindow);
         return mainWindow;
     }
-    let uiOrigin = 'http://localhost:5173';
+    let uiOrigin = 'http://127.0.0.1:5173';
     try {
         uiOrigin = new URL(DEFAULT_UI_URL).origin;
     } catch {}
@@ -103,7 +174,8 @@ function createWindow() {
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
-            sandbox: true,
+            // Vite dev + React Refresh rely on patterns that break in a sandboxed renderer (blank white window).
+            sandbox: false,
             webSecurity: true,
             allowRunningInsecureContent: false,
         },

@@ -14,7 +14,9 @@ set "PY=%PROJECT_DIR%backend\.venv\Scripts\python.exe"
 if not exist "%PY%" set "PY=python"
 
 if /I "%~1"=="stop" goto stop
-if /I "%~1"=="force" goto force
+if /I "%~1"=="toggle" goto toggle
+if /I "%~1"=="force" goto app
+if /I "%~1"=="restart" goto restart
 if /I "%~1"=="open" goto app
 if /I "%~1"=="browser" goto browser
 if /I "%~1"=="help" goto help
@@ -26,21 +28,30 @@ cd /d "%PROJECT_DIR%"
 echo Starting JimAI (desktop + services^)...
 echo Using Python: "%PY%"
 echo.
-"%PY%" scripts\agentspace_lifecycle.py desktop --with-services
+"%PY%" scripts\agentspace_lifecycle.py desktop --with-services --free-ports
 if errorlevel 1 goto fail
 echo.
 echo If no JimAI window appeared: run   npm install   in this folder, then try jimai again.
 exit /b 0
 
-:force
+:restart
 cd /d "%PROJECT_DIR%"
-echo Starting JimAI with port cleanup (--free-ports^)...
+echo Stopping JimAI services, then starting again...
 echo Using Python: "%PY%"
 echo.
+"%PY%" scripts\agentspace_lifecycle.py stop
 "%PY%" scripts\agentspace_lifecycle.py desktop --with-services --free-ports
 if errorlevel 1 goto fail
 echo.
 echo If no JimAI window appeared: run   npm install   in this folder, then try jimai again.
+exit /b 0
+
+:toggle
+cd /d "%PROJECT_DIR%"
+echo Using Python: "%PY%"
+echo.
+"%PY%" scripts\agentspace_lifecycle.py toggle
+if errorlevel 1 goto fail
 exit /b 0
 
 :stop
@@ -57,11 +68,12 @@ exit /b 0
 
 :help
 echo Usage:
-echo   jimai         Start JimAI desktop and required local services
-echo   jimai force   Same, but free backend port 8000 if something stuck is listening
-echo   jimai stop    Stop JimAI and listeners on its usual ports
-echo   jimai open    Focus or start the JimAI desktop app
-echo   jimai browser Open the browser UI and start local services if needed
+echo   Open JimAI.cmd   Double-click: start or stop the stack
+echo   jimai            Start desktop + backend + frontend
+echo   jimai toggle     Same as Open JimAI.cmd
+echo   jimai stop       Stop services and listeners
+echo   jimai restart    Stop then start
+echo   jimai browser    Open UI in browser ^(starts services if needed^)
 exit /b 0
 
 :fail

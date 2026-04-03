@@ -449,10 +449,26 @@ def _http_probe(url: str, timeout_seconds: float = 2.5) -> tuple[bool, dict[str,
         return False, None
 
 
+def _jimai_health_payload_ok(payload: dict[str, object] | None) -> bool:
+    """True only for Private AI /health JSON (not another service on the same port)."""
+    if not payload:
+        return False
+    if str(payload.get("status") or "").lower() != "ok":
+        return False
+    services = payload.get("services")
+    if not isinstance(services, dict):
+        return False
+    return "ollama" in services
+
+
 def _probe_backend_health(host: str, port: int) -> tuple[bool, dict[str, object]]:
     probe_host = _normalize_probe_host(host)
-    ok, payload = _http_probe(f"http://{probe_host}:{int(port)}/health")
-    return ok, payload if isinstance(payload, dict) else {}
+    ok, payload = _http_probe(f"http://{probe_host}:{int(port)}/health", timeout_seconds=4.0)
+    if not ok:
+        return False, {}
+    if not _jimai_health_payload_ok(payload):
+        return False, {}
+    return True, payload if isinstance(payload, dict) else {}
 
 
 def _probe_frontend_ui(host: str, port: int) -> bool:
@@ -472,6 +488,17 @@ def _probe_http_service(host: str, port: int) -> bool:
     probe_host = _normalize_probe_host(host)
     ok, _ = _http_probe(f"http://{probe_host}:{int(port)}/")
     return ok
+
+
+def _netstat_tcp_listen_ok(state: str) -> bool:
+    """Windows netstat is localized; accept common LISTEN spellings."""
+    u = state.strip().upper()
+    if u == "LISTENING" or u == "LISTEN":
+        return True
+    # German and some other locales
+    if u in {"ABHÖREN", "ABHOREN", "ÉCOUTE", "ECOUTE", "IN ASCOLTO", "ESCUCHANDO"}:
+        return True
+    return "LISTEN" in u
 
 
 def _find_listening_pids(port: int) -> list[int]:
@@ -499,9 +526,9 @@ def _find_listening_pids(port: int) -> list[int]:
             if len(parts) < 5:
                 continue
             local_address = parts[1]
-            state = parts[3].upper()
+            state = parts[3]
             pid_raw = parts[4]
-            if state != "LISTENING":
+            if not _netstat_tcp_listen_ok(state):
                 continue
             if local_address.rsplit(":", 1)[-1] != target_port:
                 continue
@@ -831,13 +858,12 @@ def _backend_port_busy_message(port: int, pids: list[int]) -> str:
         f"http://127.0.0.1:{port}/health did not respond as the JimAI backend.\n"
         "Another program may be using that port, or an old backend is stuck.\n\n"
         "Try one of these:\n"
-        "  • From the JimAI repo folder run:    jimai stop\n"
-        "    then start again with:             jimai\n"
-        "  • Or one-shot (free port then start): jimai force\n"
+        "  • From the JimAI repo folder:        jimai stop\n"
+        "    then:                              jimai\n"
+        "  • Or stop and start in one step:     jimai restart\n"
         f"  • Or manually:                       taskkill /PID {pids[0]} /T /F\n"
-        "  • Or with Python:\n"
-        "      cd private-ai\n"
-        "      backend\\.venv\\Scripts\\python.exe scripts\\agentspace_lifecycle.py "
+        "  • Or with Python (repo root):\n"
+        f"      \"{sys.executable}\" scripts\\agentspace_lifecycle.py "
         "desktop --with-services --free-ports\n"
     )
 
@@ -873,9 +899,11 @@ def start_services(args: argparse.Namespace) -> None:
             if backend_ready and not backend_pid:
                 backend_pid = _first_listening_pid(args.backend_port)
             elif not backend_ready:
-                if busy_backend_pids and bool(getattr(args, "free_ports", False)):
+                # Always clear stale listeners when /health is not JimAI (not only with --free-ports).
+                if busy_backend_pids:
+                    label = "free-ports" if bool(getattr(args, "free_ports", False)) else "auto"
                     print(
-                        f"JimAI: --free-ports: stopping listener(s) on port "
+                        f"JimAI: ({label}) stopping listener(s) on port "
                         f"{args.backend_port}: {', '.join(str(p) for p in busy_backend_pids)}"
                     )
                     for pid in busy_backend_pids:
@@ -1169,6 +1197,22 @@ def stop_services(_: argparse.Namespace) -> None:
         PID_FILE.unlink()
 
 
+def toggle_stack(args: argparse.Namespace) -> None:
+    """Single action for a launcher: stop if backend+UI are up, else start desktop + services."""
+    backend_ok, _ = _probe_backend_health(args.host, args.backend_port)
+    frontend_ok = _probe_frontend_ui(args.host, args.frontend_port)
+    if backend_ok and frontend_ok:
+        print("JimAI is running — stopping…")
+        stop_services(args)
+        return
+    run = argparse.Namespace(**vars(args))
+    run.with_services = True
+    run.free_ports = True
+    run.with_n8n = False
+    print("JimAI is not running — starting…")
+    start_desktop(run)
+
+
 def open_ui(args: argparse.Namespace) -> None:
     backend_ok, _ = _probe_backend_health(args.host, args.backend_port)
     frontend_ok = _probe_frontend_ui(args.host, args.frontend_port)
@@ -1193,7 +1237,8 @@ def start_desktop(args: argparse.Namespace) -> None:
         raise SystemExit(f"Desktop entry not found: {DESKTOP_MAIN}")
 
     env = os.environ.copy()
-    env["AGENTSPACE_UI_URL"] = f"http://localhost:{args.frontend_port}"
+    # 127.0.0.1 avoids Electron on Windows loading ::1 while Vite is slow or IPv4-only.
+    env["AGENTSPACE_UI_URL"] = f"http://127.0.0.1:{args.frontend_port}"
     env["AGENTSPACE_AUTO_STOP"] = "1" if args.with_services else "0"
     env["AGENTSPACE_PYTHON"] = sys.executable
     env.pop("ELECTRON_RUN_AS_NODE", None)
@@ -1235,7 +1280,7 @@ def create_shortcuts(_: argparse.Namespace) -> None:
         "Agent Space - Start + n8n.cmd": _lifecycle_cmd("start --open --with-n8n"),
         "Agent Space - Stop.cmd": _lifecycle_cmd("stop"),
         "Agent Space - Open UI.cmd": _lifecycle_cmd("open-ui"),
-        "Agent Space - Desktop.cmd": _lifecycle_cmd("desktop --with-services"),
+        "Agent Space - Desktop.cmd": _lifecycle_cmd("desktop --with-services --free-ports"),
         "Agent Space - Shortcuts.cmd": _lifecycle_cmd("shortcuts"),
         "jimAI - Free Stack Setup.cmd": _lifecycle_cmd("free-stack-setup --start --open --shortcuts"),
         "jimAI - Install Podman Runtime.cmd": _lifecycle_cmd("free-stack-install-runtime --runtime podman"),
@@ -1373,10 +1418,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--free-ports",
         action="store_true",
         default=False,
-        help="If the backend port is taken but /health fails, terminate listener PIDs and retry once.",
+        help="Legacy flag; stale listeners are cleared automatically when /health is not JimAI.",
     )
 
     sub.add_parser("stop", help="Stop recorded Agent Space processes.")
+    sub.add_parser(
+        "toggle",
+        help="If JimAI backend+UI are up, stop everything; otherwise start desktop + services.",
+    )
     sub.add_parser("open-ui", help="Open UI in browser.")
     desktop = sub.add_parser("desktop", help="Start desktop app shell.")
     desktop.add_argument("--with-services", action="store_true", default=False)
@@ -1385,7 +1434,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--free-ports",
         action="store_true",
         default=False,
-        help="If the backend port is taken but /health fails, terminate listener PIDs and retry once.",
+        help="Legacy flag; stale listeners are cleared automatically when /health is not JimAI.",
     )
     sub.add_parser("shortcuts", help="Create desktop shortcut .cmd files.")
 
@@ -1421,6 +1470,8 @@ def main() -> None:
         start_services(args)
     elif args.command == "stop":
         stop_services(args)
+    elif args.command == "toggle":
+        toggle_stack(args)
     elif args.command == "open-ui":
         open_ui(args)
     elif args.command == "desktop":

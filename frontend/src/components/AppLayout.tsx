@@ -7,7 +7,7 @@ import MobileNav from './MobileNav';
 import type { SpeedMode } from '../lib/types';
 import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
-import { apiUrl } from '../lib/backendBase';
+import { API_BASE, apiUrl } from '../lib/backendBase';
 
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
@@ -342,7 +342,16 @@ export default function AppLayout() {
                         </>
                     ) : (
                         <>
-                            Backend health is not reachable at <span className="font-mono">http://localhost:8000</span>. Start the backend first; Ollama may still be running normally.
+                            Backend health is not reachable
+                            {API_BASE ? (
+                                <> at <span className="font-mono">{API_BASE}</span>.</>
+                            ) : (
+                                <>
+                                    {' '}
+                                    (dev server proxies to <span className="font-mono">http://localhost:8000</span>).
+                                </>
+                            )}{' '}
+                            Start the FastAPI backend on port 8000 first; Ollama may still be running normally.
                         </>
                     )}
                 </div>

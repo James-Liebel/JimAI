@@ -10,6 +10,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from config.settings import LOG_LEVEL
 from models import ollama_client
@@ -70,6 +72,8 @@ def _get_allowed_origins() -> list[str]:
         "http://localhost:8000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
+        # Some embedded / sandboxed contexts send this literal on cross-origin-ish fetches.
+        "null",
     ]
     try:
         result = subprocess.run(
@@ -87,13 +91,44 @@ def _get_allowed_origins() -> list[str]:
     return origins
 
 
+# Loopback + RFC1918 + Tailscale-style 100.x — UI may be opened via LAN IP while list above is incomplete.
+_LOCAL_UI_ORIGIN_REGEX = (
+    r"^https?://("
+    r"localhost|127\.0\.0\.1|\[::1\]|"
+    r"192\.168\.\d{1,3}\.\d{1,3}|"
+    r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+    r"172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}|"
+    r"100\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r")(:\d+)?$"
+)
+
+
+class _NormalizeCorsPreflightMiddleware:
+    """Starlette compares Access-Control-Request-Method case-sensitively against ALL_METHODS."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and scope["method"] == "OPTIONS":
+            headers = MutableHeaders(scope=scope)
+            key = "access-control-request-method"
+            method = headers.get(key)
+            if method:
+                headers[key] = method.strip().upper()
+        await self.app(scope, receive, send)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_allowed_origins(),
+    allow_origin_regex=_LOCAL_UI_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_private_network=True,
 )
+app.add_middleware(_NormalizeCorsPreflightMiddleware)
 
 from agent_space.csrf_middleware import CSRFMiddleware
 app.add_middleware(CSRFMiddleware)
@@ -170,7 +205,7 @@ async def health():
     """System health check — reports status of Ollama, ChromaDB, and Qdrant."""
     import httpx
 
-    from config.settings import OLLAMA_BASE_URL
+    from config.settings import OLLAMA_BASE_URL, normalize_ollama_base_url
 
     try:
         from agent_space.runtime import settings_store as agent_space_settings_store
@@ -178,11 +213,13 @@ async def health():
     except Exception:
         ollama_base_url = OLLAMA_BASE_URL
 
-    # Check Ollama
+    ollama_probe_url = normalize_ollama_base_url(ollama_base_url)
+
+    # Check Ollama (probe via IPv4 loopback when URL uses localhost — Windows IPv6 mismatch)
     ollama_ok = False
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{ollama_base_url}/api/tags")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{ollama_probe_url}/api/tags")
             ollama_ok = resp.status_code < 500
     except Exception:
         ollama_ok = False

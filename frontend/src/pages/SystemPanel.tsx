@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, CheckCircle2, Cpu, ExternalLink, FolderOpen, Monitor, Play, Search, Terminal, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { queueChatPrompt } from '../lib/chatBridge';
+import { consumeSystemTask } from '../lib/systemTaskBridge';
 import { cn } from '../lib/utils';
 import type { SystemAgentEvent, SystemAgentMode, SystemAgentPlanStep, SystemAgentStats, SystemFileInfo, SystemProcessInfo } from '../lib/systemAgentApi';
 import { browseSystemFilesystem, confirmSystemAgent, getSystemAgentStats, killSystemProcess, listSystemAgentProcesses, openSystemPath, readSystemFile, streamSystemAgent, takeSystemScreenshot } from '../lib/systemAgentApi';
@@ -84,6 +85,11 @@ export default function SystemPanel() {
         const id = window.setInterval(() => loadDashboard().catch(() => {}), 5000);
         return () => window.clearInterval(id);
     }, [loadDashboard]);
+
+    useEffect(() => {
+        const fromChat = consumeSystemTask();
+        if (fromChat) setTask(fromChat);
+    }, []);
 
     const openBrowserAt = useCallback(async (path: string) => {
         setBrowserLoading(true);

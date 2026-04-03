@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p reports)",
+      "Bash(git mv:*)",
+      "Bash(npm install:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/)",
+      "Bash(curl -s http://localhost:5173/)",
+      "Bash(curl:*)",
+      "Bash(netstat -ano)",
+      "Bash(cmd.exe:*)",
+      "Bash(/c/Windows/System32/netstat.exe -ano)",
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/vite build:*)",
+      "Bash(node_modules/.bin/vite --port 5174)",
+      "Bash(kill %1)"
+    ]
+  }
+}

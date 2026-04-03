@@ -15,6 +15,12 @@ function resolveBackendBase(): string {
         return '';
     }
 
+    // Vite dev: use same-origin so /api and /health go through vite.config.mjs proxy to :8000
+    // (works for localhost and LAN URLs like http://192.168.x.x:5173).
+    if (import.meta.env.DEV) {
+        return '';
+    }
+
     const resolvedHost = host && host !== '0.0.0.0' ? host : '127.0.0.1';
     return `${protocol}//${resolvedHost}:8000`;
 }

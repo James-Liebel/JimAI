@@ -2,13 +2,35 @@
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
+
 from dotenv import load_dotenv
 
 # Load .env from project root
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_env_path)
 
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+def normalize_ollama_base_url(url: str) -> str:
+    """Use 127.0.0.1 instead of localhost/::1 so HTTP clients hit IPv4 (Ollama on Windows is often IPv4-only)."""
+    raw = (url or "").strip().rstrip("/")
+    if not raw:
+        return raw
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").lower()
+    if host in ("localhost", "::1"):
+        port = parsed.port
+        netloc = f"127.0.0.1:{port}" if port else "127.0.0.1"
+        return urlunparse(
+            (parsed.scheme or "http", netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+        ).rstrip("/")
+    return raw
+
+
+_DEFAULT_OLLAMA = "http://127.0.0.1:11434"
+OLLAMA_BASE_URL: str = normalize_ollama_base_url(os.getenv("OLLAMA_BASE_URL", _DEFAULT_OLLAMA))
 BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
 N8N_BASE_URL: str = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 QDRANT_BASE_URL: str = os.getenv("QDRANT_BASE_URL", "http://localhost:6333")
@@ -30,7 +52,8 @@ COMPARE_MODEL_B_ROLE: str | None = os.getenv("COMPARE_MODEL_B_ROLE") or None
 JUDGE_MODEL_ROLE: str = os.getenv("JUDGE_MODEL_ROLE", "chat")
 
 # Optional second Ollama endpoint (e.g. NPU or CPU instance) — when set, compare model B and/or review run here to spread load
-OLLAMA_NPU_BASE_URL: str | None = os.getenv("OLLAMA_NPU_BASE_URL") or None
+_npu_raw = os.getenv("OLLAMA_NPU_BASE_URL") or None
+OLLAMA_NPU_BASE_URL: str | None = normalize_ollama_base_url(_npu_raw) if _npu_raw else None
 
 # Resolve paths relative to project root
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent

@@ -20,7 +20,6 @@ const AgentBrowser = lazy(() => import('./pages/AgentBrowser'));
 const Builder = lazy(() => import('./pages/Builder'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const Automation = lazy(() => import('./pages/Automation'));
-const SystemPanel = lazy(() => import('./pages/SystemPanel'));
 
 async function clearExistingServiceWorkersForDev(): Promise<void> {
     if (!('serviceWorker' in navigator)) return;
@@ -74,7 +73,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/browser" element={<AgentBrowser />} />
                         <Route path="/builder" element={<Builder />} />
                         <Route path="/automation" element={<Automation />} />
-                        <Route path="/system" element={<SystemPanel />} />
+                        <Route path="/system" element={<Navigate to="/chat" replace />} />
                         <Route path="/self-code" element={<SelfCode />} />
                         <Route path="/settings" element={<Settings />} />
                         <Route path="/audit" element={<SystemAudit />} />

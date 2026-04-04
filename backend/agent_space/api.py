@@ -424,7 +424,7 @@ def _safe_parse_json_object(text: str) -> dict[str, Any] | None:
         loaded = json.loads(text)
         if isinstance(loaded, dict):
             return loaded
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         logger.warning("_safe_parse_json_object: initial JSON parse failed, trying regex extraction", exc_info=True)
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
@@ -433,7 +433,7 @@ def _safe_parse_json_object(text: str) -> dict[str, Any] | None:
         loaded = json.loads(match.group(0))
         if isinstance(loaded, dict):
             return loaded
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         return None
     return None
 
@@ -1052,12 +1052,12 @@ async def _run_system_audit(
         settings_errors.append(f"Invalid command_profile '{profile}'.")
     try:
         max_actions = int(settings.get("max_actions", 40))
-    except Exception:
+    except (TypeError, ValueError):
         max_actions = 0
         settings_errors.append("max_actions is not an integer.")
     try:
         max_seconds = int(settings.get("max_seconds", 1200))
-    except Exception:
+    except (TypeError, ValueError):
         max_seconds = 0
         settings_errors.append("max_seconds is not an integer.")
     if max_actions < 1:

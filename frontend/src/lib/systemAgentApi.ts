@@ -1,5 +1,10 @@
 import { apiUrl, fetchWithTimeout } from './api';
 
+const JSON_POST_HEADERS: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-JimAI-CSRF': '1',
+};
+
 export type SystemAgentMode = 'supervised' | 'autonomous';
 
 export interface SystemAgentPlanStep {
@@ -102,7 +107,7 @@ export async function streamSystemAgent(
         apiUrl('/api/system-agent/run'),
         {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: JSON_POST_HEADERS,
             body: JSON.stringify({
                 task,
                 session_id: sessionId,
@@ -144,7 +149,7 @@ export async function streamSystemAgent(
 export async function confirmSystemAgent(sessionId: string, approved: boolean): Promise<void> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/confirm'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ session_id: sessionId, approved }),
     });
     if (!resp.ok) throw new Error(`System agent confirmation failed: ${resp.status}`);
@@ -167,7 +172,7 @@ export async function listSystemAgentProcesses(filterName = ''): Promise<SystemP
 export async function killSystemProcess(pid: number): Promise<{ killed: boolean; name?: string; reason?: string }> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/processes/kill'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ pid }),
     });
     if (!resp.ok) throw new Error(`Kill process failed: ${resp.status}`);
@@ -177,7 +182,7 @@ export async function killSystemProcess(pid: number): Promise<{ killed: boolean;
 export async function browseSystemFilesystem(path: string): Promise<BrowseResponse> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/browse'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ path }),
     });
     if (!resp.ok) throw new Error(`Browse failed: ${resp.status}`);
@@ -193,7 +198,7 @@ export async function searchSystemFilesystem(params: {
 }): Promise<SearchResponse> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/search'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify(params),
     });
     if (!resp.ok) throw new Error(`Search failed: ${resp.status}`);
@@ -203,7 +208,7 @@ export async function searchSystemFilesystem(params: {
 export async function readSystemFile(path: string, maxChars = 50000): Promise<ReadFileResponse> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/read'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ path, max_chars: maxChars }),
     });
     if (!resp.ok) throw new Error(`Read failed: ${resp.status}`);
@@ -213,7 +218,7 @@ export async function readSystemFile(path: string, maxChars = 50000): Promise<Re
 export async function takeSystemScreenshot(monitor = 1): Promise<ScreenshotResponse> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/screenshot'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ monitor, return_base64: true }),
     });
     if (!resp.ok) throw new Error(`Screenshot failed: ${resp.status}`);
@@ -223,7 +228,7 @@ export async function takeSystemScreenshot(monitor = 1): Promise<ScreenshotRespo
 export async function openSystemPath(path: string): Promise<void> {
     const resp = await fetchWithTimeout(apiUrl('/api/system-agent/open-path'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_POST_HEADERS,
         body: JSON.stringify({ path }),
     });
     if (!resp.ok) throw new Error(`Open path failed: ${resp.status}`);

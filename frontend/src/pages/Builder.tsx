@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { Bot, Files, GitBranch, Search, Terminal } from 'lucide-react';
 import * as agentApi from '../lib/agentSpaceApi';
@@ -27,6 +27,17 @@ const detectLanguage = (path: string) => {
 };
 const normalizeProfile = (value: unknown): 'safe' | 'dev' | 'unrestricted' => (value === 'dev' || value === 'unrestricted' ? value : 'safe');
 const joinRepoPath = (parentPath: string, childName: string) => (parentPath && parentPath !== '.' ? `${parentPath}/${childName}` : childName).replace(/\\/g, '/');
+
+function sanitizeCloneDir(name: string): string {
+    return name.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 64);
+}
+
+function defaultCloneFolderFromUrl(url: string): string {
+    const u = url.trim().replace(/\.git$/i, '').replace(/\/$/, '');
+    const part = u.split(/[/:]/).filter(Boolean).pop() || 'repo';
+    const cleaned = sanitizeCloneDir(part);
+    return cleaned || 'repo';
+}
 const parentDirectory = (path: string) => {
     const parts = String(path || '').replace(/\\/g, '/').split('/');
     parts.pop();
@@ -117,6 +128,10 @@ export default function Builder() {
     const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
     const [showGitHubModal, setShowGitHubModal] = useState(false);
     const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
+    const [cloneRepoUrl, setCloneRepoUrl] = useState('');
+    const [cloneFolderName, setCloneFolderName] = useState('');
+    const [cloneBusy, setCloneBusy] = useState(false);
+    const welcomeFileInputRef = useRef<HTMLInputElement>(null);
     const [recommendedSkills, setRecommendedSkills] = useState<agentApi.AgentSkillSummary[]>([]);
     const [recommendedSkillContext, setRecommendedSkillContext] = useState('');
     const [loadingRecommendedSkills, setLoadingRecommendedSkills] = useState(false);
@@ -317,6 +332,70 @@ export default function Builder() {
             setLoadingFile(false);
         }
     }, [upsertTab]);
+
+    const openLocalFileToTab = useCallback(
+        async (file: File) => {
+            try {
+                const text = await file.text();
+                const name = file.name || 'untitled.txt';
+                const path = joinRepoPath(selectedDirectory || '.', name);
+                upsertTab(
+                    {
+                        id: `file:${path}`,
+                        type: 'file',
+                        title: name,
+                        path,
+                        content: text,
+                        dirty: true,
+                        language: detectLanguage(name),
+                    },
+                    true,
+                );
+                setMessage(`Opened “${name}” from disk. Save to write it into the workspace.`);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Could not read that file.');
+            }
+        },
+        [selectedDirectory, upsertTab],
+    );
+
+    const runGitClone = useCallback(async () => {
+        const url = cloneRepoUrl.trim();
+        if (!url) {
+            setError('Enter a repository URL to clone.');
+            return;
+        }
+        const dirRaw = cloneFolderName.trim() || defaultCloneFolderFromUrl(url);
+        const dir = sanitizeCloneDir(dirRaw) || 'repo';
+        setCloneBusy(true);
+        setError('');
+        setMessage('');
+        setBottomPanelOpen(true);
+        try {
+            const escapedUrl = url.replace(/"/g, '');
+            const escapedDir = dir.replace(/"/g, '');
+            const result = await agentApi.toolsShell({
+                command: `git clone "${escapedUrl}" "${escapedDir}"`,
+                cwd: '.',
+                profile: normalizeProfile(settings.command_profile),
+                timeout: 600,
+            });
+            const exit = Number(result.exit_code ?? (result.success ? 0 : 1));
+            const ok = exit === 0;
+            if (!ok) {
+                setError(String(result.stderr || result.stdout || 'git clone failed.'));
+                return;
+            }
+            setMessage(`Cloned into ${dir}. Explorer refreshed.`);
+            setCloneRepoUrl('');
+            setCloneFolderName('');
+            await refreshTree();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Clone failed. Enable shell in Settings if it is disabled.');
+        } finally {
+            setCloneBusy(false);
+        }
+    }, [cloneFolderName, cloneRepoUrl, refreshTree, settings.command_profile]);
 
     const openReviewDiff = useCallback((review: agentApi.AgentSpaceReview, path: string) => {
         const tab = buildDiffTab(review, path);
@@ -875,7 +954,87 @@ export default function Builder() {
                     <div className="min-h-0 flex-1 bg-[#0d1117]">
                         {activeTab?.type === 'file' && <Editor height="100%" language={activeTab.language} value={activeTab.content} theme="vs-dark" onChange={(value) => updateActiveTabContent(value || '')} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />}
                         {activeTab?.type === 'diff' && <DiffEditor height="100%" original={activeTab.original} modified={activeTab.modified} theme="vs-dark" language={detectLanguage(activeTab.path)} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true }} />}
-                        {!activeTab && <div className="flex h-full items-center justify-center p-8"><div className="max-w-2xl rounded-card border border-surface-3 bg-surface-1 p-6"><p className="text-xs uppercase tracking-wide text-text-secondary">Workspace Ready</p><h2 className="mt-2 text-xl font-semibold text-text-primary">Edit the repo, run agents, review diffs, and monitor logs in one page.</h2><div className="mt-4 grid gap-3 md:grid-cols-2"><div className="rounded-btn border border-surface-3 bg-surface-0 p-3"><p className="text-sm text-text-primary">Prompt preview</p><p className="mt-2 text-xs text-text-secondary">{loadingPreview ? 'Preparing builder preview…' : preview ? `${preview.team_agent_count} agents ready for the current objective.` : 'Start typing a build objective to generate the agent plan.'}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-3"><p className="text-sm text-text-primary">Suggested skills</p><p className="mt-2 text-xs text-text-secondary">{loadingRecommendedSkills ? 'Selecting skills…' : recommendedSkills.length > 0 ? recommendedSkills.slice(0, 4).map((skill) => skill.name).join(', ') : 'Skills appear here once the objective is clear enough.'}</p></div></div></div></div>}
+                        {!activeTab && (
+                            <div className="flex h-full min-h-0 flex-col overflow-auto bg-[#0d1117]">
+                                <input
+                                    ref={welcomeFileInputRef}
+                                    type="file"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        e.target.value = '';
+                                        if (f) void openLocalFileToTab(f);
+                                    }}
+                                />
+                                <div className="shrink-0 border-b border-[#2d2d2d] bg-[#1e1e1e] px-3 py-2">
+                                    <div className="flex items-center gap-2 rounded border border-[#3c3c3c] bg-[#252526] px-2 py-1.5 font-mono text-[11px] text-text-secondary">
+                                        <span className="shrink-0 text-text-muted">file:</span>
+                                        <span className="min-w-0 flex-1 truncate text-text-primary" title="Workspace root">
+                                            /// JimAI / workspace · {selectedDirectory === '.' ? 'repository root' : selectedDirectory}
+                                        </span>
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => welcomeFileInputRef.current?.click()}
+                                            className="rounded border border-surface-4 bg-[#252526] px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2"
+                                        >
+                                            Open local file…
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setSidebarOpen(true); setSidebarTab('explorer'); }}
+                                            className="rounded border border-surface-4 bg-[#252526] px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2"
+                                        >
+                                            Open from Explorer
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
+                                    <div className="w-full max-w-2xl space-y-4 rounded-card border border-surface-3 bg-surface-1 p-6">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-wide text-text-secondary">Start</p>
+                                            <h2 className="mt-1 text-lg font-semibold text-text-primary">Clone a repository or open files</h2>
+                                            <p className="mt-2 text-xs text-text-secondary">
+                                                Clone runs <code className="rounded bg-surface-0 px-1">git clone</code> in this workspace. Shell access must be allowed in Settings. Use a simple folder name (letters, numbers, <code className="rounded bg-surface-0 px-1">.</code> <code className="rounded bg-surface-0 px-1">_</code> <code className="rounded bg-surface-0 px-1">-</code>).
+                                            </p>
+                                        </div>
+                                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                            <input
+                                                value={cloneRepoUrl}
+                                                onChange={(e) => setCloneRepoUrl(e.target.value)}
+                                                className="rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none sm:col-span-2"
+                                                placeholder="https://github.com/owner/repo.git"
+                                            />
+                                            <input
+                                                value={cloneFolderName}
+                                                onChange={(e) => setCloneFolderName(e.target.value)}
+                                                className="rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none"
+                                                placeholder="Folder name (optional)"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => runGitClone().catch(() => undefined)}
+                                                disabled={cloneBusy}
+                                                className="rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50"
+                                            >
+                                                {cloneBusy ? 'Cloning…' : 'Clone repository'}
+                                            </button>
+                                        </div>
+                                        <div className="grid gap-3 md:grid-cols-2">
+                                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                                <p className="text-sm text-text-primary">Prompt preview</p>
+                                                <p className="mt-2 text-xs text-text-secondary">{loadingPreview ? 'Preparing builder preview…' : preview ? `${preview.team_agent_count} agents ready for the current objective.` : 'Start typing a build objective in the right panel.'}</p>
+                                            </div>
+                                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                                <p className="text-sm text-text-primary">Suggested skills</p>
+                                                <p className="mt-2 text-xs text-text-secondary">{loadingRecommendedSkills ? 'Selecting skills…' : recommendedSkills.length > 0 ? recommendedSkills.slice(0, 4).map((skill) => skill.name).join(', ') : 'Skills appear once the objective is clear enough.'}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </section>
 

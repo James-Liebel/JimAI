@@ -30,6 +30,7 @@ from .skill_store import SkillStore
 from .team_store import TeamStore
 from .web_research import fetch_web, search_web
 from . import orch_helpers, orch_planning
+from config.settings import BROWSER_EXTRACT_MAX_CHARS
 
 
 def _now() -> float:
@@ -1895,7 +1896,7 @@ class AgentSpaceOrchestrator:
         for query in queries:
             actions.append({"type": "web_search", "query": query, "limit": 8})
             actions.append({"type": "browser_open", "url": f"https://duckduckgo.com/?q={quote_plus(query)}", "headless": True})
-            actions.append({"type": "browser_extract", "selector": "body", "max_chars": 8000})
+            actions.append({"type": "browser_extract", "selector": "body", "max_chars": BROWSER_EXTRACT_MAX_CHARS})
             actions.append({"type": "browser_links", "limit": 15})
         return actions
 
@@ -1932,7 +1933,7 @@ class AgentSpaceOrchestrator:
         if action_type == "web_search":
             query = str(action.get("query", "")).strip() or self._research_query_from_objective(objective)
             fallback.append({"type": "browser_open", "url": f"https://duckduckgo.com/?q={quote_plus(query)}", "headless": True})
-            fallback.append({"type": "browser_extract", "selector": "body", "max_chars": 8000})
+            fallback.append({"type": "browser_extract", "selector": "body", "max_chars": BROWSER_EXTRACT_MAX_CHARS})
             return fallback
 
         if action_type in {
@@ -1963,7 +1964,7 @@ class AgentSpaceOrchestrator:
                         "headless": True,
                     }
                 )
-            fallback.append({"type": "browser_extract", "selector": "body", "max_chars": 8000})
+            fallback.append({"type": "browser_extract", "selector": "body", "max_chars": BROWSER_EXTRACT_MAX_CHARS})
             return fallback
 
         if action_type == "run_shell":
@@ -2470,7 +2471,7 @@ class AgentSpaceOrchestrator:
             if action_type == "read_file":
                 rel, abs_path = self._resolve_repo_path(str(action.get("path", "")), run_id=run_id)
                 text = self._read_pending_or_disk(rel, abs_path, proposed_changes)
-                result = {"success": True, "path": rel, "content": text[:8000]}
+                result = {"success": True, "path": rel, "content": text[:BROWSER_EXTRACT_MAX_CHARS]}
             elif action_type == "write_file":
                 rel, abs_path = self._resolve_repo_path(str(action.get("path", "")), run_id=run_id)
                 content = str(action.get("content", ""))

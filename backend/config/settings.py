@@ -61,7 +61,10 @@ CHROMA_FULL_PATH: Path = PROJECT_ROOT / CHROMA_PATH
 KNOWLEDGE_GRAPH_FULL_PATH: Path = PROJECT_ROOT / KNOWLEDGE_GRAPH_PATH
 STYLE_PROFILE_FULL_PATH: Path = PROJECT_ROOT / STYLE_PROFILE_PATH
 
+# Browser / web extraction
+BROWSER_EXTRACT_MAX_CHARS: int = int(os.environ.get("BROWSER_EXTRACT_MAX_CHARS", "8000"))
+
 # Rate limiting
 RATE_LIMIT_RUN_MAX_CALLS: int = int(os.environ.get("RATE_LIMIT_RUN_MAX_CALLS", "10"))
 RATE_LIMIT_RUN_WINDOW_SECS: float = float(os.environ.get("RATE_LIMIT_RUN_WINDOW_SECS", "60"))
-RATE_LIMIT_ENABLED: bool = os.environ.get("RATE_LIMIT_ENABLED", "true").lower() == "true"
+RATE_LIMIT_ENABLED: bool = os.environ.get("RATE_LIMIT_ENABLED", "true").lower() in ("true", "1", "yes")

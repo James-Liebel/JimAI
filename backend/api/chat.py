@@ -141,7 +141,7 @@ def _chat_auto_web_research_enabled() -> bool:
         from agent_space.runtime import settings_store
         cfg = settings_store.get()
         return bool(cfg.get("chat_auto_web_research_enabled", True))
-    except Exception:
+    except ImportError:
         return True
 
 
@@ -254,10 +254,7 @@ def _domain_from_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return "unknown"
-    try:
-        host = (urlparse(raw).netloc or "").strip().lower()
-    except Exception:
-        return "unknown"
+    host = (urlparse(raw).netloc or "").strip().lower()
     if not host:
         return "unknown"
     if host.startswith("www."):
@@ -273,7 +270,7 @@ def _coerce_score(value: object) -> float | None:
         if score != score:  # NaN guard
             return None
         return max(0.0, min(1.0, score))
-    except Exception:
+    except (TypeError, ValueError):
         return None
 
 

@@ -15,7 +15,16 @@
       "Bash(node_modules/.bin/vite build:*)",
       "Bash(node_modules/.bin/vite --port 5174)",
       "Bash(kill %1)",
-      "Bash(python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000)"
+      "Bash(python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(python -m uvicorn main:app --host 0.0.0.0 --port 8000)",
+      "Bash(find /c/Users/james/JimAI-1/backend -name \"*.py\" -type f -exec grep -l \"^import\\\\|^from\" {} \\\\;)",
+      "Bash(xargs wc:*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"const API\\\\|apiUrl\\\\|fetch.*api\\\\|POST\\\\|GET\" /c/Users/james/JimAI-1/frontend/src/lib/*.ts)",
+      "Bash(python3 -m py_compile *.py)",
+      "Bash(grep -r \"NotImplemented\\\\|TODO\\\\|FIXME\\\\|pass$\" /c/Users/james/JimAI-1/backend --include=\"*.py\")",
+      "Bash(grep pass$:*)",
+      "Bash(npm test:*)"
     ]
   }
 }

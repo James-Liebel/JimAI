@@ -60,7 +60,7 @@ describe('Settings page', () => {
         fireEvent.blur(agentModelsTextarea);
 
         await waitFor(() => {
-            expect(screen.getByText('Invalid JSON format')).not.toBeNull();
+            expect(screen.getByText('Invalid JSON format.')).not.toBeNull();
         });
     });
 
@@ -77,7 +77,7 @@ describe('Settings page', () => {
         fireEvent.blur(agentModelsTextarea);
 
         await waitFor(() => {
-            screen.getByText('Invalid JSON format');
+            screen.getByText('Invalid JSON format.');
         });
 
         const saveButton = screen.getByRole('button', { name: /save agent model map/i });
@@ -98,14 +98,14 @@ describe('Settings page', () => {
         fireEvent.blur(agentModelsTextarea);
 
         await waitFor(() => {
-            screen.getByText('Invalid JSON format');
+            screen.getByText('Invalid JSON format.');
         });
 
         // onChange handler calls setJsonError(null) when user types again
         fireEvent.change(agentModelsTextarea, { target: { value: '{}' } });
 
         await waitFor(() => {
-            expect(screen.queryByText('Invalid JSON format')).toBeNull();
+            expect(screen.queryByText('Invalid JSON format.')).toBeNull();
         });
     });
 });

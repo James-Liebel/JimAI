@@ -14,7 +14,6 @@ const NAV_ITEMS = [
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/automation', label: 'Automation' },
-    { to: '/system', label: 'System' },
     { to: '/self-code', label: 'SelfCode' },
 ];
 

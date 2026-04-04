@@ -1,5 +1,6 @@
 """Private AI Backend — FastAPI application entry point."""
 
+import inspect
 import logging
 import os
 import subprocess
@@ -119,15 +120,16 @@ class _NormalizeCorsPreflightMiddleware:
         await self.app(scope, receive, send)
 
 
-app.add_middleware(
-    CORSMiddleware,
+_cors_kwargs: dict = dict(
     allow_origins=_get_allowed_origins(),
     allow_origin_regex=_LOCAL_UI_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_private_network=True,
 )
+if "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters:
+    _cors_kwargs["allow_private_network"] = True  # Starlette ≥0.38: PNA preflight for 127.0.0.1
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 app.add_middleware(_NormalizeCorsPreflightMiddleware)
 
 from agent_space.csrf_middleware import CSRFMiddleware

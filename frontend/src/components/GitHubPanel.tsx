@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { cn } from '../lib/utils';
 import {
     checkoutGitHubBranch,
     commitGitHubChanges,
@@ -20,10 +21,16 @@ export default function GitHubPanel({
     open,
     onClose,
     onRepositoryChanged,
+    variant = 'modal',
+    onExpandToModal,
 }: {
     open: boolean;
     onClose: () => void;
     onRepositoryChanged?: () => void | Promise<void>;
+    /** `embedded`: docked in IDE sidebar (Cursor-style source control). `modal`: centered overlay. */
+    variant?: 'modal' | 'embedded';
+    /** Shown in embedded mode to open the full-screen GitHub panel. */
+    onExpandToModal?: () => void;
 }) {
     const [status, setStatus] = useState<GitStatusResponse | null>(null);
     const [branches, setBranches] = useState<GitBranchRow[]>([]);
@@ -200,26 +207,65 @@ export default function GitHubPanel({
 
     if (!open) return null;
 
-    return (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-            <div className="flex h-[80vh] w-full max-w-5xl flex-col overflow-hidden rounded-card border border-surface-3 bg-surface-1 shadow-2xl">
-                <div className="flex items-center justify-between gap-3 border-b border-surface-3 px-4 py-3">
-                    <div>
-                        <p className="text-xs uppercase tracking-wide text-text-secondary">GitHub</p>
-                        <h2 className="mt-1 text-lg font-semibold text-text-primary">Branch, stage, commit, push, and pull</h2>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => load().catch(() => undefined)} className="rounded-btn border border-surface-4 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2">
-                            {loading ? 'Refreshing…' : 'Refresh'}
-                        </button>
-                        <button type="button" onClick={onClose} className="rounded-btn border border-surface-4 px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2">
-                            Close
-                        </button>
-                    </div>
-                </div>
+    const embedded = variant === 'embedded';
 
-                <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 lg:grid-cols-[minmax(0,1fr)_360px]">
-                    <div className="min-h-0 overflow-auto p-4 space-y-4">
+    const shell = (
+        <div
+            className={cn(
+                'flex flex-col overflow-hidden bg-surface-1',
+                embedded ? 'h-full min-h-0 flex-1 border-0' : 'h-[80vh] w-full max-w-5xl rounded-card border border-surface-3 shadow-2xl',
+            )}
+        >
+            <div
+                className={cn(
+                    'flex flex-shrink-0 items-center justify-between gap-2 border-b border-surface-3',
+                    embedded ? 'px-2 py-2' : 'px-4 py-3',
+                )}
+            >
+                <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-text-secondary">
+                        {embedded ? 'Source Control' : 'GitHub'}
+                    </p>
+                    {!embedded && (
+                        <h2 className="mt-0.5 text-lg font-semibold text-text-primary">Branch, stage, commit, push, and pull</h2>
+                    )}
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {embedded && onExpandToModal && (
+                        <button
+                            type="button"
+                            onClick={onExpandToModal}
+                            className="rounded-btn border border-surface-4 px-2 py-1 text-[11px] text-text-primary hover:bg-surface-2"
+                            title="Open large GitHub panel"
+                        >
+                            Expand
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => load().catch(() => undefined)}
+                        className="rounded-btn border border-surface-4 px-2 py-1 text-[11px] text-text-primary hover:bg-surface-2"
+                    >
+                        {loading ? '…' : 'Refresh'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-btn border border-surface-4 px-2 py-1 text-[11px] text-text-primary hover:bg-surface-2"
+                        title={embedded ? 'Hide sidebar (Ctrl+B)' : 'Close'}
+                    >
+                        {embedded ? 'Hide' : 'Close'}
+                    </button>
+                </div>
+            </div>
+
+            <div
+                className={cn(
+                    'grid min-h-0 flex-1 gap-0',
+                    embedded ? 'grid-cols-1 overflow-auto' : 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]',
+                )}
+            >
+                    <div className={cn('min-h-0 space-y-4 overflow-auto', embedded ? 'p-2' : 'p-4')}>
                         <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
                             <p className="text-[11px] uppercase tracking-wide text-text-secondary">Connection</p>
                             <input
@@ -239,7 +285,7 @@ export default function GitHubPanel({
                             </div>
                         </div>
 
-                        <div className="grid gap-3 md:grid-cols-4">
+                        <div className={cn('grid gap-2', embedded ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4')}>
                             <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
                                 <p className="text-[11px] text-text-muted">Branch</p>
                                 <p className="mt-1 text-sm text-text-primary">{status?.branch || '...'}</p>
@@ -332,7 +378,12 @@ export default function GitHubPanel({
                         </div>
                     </div>
 
-                    <div className="min-h-0 overflow-auto border-t border-l border-surface-3 bg-surface-1 p-4 space-y-4 lg:border-t-0">
+                    <div
+                        className={cn(
+                            'min-h-0 space-y-4 overflow-auto border-surface-3 bg-surface-1 lg:border-l',
+                            embedded ? 'border-t p-2' : 'border-t p-4 lg:border-t-0',
+                        )}
+                    >
                         <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
                             <p className="text-[11px] uppercase tracking-wide text-text-secondary">Commit staged changes</p>
                             <textarea
@@ -377,8 +428,17 @@ export default function GitHubPanel({
                         {message && <p className="text-sm text-accent-green">{message}</p>}
                         {error && <p className="text-sm text-accent-red">{error}</p>}
                     </div>
-                </div>
             </div>
+        </div>
+    );
+
+    if (embedded) {
+        return shell;
+    }
+
+    return (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+            {shell}
         </div>
     );
 }

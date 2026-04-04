@@ -37,7 +37,7 @@ function AgentNode({ data }: { data: Record<string, unknown> }) {
     const role = String(data.role || '');
     return (
         <div
-            className="bg-surface-1 border-2 rounded-md p-3 min-w-[190px] text-xs"
+            className="bg-surface-1 border-2 rounded-none p-3 min-w-[190px] text-xs"
             style={{ borderColor }}
         >
             <Handle type="target" position={Position.Top} className="w-2 h-2" />
@@ -379,7 +379,7 @@ export default function AgentStudio() {
 
     return (
         <div className="h-full min-h-0 flex flex-col bg-surface-0">
-            <div className="flex-shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-surface-3 bg-surface-1">
+            <div className="flex-shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-surface-4 bg-surface-1">
                 <span className="text-sm font-medium text-text-primary">Agent Studio</span>
                 <div className="flex-1" />
                 <input
@@ -407,7 +407,7 @@ export default function AgentStudio() {
             </div>
 
             <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-0">
-                <div className="col-span-1 xl:col-span-8 min-h-[360px] xl:min-h-0 border-b xl:border-b-0 xl:border-r border-surface-3">
+                <div className="col-span-1 xl:col-span-8 min-h-[360px] xl:min-h-0 border-b xl:border-b-0 xl:border-r border-surface-4">
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
@@ -423,7 +423,7 @@ export default function AgentStudio() {
                 </div>
 
                 <div className="col-span-1 xl:col-span-4 min-h-0 overflow-auto p-3 space-y-3 bg-surface-1">
-                    <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-3">
+                    <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-3">
                         <div>
                             <div className="text-xs font-semibold text-text-primary">How Agent Studio Works</div>
                             <p className="mt-1 text-[11px] text-text-secondary">
@@ -431,19 +431,19 @@ export default function AgentStudio() {
                             </p>
                         </div>
                         <div className="grid grid-cols-4 gap-2 text-[11px]">
-                            <div className="rounded-btn border border-surface-3 bg-surface-1 p-2">
+                            <div className="rounded-btn border border-surface-4 bg-surface-1 p-2">
                                 <p className="text-text-muted">Agents</p>
                                 <p className="mt-1 text-text-primary">{agentSpecs.length}</p>
                             </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-1 p-2">
+                            <div className="rounded-btn border border-surface-4 bg-surface-1 p-2">
                                 <p className="text-text-muted">Planners</p>
                                 <p className="mt-1 text-text-primary">{plannerCount}</p>
                             </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-1 p-2">
+                            <div className="rounded-btn border border-surface-4 bg-surface-1 p-2">
                                 <p className="text-text-muted">Skills</p>
                                 <p className="mt-1 text-text-primary">{selectedSkills.length}</p>
                             </div>
-                            <div className="rounded-btn border border-surface-3 bg-surface-1 p-2">
+                            <div className="rounded-btn border border-surface-4 bg-surface-1 p-2">
                                 <p className="text-text-muted">Library</p>
                                 <p className="mt-1 text-text-primary">{skills.length}</p>
                             </div>
@@ -452,21 +452,21 @@ export default function AgentStudio() {
                             Recommended flow: save the team, auto-add or select skills from the objective, then start the run.
                         </div>
                         {(savedTeamName || savedTeamId) && (
-                            <div className="rounded-btn border border-surface-3 bg-surface-1 p-2 text-[11px] text-text-secondary">
+                            <div className="rounded-btn border border-surface-4 bg-surface-1 p-2 text-[11px] text-text-secondary">
                                 Saved team connected to Builder: {savedTeamName || teamName}
                                 {savedTeamId ? ` · ${savedTeamId.slice(0, 8)}` : ''}
                             </div>
                         )}
                     </div>
 
-                    <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-2">
+                    <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-2">
                         <div className="text-xs font-semibold text-text-primary">Run Objective</div>
                         <textarea
                             value={objective}
                             onChange={(e) => setObjective(e.target.value)}
                             rows={3}
                             placeholder="Describe what you want agents to build. Skills can auto-generate from this objective."
-                            className="w-full bg-white text-black border border-surface-4 rounded-md px-2 py-2 text-xs resize-none"
+                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
                         />
                         <div className="flex gap-2">
                             <button
@@ -495,14 +495,14 @@ export default function AgentStudio() {
                         {selectionContext ? (
                             <details className="text-[11px] text-text-secondary">
                                 <summary className="cursor-pointer text-text-primary">Skill Context Preview</summary>
-                                <pre className="mt-2 whitespace-pre-wrap text-[10px] max-h-48 overflow-auto border border-surface-3 rounded p-2 bg-surface-1">
+                                <pre className="mt-2 whitespace-pre-wrap text-[10px] max-h-48 overflow-auto border border-surface-4 rounded p-2 bg-surface-1">
                                     {selectionContext}
                                 </pre>
                             </details>
                         ) : null}
                     </div>
 
-                    <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-2">
+                    <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-2">
                         <div className="flex items-center justify-between">
                             <div className="text-xs font-semibold text-text-primary">Skill Library</div>
                             <div className="flex gap-2">
@@ -521,9 +521,9 @@ export default function AgentStudio() {
                             </div>
                         </div>
                         {loadingSkills ? <div className="text-[11px] text-text-muted">Loading skills...</div> : null}
-                        <div className="max-h-48 overflow-auto border border-surface-3 rounded-md">
+                        <div className="max-h-48 overflow-auto border border-surface-4 rounded-none">
                             {skills.map((skill) => (
-                                <div key={skill.slug} className="px-2 py-2 border-b border-surface-3 last:border-b-0">
+                                <div key={skill.slug} className="px-2 py-2 border-b border-surface-4 last:border-b-0">
                                     <div className="flex items-start justify-between gap-2">
                                         <button
                                             onClick={() => handleOpenSkill(skill.slug)}
@@ -554,26 +554,26 @@ export default function AgentStudio() {
                         ) : null}
                     </div>
 
-                    <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-2">
+                    <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-2">
                         <div className="text-xs font-semibold text-text-primary">Create Skill</div>
                         <input
                             value={skillName}
                             onChange={(e) => setSkillName(e.target.value)}
                             placeholder="Skill name"
-                            className="w-full bg-white text-black border border-surface-4 rounded-md px-2 py-1.5 text-xs"
+                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                         />
                         <input
                             value={skillDescription}
                             onChange={(e) => setSkillDescription(e.target.value)}
                             placeholder="Short description"
-                            className="w-full bg-white text-black border border-surface-4 rounded-md px-2 py-1.5 text-xs"
+                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                         />
                         <div className="grid grid-cols-5 gap-2">
                             <input
                                 value={skillTags}
                                 onChange={(e) => setSkillTags(e.target.value)}
                                 placeholder="tags,comma,separated"
-                                className="col-span-4 bg-white text-black border border-surface-4 rounded-md px-2 py-1.5 text-xs"
+                                className="col-span-4 bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                             />
                             <input
                                 type="number"
@@ -581,7 +581,7 @@ export default function AgentStudio() {
                                 max={5}
                                 value={skillComplexity}
                                 onChange={(e) => setSkillComplexity(Number(e.target.value))}
-                                className="col-span-1 bg-white text-black border border-surface-4 rounded-md px-2 py-1.5 text-xs"
+                                className="col-span-1 bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                             />
                         </div>
                         <textarea
@@ -589,7 +589,7 @@ export default function AgentStudio() {
                             onChange={(e) => setSkillContent(e.target.value)}
                             rows={6}
                             placeholder="Optional full SKILL.md content. Leave empty to auto-build a complex template."
-                            className="w-full bg-white text-black border border-surface-4 rounded-md px-2 py-2 text-xs resize-y"
+                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-y"
                         />
                         <button
                             onClick={handleCreateSkill}
@@ -600,14 +600,14 @@ export default function AgentStudio() {
                         </button>
                     </div>
 
-                    <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-2">
+                    <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-2">
                         <div className="text-xs font-semibold text-text-primary">Quick Run</div>
                         <textarea
                             value={runPrompt}
                             onChange={(e) => setRunPrompt(e.target.value)}
                             rows={3}
                             placeholder="Prompt the current team to execute a task."
-                            className="w-full bg-white text-black border border-surface-4 rounded-md px-2 py-2 text-xs resize-none"
+                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
                         />
                         <button
                             onClick={handleRunTest}
@@ -620,24 +620,24 @@ export default function AgentStudio() {
                     </div>
 
                     {selectedSkill ? (
-                        <div className="rounded-lg border border-surface-3 bg-surface-0 p-3 space-y-2">
+                        <div className="rounded-none border border-surface-4 bg-surface-0 p-3 space-y-2">
                             <div className="text-xs font-semibold text-text-primary">Selected Skill</div>
                             <div className="text-xs text-text-primary">{selectedSkill.name}</div>
                             <div className="text-[11px] text-text-secondary">{selectedSkill.description}</div>
                             <div className="flex flex-wrap gap-2 text-[10px]">
-                                <span className="rounded-full border border-surface-4 px-2 py-1 text-text-secondary">
+                                <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">
                                     source {selectedSkill.source}
                                 </span>
-                                <span className="rounded-full border border-surface-4 px-2 py-1 text-text-secondary">
+                                <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">
                                     complexity L{selectedSkill.complexity}
                                 </span>
                                 {selectedSkill.tags.slice(0, 4).map((tag) => (
-                                    <span key={tag} className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                    <span key={tag} className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                         {tag}
                                     </span>
                                 ))}
                             </div>
-                            <pre className="whitespace-pre-wrap text-[10px] max-h-52 overflow-auto border border-surface-3 rounded p-2 bg-surface-1">
+                            <pre className="whitespace-pre-wrap text-[10px] max-h-52 overflow-auto border border-surface-4 rounded p-2 bg-surface-1">
                                 {selectedSkill.content}
                             </pre>
                         </div>

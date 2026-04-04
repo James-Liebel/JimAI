@@ -17,7 +17,7 @@ const QUICK_ACTIONS = [
 
 export default function MobileNav() {
     return (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-surface-1 border-t border-surface-3 md:hidden"
+        <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-surface-1 border-t border-surface-4 md:hidden"
             style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
             {TABS.map(({ to, label, icon: Icon }) => (

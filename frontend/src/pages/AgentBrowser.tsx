@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 export default function AgentBrowser() {
     const [sessions, setSessions] = useState<agentApi.BrowserSessionSummary[]>([]);
@@ -125,14 +126,13 @@ export default function AgentBrowser() {
     };
 
     return (
-        <div className="h-full overflow-auto p-4 md:p-6 space-y-4">
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
-                <h1 className="text-lg font-semibold text-text-primary">Agent Browser</h1>
-                <p className="text-xs text-text-secondary mt-1">
-                    Browser control surface for agents (Clawsbot-style operator workflow).
-                </p>
-
-                <div className="mt-3 flex flex-wrap gap-2">
+        <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
+            <PageHeader
+                title="Agent Browser"
+                description="Browser control surface for agents (Clawsbot-style operator workflow)."
+            />
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
+                <div className="flex flex-wrap gap-2">
                     <input
                         value={url}
                         onChange={(e) => setUrl(e.target.value)}
@@ -171,7 +171,7 @@ export default function AgentBrowser() {
             </section>
 
             <section className="grid md:grid-cols-[300px_1fr] gap-4">
-                <div className="rounded-card border border-surface-3 bg-surface-1 p-3">
+                <div className="rounded-card border border-surface-4 bg-surface-1 p-3">
                     <h2 className="text-sm font-semibold text-text-primary">Sessions</h2>
                     <div className="mt-2 space-y-2 max-h-[420px] overflow-auto">
                         {sessions.length === 0 && <p className="text-xs text-text-secondary">No active sessions.</p>}
@@ -180,7 +180,7 @@ export default function AgentBrowser() {
                                 key={session.session_id}
                                 onClick={() => setSessionId(session.session_id)}
                                 className={`w-full text-left rounded-btn border p-2 ${
-                                    sessionId === session.session_id ? 'border-accent-blue/50 bg-surface-2' : 'border-surface-3 bg-surface-0'
+                                    sessionId === session.session_id ? 'border-accent-blue/50 bg-surface-2' : 'border-surface-4 bg-surface-0'
                                 }`}
                             >
                                 <p className="text-xs text-text-primary">{session.session_id.slice(0, 8)}</p>
@@ -191,7 +191,7 @@ export default function AgentBrowser() {
                     </div>
                 </div>
 
-                <div className="rounded-card border border-surface-3 bg-surface-1 p-4 space-y-3">
+                <div className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
                     <p className="text-xs text-text-secondary">active session: {sessionId || 'none'}</p>
                     <div className="flex flex-wrap gap-2">
                         <button
@@ -304,7 +304,7 @@ export default function AgentBrowser() {
                         </button>
                     </div>
 
-                    <div className="rounded-card border border-surface-3 bg-surface-0 p-3 space-y-2">
+                    <div className="rounded-card border border-surface-4 bg-surface-0 p-3 space-y-2">
                         <div className="flex flex-wrap gap-2 items-center">
                             <span className="text-xs text-text-secondary">Cursor controls:</span>
                             <input
@@ -446,7 +446,7 @@ export default function AgentBrowser() {
                     </div>
 
                     {screenshotBase64 && (
-                        <div className="relative inline-block border border-surface-3 rounded-btn overflow-hidden max-w-full">
+                        <div className="relative inline-block border border-surface-4 rounded-btn overflow-hidden max-w-full">
                             <img
                                 src={`data:image/png;base64,${screenshotBase64}`}
                                 alt="Browser screenshot"
@@ -458,7 +458,7 @@ export default function AgentBrowser() {
                                     style={cursorMarkerStyle}
                                     className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
                                 >
-                                    <div className="w-4 h-4 border border-accent-red rounded-full" />
+                                    <div className="w-4 h-4 border border-accent-red rounded-none" />
                                     <div className="w-8 h-px bg-accent-red -mt-2" />
                                     <div className="w-px h-8 bg-accent-red -ml-2 -mt-4" />
                                 </div>
@@ -467,7 +467,7 @@ export default function AgentBrowser() {
                     )}
 
                     {pageState && (
-                        <div className="text-xs text-text-secondary bg-surface-0 border border-surface-3 rounded-btn p-3 space-y-1">
+                        <div className="text-xs text-text-secondary bg-surface-0 border border-surface-4 rounded-btn p-3 space-y-1">
                             <p className="truncate">URL: {pageState.url || '(blank)'}</p>
                             <p className="truncate">Title: {pageState.title || '(untitled)'}</p>
                             <p>
@@ -482,11 +482,11 @@ export default function AgentBrowser() {
                     )}
 
                     {links.length > 0 && (
-                        <div className="border border-surface-3 rounded-btn p-3 bg-surface-0">
+                        <div className="border border-surface-4 rounded-btn p-3 bg-surface-0">
                             <h3 className="text-xs font-semibold text-text-primary">Detected Links</h3>
                             <div className="mt-2 max-h-[180px] overflow-auto space-y-1">
                                 {links.map((link, idx) => (
-                                    <div key={`${idx}-${link.href}`} className="text-[11px] border border-surface-3 rounded-btn p-2">
+                                    <div key={`${idx}-${link.href}`} className="text-[11px] border border-surface-4 rounded-btn p-2">
                                         <p className="text-text-primary truncate">{link.text || '(no text)'}</p>
                                         <p className="text-text-secondary truncate">{link.href}</p>
                                         <div className="mt-1 flex gap-2">
@@ -521,7 +521,7 @@ export default function AgentBrowser() {
                     )}
 
                     {extractText && (
-                        <pre className="max-h-[220px] overflow-auto text-xs bg-surface-0 border border-surface-3 p-3 text-text-primary whitespace-pre-wrap">
+                        <pre className="max-h-[220px] overflow-auto text-xs bg-surface-0 border border-surface-4 p-3 text-text-primary whitespace-pre-wrap">
                             {extractText}
                         </pre>
                     )}

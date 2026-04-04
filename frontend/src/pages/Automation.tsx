@@ -12,6 +12,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 type FlowKind = 'trigger' | 'action' | 'logic' | 'ai' | 'integration' | 'research';
 
@@ -287,15 +288,19 @@ export default function Automation() {
     }, [graph, refresh, runInput, selectedWorkflowId, status?.public_sources, workflowDescription, workflowName, workflowTags]);
 
     return (
-        <div className="h-full overflow-auto p-5 md:p-8">
-            <div className="mx-auto w-full max-w-7xl space-y-6">
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
-                    <h1 className="text-lg font-semibold text-text-primary">Automation (Open Workflow Studio)</h1>
-                    <p className="text-xs text-text-secondary mt-2">Open-source native workflows, not connected to n8n runtime.</p>
-                    <p className="text-xs text-text-secondary mt-2">
-                        Engine: {status?.engine || 'jimai-open-workflow'} | workflows: {status?.workflow_count ?? 0}
-                    </p>
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="h-full overflow-auto p-6 md:p-10">
+            <div className="mx-auto w-full max-w-[min(120rem,calc(100%-2rem))] space-y-6">
+                <PageHeader
+                    title="Automation (Open Workflow Studio)"
+                    description="Open-source native workflows, not connected to n8n runtime."
+                    meta={
+                        <>
+                            Engine: {status?.engine || 'jimai-open-workflow'} | workflows: {status?.workflow_count ?? 0}
+                        </>
+                    }
+                />
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <input value={workflowName} onChange={(e) => setWorkflowName(e.target.value)} placeholder="Workflow name" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none" />
                         <input value={workflowDescription} onChange={(e) => setWorkflowDescription(e.target.value)} placeholder="Description" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none" />
                         <input value={workflowTags} onChange={(e) => setWorkflowTags(e.target.value)} placeholder="tags: automation, open-source" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none md:col-span-2" />
@@ -322,7 +327,7 @@ export default function Automation() {
                     {loading && <p className="text-xs text-text-secondary mt-2">Loading...</p>}
                 </section>
 
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <div className="flex flex-wrap gap-2 mb-3">
                         {(['trigger', 'action', 'logic', 'ai', 'integration', 'research'] as FlowKind[]).map((kind) => (
                             <button key={kind} type="button" onClick={() => addNode(kind)} className="px-3 py-1.5 rounded-btn border text-xs text-text-primary" style={{ borderColor: FLOW_NODE_LIBRARY[kind].color }}>
@@ -331,7 +336,7 @@ export default function Automation() {
                         ))}
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3">
-                        <div className="rounded-btn border border-surface-3 bg-surface-0 overflow-hidden"><div className="h-[520px]">
+                        <div className="rounded-btn border border-surface-4 bg-surface-0 overflow-hidden"><div className="h-[520px]">
                             <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, n) => setSelectedNodeId(n.id)} fitView>
                                 <MiniMap nodeColor={(n) => FLOW_NODE_LIBRARY[((n.data as FlowNodeData)?.kind || 'action') as FlowKind].color} pannable zoomable />
                                 <Controls />
@@ -339,7 +344,7 @@ export default function Automation() {
                             </ReactFlow>
                         </div></div>
                         <div className="space-y-3">
-                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                            <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                 <p className="text-[11px] text-text-secondary uppercase">Selected Node</p>
                                 {selectedNode && (
                                     <div className="mt-2 space-y-2">
@@ -375,16 +380,16 @@ export default function Automation() {
                     </div>
                 </section>
 
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <h2 className="text-sm font-semibold text-text-primary">Run Output</h2>
                     <textarea value={runOutput} readOnly rows={12} className="mt-2 w-full rounded-btn border border-surface-4 bg-surface-0 px-2 py-1.5 text-[11px] text-text-primary font-mono outline-none resize-y" />
                 </section>
 
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <h2 className="text-sm font-semibold text-text-primary">Templates</h2>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                         {templates.map((template) => (
-                            <div key={template.name} className="rounded-btn border border-surface-3 bg-surface-0 p-3 space-y-2">
+                            <div key={template.name} className="rounded-btn border border-surface-4 bg-surface-0 p-3 space-y-2">
                                 <p className="text-sm text-text-primary">{template.name}</p>
                                 <p className="text-xs text-text-secondary">{template.description}</p>
                                 <button type="button" onClick={() => {
@@ -400,11 +405,11 @@ export default function Automation() {
                     </div>
                 </section>
 
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <h2 className="text-sm font-semibold text-text-primary">Open-Source References</h2>
                     <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                         {(status?.public_sources || []).map((source) => (
-                            <div key={source.url} className="rounded-btn border border-surface-3 bg-surface-0 p-3 space-y-2">
+                            <div key={source.url} className="rounded-btn border border-surface-4 bg-surface-0 p-3 space-y-2">
                                 <p className="text-sm text-text-primary">{source.name}</p>
                                 <p className="text-[11px] text-text-muted">{source.license || ''}</p>
                                 <p className="text-xs text-text-secondary">{source.why || ''}</p>

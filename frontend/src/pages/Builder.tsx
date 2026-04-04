@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type * as Monaco from 'monaco-editor';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Bot, Files, GitBranch, Search, Terminal } from 'lucide-react';
+import { Bot, Files, GitBranch, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
+import { getGitHubStatus } from '../lib/githubApi';
 import GitHubPanel from '../components/GitHubPanel';
+import { BuilderCommandPalette, type BuilderPaletteAction } from '../components/builder/BuilderCommandPalette';
+import { BuilderStatusBar } from '../components/builder/BuilderStatusBar';
+import { isShortcutFocusInEditorField } from '../components/builder/builderShortcutGate';
+import {
+    loadBuilderLayout,
+    loadMinimalChrome,
+    persistBuilderLayout,
+    persistMinimalChrome,
+} from '../components/builder/builderStorage';
+import { ResizeHandle } from '../components/builder/ResizeHandle';
 import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
 
 type NodeStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
@@ -57,7 +70,7 @@ function filterRepoTree(node: agentApi.RepoTreeNode, q: string): agentApi.RepoTr
     return null;
 }
 const formatTime = (ts?: number) => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--');
-const statusTone = (status: NodeStatus) => status === 'running' ? 'border-accent/40 bg-accent/10' : status === 'completed' ? 'border-accent-green/40 bg-accent-green/10' : status === 'failed' ? 'border-accent-red/40 bg-accent-red/10' : 'border-surface-3 bg-surface-1';
+const statusTone = (status: NodeStatus) => status === 'running' ? 'border-accent/40 bg-accent/10' : status === 'completed' ? 'border-accent-green/40 bg-accent-green/10' : status === 'failed' ? 'border-accent-red/40 bg-accent-red/10' : 'border-surface-4 bg-surface-1';
 
 function parseSubagentId(message: string, type: string) {
     if (!message) return '';
@@ -101,6 +114,9 @@ function buildDiffTab(review: agentApi.AgentSpaceReview, path: string): DiffTab 
 }
 
 export default function Builder() {
+    const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
+    const builderFullLayout = searchParams.get('full') === '1';
     const [prompt, setPrompt] = useState('');
     const [context, setContext] = useState('');
     const [message, setMessage] = useState('');
@@ -126,12 +142,25 @@ export default function Builder() {
     const [sidebarTab, setSidebarTab] = useState<'explorer' | 'search' | 'source-control'>('explorer');
     const [rightPanelOpen, setRightPanelOpen] = useState(true);
     const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+    const [bottomLogTab, setBottomLogTab] = useState<'all' | 'terminal' | 'agent'>('all');
+    const [shortcutsOpen, setShortcutsOpen] = useState(false);
+    const [minimalChrome, setMinimalChrome] = useState(() => loadMinimalChrome());
     const [showGitHubModal, setShowGitHubModal] = useState(false);
     const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
     const [cloneRepoUrl, setCloneRepoUrl] = useState('');
     const [cloneFolderName, setCloneFolderName] = useState('');
     const [cloneBusy, setCloneBusy] = useState(false);
     const welcomeFileInputRef = useRef<HTMLInputElement>(null);
+    const [sidebarWidth, setSidebarWidth] = useState(() => loadBuilderLayout().sidebarWidth);
+    const [rightWidth, setRightWidth] = useState(() => loadBuilderLayout().rightWidth);
+    const [bottomPanelHeight, setBottomPanelHeight] = useState(() => loadBuilderLayout().bottomHeight);
+    const [searchSubTab, setSearchSubTab] = useState<'filter' | 'text'>('filter');
+    const [workspaceTextQuery, setWorkspaceTextQuery] = useState('');
+    const [workspaceSearchBusy, setWorkspaceSearchBusy] = useState(false);
+    const [workspaceMatches, setWorkspaceMatches] = useState<agentApi.WorkspaceTextSearchMatch[]>([]);
+    const [editorCursor, setEditorCursor] = useState<{ line: number; col: number } | null>(null);
+    const [statusBarBranch, setStatusBarBranch] = useState('');
+    const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
     const [recommendedSkills, setRecommendedSkills] = useState<agentApi.AgentSkillSummary[]>([]);
     const [recommendedSkillContext, setRecommendedSkillContext] = useState('');
     const [loadingRecommendedSkills, setLoadingRecommendedSkills] = useState(false);
@@ -164,16 +193,23 @@ export default function Builder() {
         if (current) setRunStatus(current.status);
     }, [runId]);
 
+    const refreshStatusBranch = useCallback(() => {
+        getGitHubStatus()
+            .then((s) => setStatusBarBranch(s.branch ? `⎇ ${s.branch}` : ''))
+            .catch(() => setStatusBarBranch(''));
+    }, []);
+
     const refreshTree = useCallback(async () => {
         setLoadingTree(true);
         try {
             setTreeData(await agentApi.listRepoTree('.', 12, 30000, false));
+            refreshStatusBranch();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load file tree.');
         } finally {
             setLoadingTree(false);
         }
-    }, []);
+    }, [refreshStatusBranch]);
 
     useEffect(() => {
         const shared = readSharedWorkspaceDraft();
@@ -206,6 +242,12 @@ export default function Builder() {
         refreshRuns().catch(() => undefined);
         refreshTree().catch(() => undefined);
     }, [refreshRuns, refreshTree]);
+
+    useEffect(() => {
+        refreshStatusBranch();
+        const id = window.setInterval(() => refreshStatusBranch(), 120_000);
+        return () => window.clearInterval(id);
+    }, [refreshStatusBranch]);
 
     useEffect(() => {
         setEditorWriteMode(Boolean(settings.review_gate ?? true) ? 'review' : 'direct');
@@ -692,16 +734,168 @@ export default function Builder() {
         tone: row.exitCode === 0 ? 'text-text-secondary' : 'text-accent-red',
     }))].sort((a, b) => b.timestamp - a.timestamp).slice(0, 200), [events, terminalRows]);
 
+    const filteredActivityRows = useMemo(() => {
+        if (bottomLogTab === 'all') return activityRows;
+        return activityRows.filter((r) => r.prefix === bottomLogTab);
+    }, [activityRows, bottomLogTab]);
+
     const searchFilteredTreeRoot = useMemo(() => {
         if (!treeData) return null;
         if (!sidebarSearchQuery.trim()) return treeData.tree;
         return filterRepoTree(treeData.tree, sidebarSearchQuery);
     }, [sidebarSearchQuery, treeData]);
 
+    const runWorkspaceTextSearch = useCallback(async () => {
+        const q = workspaceTextQuery.trim();
+        if (!q) return;
+        setWorkspaceSearchBusy(true);
+        setError('');
+        try {
+            const res = await agentApi.workspaceTextSearch({ query: q, path_prefix: '.', max_results: 200 });
+            setWorkspaceMatches(res.matches || []);
+        } catch (err) {
+            setWorkspaceMatches([]);
+            setError(err instanceof Error ? err.message : 'Workspace search failed.');
+        } finally {
+            setWorkspaceSearchBusy(false);
+        }
+    }, [workspaceTextQuery]);
+
+    const handleMonacoMount = useCallback((editor: Monaco.editor.IStandaloneCodeEditor) => {
+        editor.onDidChangeCursorPosition((ev) => {
+            setEditorCursor({ line: ev.position.lineNumber, col: ev.position.column });
+        });
+    }, []);
+
+    useEffect(() => {
+        if (activeTab?.type !== 'file') setEditorCursor(null);
+    }, [activeTab?.type, activeTabId]);
+
+    const commitSidebarLayout = useCallback(() => {
+        persistBuilderLayout({ sidebarWidth });
+    }, [sidebarWidth]);
+
+    const commitRightLayout = useCallback(() => {
+        persistBuilderLayout({ rightWidth });
+    }, [rightWidth]);
+
+    const commitBottomLayout = useCallback(() => {
+        persistBuilderLayout({ bottomHeight: bottomPanelHeight });
+    }, [bottomPanelHeight]);
+
+    const paletteActions = useMemo<BuilderPaletteAction[]>(
+        () => [
+            {
+                id: 'toggle-sidebar',
+                label: 'Toggle sidebar',
+                hint: 'Ctrl+B',
+                run: () => setSidebarOpen((s) => !s),
+            },
+            {
+                id: 'focus-explorer',
+                label: 'Show explorer',
+                hint: 'Ctrl+Shift+E',
+                run: () => {
+                    setSidebarOpen(true);
+                    setSidebarTab('explorer');
+                },
+            },
+            {
+                id: 'focus-search',
+                label: 'Show search',
+                hint: 'Ctrl+Shift+F',
+                run: () => {
+                    setSidebarOpen(true);
+                    setSidebarTab('search');
+                },
+            },
+            {
+                id: 'focus-text-search',
+                label: 'Search in files (text)',
+                run: () => {
+                    setSidebarOpen(true);
+                    setSidebarTab('search');
+                    setSearchSubTab('text');
+                },
+            },
+            {
+                id: 'focus-git',
+                label: 'Show source control',
+                hint: 'Ctrl+Shift+G',
+                run: () => {
+                    setSidebarOpen(true);
+                    setSidebarTab('source-control');
+                },
+            },
+            {
+                id: 'github-modal',
+                label: 'Open large Git panel',
+                run: () => setShowGitHubModal(true),
+            },
+            {
+                id: 'shortcuts-help',
+                label: 'Keyboard shortcuts',
+                run: () => setShortcutsOpen(true),
+            },
+            {
+                id: 'toggle-minimal-chrome',
+                label: minimalChrome ? 'Show builder top bar' : 'Minimal chrome: hide top bar',
+                run: () => {
+                    setMinimalChrome((prev) => {
+                        const next = !prev;
+                        persistMinimalChrome(next);
+                        return next;
+                    });
+                },
+            },
+            {
+                id: 'toggle-full-builder',
+                label: builderFullLayout ? 'Exit full-screen builder' : 'Full-screen builder (hide app nav)',
+                run: () => navigate(builderFullLayout ? '/builder' : '/builder?full=1'),
+            },
+            {
+                id: 'toggle-terminal',
+                label: 'Toggle bottom panel',
+                hint: 'Ctrl+J / Ctrl+`',
+                run: () => setBottomPanelOpen((s) => !s),
+            },
+            {
+                id: 'toggle-ai',
+                label: 'Toggle AI sidebar',
+                hint: 'Ctrl+L',
+                run: () => setRightPanelOpen((s) => !s),
+            },
+            {
+                id: 'open-file',
+                label: 'Open local file…',
+                run: () => welcomeFileInputRef.current?.click(),
+            },
+            {
+                id: 'clone-hint',
+                label: 'Clone from terminal',
+                run: () => {
+                    setBottomPanelOpen(true);
+                    setMessage('Run git clone from the bottom panel, or use the clone field on the welcome view when no file is open.');
+                },
+            },
+        ],
+        [minimalChrome, builderFullLayout, navigate],
+    );
+
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
             const metaOrCtrl = e.ctrlKey || e.metaKey;
-            if (!metaOrCtrl || e.repeat) return;
+            if (e.repeat) return;
+
+            if (metaOrCtrl && e.shiftKey && e.code === 'KeyP') {
+                e.preventDefault();
+                setCommandPaletteOpen(true);
+                return;
+            }
+
+            if (!metaOrCtrl) return;
+            if (isShortcutFocusInEditorField(e.target)) return;
+
             if (e.key === 'b' && !e.shiftKey && !e.altKey) {
                 e.preventDefault();
                 setSidebarOpen((s) => !s);
@@ -754,49 +948,81 @@ export default function Builder() {
         return () => window.removeEventListener('keydown', onEsc);
     }, [showGitHubModal]);
 
+    useEffect(() => {
+        if (!shortcutsOpen) return;
+        const onEsc = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape') setShortcutsOpen(false);
+        };
+        window.addEventListener('keydown', onEsc);
+        return () => window.removeEventListener('keydown', onEsc);
+    }, [shortcutsOpen]);
+
     const activityBtnClass = (active: boolean) =>
         cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition-colors',
-            active ? 'border-l-2 border-l-accent bg-white/10 text-text-primary' : 'text-text-muted hover:bg-white/5 hover:text-text-primary',
+            'flex h-11 w-11 shrink-0 items-center justify-center transition-colors',
+            active ? 'border-l-2 border-l-accent/80 bg-white/[0.06] text-text-primary' : 'text-text-muted hover:bg-white/[0.04] hover:text-text-primary',
         );
 
     return (
-        <div className="h-full min-h-0 flex flex-col bg-surface-0 text-text-primary">
-            <div className="flex h-9 shrink-0 items-center gap-3 border-b border-surface-3 bg-[#1e1e1e] px-3 text-[11px] text-text-secondary">
-                <span className="font-medium text-text-primary">JimAI Builder</span>
-                <span className="hidden sm:inline">·</span>
-                <span className="hidden sm:inline text-text-muted">Local agents · Ollama</span>
-                <span className="hidden flex-1 justify-center text-center font-mono text-[10px] text-text-muted lg:flex">
-                    Ctrl+B sidebar · Ctrl+Shift+E/F/G · Ctrl+` panel · Ctrl+J panel · Ctrl+L AI
+        <div className="h-full min-h-0 flex flex-col bg-[#1e1e1e] text-text-primary">
+            {!minimalChrome && (
+            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#252526] px-2.5 text-[11px] text-text-secondary">
+                <span className="shrink-0 text-sm font-medium text-text-primary">Builder</span>
+                <span className="hidden min-w-0 flex-1 items-center gap-2 truncate sm:flex">
+                    <span className="text-text-muted">·</span>
+                    <span className="truncate text-[11px] text-text-muted">{sharedSavedTeamName || sharedTeamName || 'Team'}</span>
+                    {(runId || sharedLastRunId) && (
+                        <>
+                            <span className="text-text-muted">·</span>
+                            <span className="shrink-0 text-[11px] text-text-muted">
+                                {runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}
+                            </span>
+                        </>
+                    )}
                 </span>
-                <div className="flex shrink-0 items-center gap-1.5">
+                <div className="ml-auto flex shrink-0 items-center gap-1">
                     <button
                         type="button"
                         onClick={() => { setSidebarOpen(true); setSidebarTab('source-control'); }}
-                        className="rounded border border-surface-4 px-2 py-0.5 text-text-primary hover:bg-white/5"
+                        className="px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+                        title="Open source control in sidebar (Ctrl+Shift+G). Use Expand there for a larger panel."
                     >
-                        Source Control
+                        Git
                     </button>
                     <button
                         type="button"
-                        onClick={() => setShowGitHubModal(true)}
-                        className="rounded border border-surface-4 px-2 py-0.5 text-text-primary hover:bg-white/5"
-                        title="Large GitHub panel"
+                        onClick={() => setShortcutsOpen(true)}
+                        className="flex h-7 w-7 items-center justify-center text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+                        title="Keyboard shortcuts"
+                        aria-label="Keyboard shortcuts"
                     >
-                        GitHub…
+                        <Keyboard size={15} strokeWidth={1.5} aria-hidden />
                     </button>
-                    <span className="max-w-[120px] truncate rounded border border-surface-4 px-2 py-0.5">{sharedSavedTeamName || sharedTeamName || 'Team'}</span>
-                    {(runId || sharedLastRunId) && (
-                        <span className="hidden truncate rounded border border-surface-4 px-2 py-0.5 sm:inline">
-                            {runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}
-                        </span>
+                    {builderFullLayout ? (
+                        <Link
+                            to="/builder"
+                            className="px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+                            title="Show app navigation bar"
+                        >
+                            Exit full
+                        </Link>
+                    ) : (
+                        <Link
+                            to="/builder?full=1"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
+                            title="Hide app nav"
+                        >
+                            <Maximize2 size={12} aria-hidden />
+                            <span className="hidden sm:inline">Full</span>
+                        </Link>
                     )}
                 </div>
             </div>
+            )}
 
             <div className="flex min-h-0 flex-1">
                 <nav
-                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-[#2d2d2d] bg-[#252526] py-1"
+                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-white/[0.06] bg-[#252526] py-1"
                     aria-label="Activity bar"
                 >
                     <button
@@ -810,7 +1036,7 @@ export default function Builder() {
                     <button
                         type="button"
                         className={activityBtnClass(sidebarOpen && sidebarTab === 'search')}
-                        title="Search (Ctrl+Shift+F)"
+                        title="Search — Find files & text (Ctrl+Shift+F)"
                         onClick={() => { setSidebarOpen(true); setSidebarTab('search'); }}
                     >
                         <Search size={20} strokeWidth={1.5} aria-hidden />
@@ -843,27 +1069,30 @@ export default function Builder() {
                 </nav>
 
                 {sidebarOpen && (
-                    <aside className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-surface-3 bg-surface-1">
+                    <aside
+                        className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-[#252526]"
+                        style={{ width: sidebarWidth }}
+                    >
                         {sidebarTab === 'explorer' && (
                             <div className="flex min-h-0 flex-1 flex-col">
-                                <div className="border-b border-surface-3 px-3 py-2">
+                                <div className="border-b border-white/[0.06] px-3 py-2">
                                     <div className="flex items-center justify-between gap-2">
-                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Explorer</p>
-                                        <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-btn border border-surface-4 px-2 py-0.5 text-[10px] text-text-secondary hover:bg-surface-2">
+                                        <p className="text-[11px] font-medium text-text-secondary">Explorer</p>
+                                        <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-none border border-surface-4 px-2 py-0.5 text-[10px] text-text-secondary hover:bg-surface-2">
                                             {loadingTree ? '…' : 'Refresh'}
                                         </button>
                                     </div>
                                     <p className="mt-2 text-[10px] leading-snug text-text-muted">
-                                        New repo: use the panel terminal (<kbd className="rounded border border-surface-4 px-0.5 font-mono text-[9px]">git init</kbd> /{' '}
-                                        <kbd className="rounded border border-surface-4 px-0.5 font-mono text-[9px]">git clone</kbd>) or create a repo on{' '}
+                                        New repo: use the panel terminal (<kbd className="border border-surface-4 px-0.5 font-mono text-[9px]">git init</kbd> /{' '}
+                                        <kbd className="border border-surface-4 px-0.5 font-mono text-[9px]">git clone</kbd>) or create a repo on{' '}
                                         <a href="https://github.com/new" target="_blank" rel="noreferrer" className="text-accent hover:underline">
                                             github.com/new
                                         </a>
                                         .
                                     </p>
                                     <div className="mt-2 flex gap-1.5">
-                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ File</button>
-                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ Folder</button>
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ File</button>
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ Folder</button>
                                     </div>
                                 </div>
                                 <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -877,33 +1106,93 @@ export default function Builder() {
                         )}
                         {sidebarTab === 'search' && (
                             <div className="flex min-h-0 flex-1 flex-col">
-                                <div className="border-b border-surface-3 px-3 py-2">
-                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Search</p>
-                                    <input
-                                        value={sidebarSearchQuery}
-                                        onChange={(e) => setSidebarSearchQuery(e.target.value)}
-                                        className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
-                                        placeholder="Filter files by name or path…"
-                                        autoFocus
-                                    />
-                                    <p className="mt-1 text-[10px] text-text-muted">Matches filter the explorer tree below.</p>
+                                <div className="border-b border-white/[0.06] px-2 py-2">
+                                    <p className="px-1 text-[11px] font-medium text-text-secondary">Search</p>
+                                    <div className="mt-2 flex rounded-none border border-surface-4 bg-surface-0 p-0.5 text-[10px]">
+                                        <button
+                                            type="button"
+                                            className={cn('flex-1 px-2 py-1', searchSubTab === 'filter' ? 'bg-surface-2 text-text-primary' : 'text-text-muted hover:text-text-primary')}
+                                            onClick={() => setSearchSubTab('filter')}
+                                        >
+                                            Find files
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={cn('flex-1 px-2 py-1', searchSubTab === 'text' ? 'bg-surface-2 text-text-primary' : 'text-text-muted hover:text-text-primary')}
+                                            onClick={() => setSearchSubTab('text')}
+                                        >
+                                            Text
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="min-h-0 flex-1 overflow-auto p-2">
-                                    {treeData && searchFilteredTreeRoot ? (
-                                        <FileTreeNode node={searchFilteredTreeRoot} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
-                                    ) : treeData && sidebarSearchQuery.trim() && !searchFilteredTreeRoot ? (
-                                        <p className="px-2 py-3 text-xs text-text-secondary">No matches.</p>
-                                    ) : !treeData ? (
-                                        <p className="px-2 py-3 text-xs text-text-secondary">Loading…</p>
-                                    ) : (
-                                        <p className="px-2 py-3 text-xs text-text-secondary">Type to filter the workspace tree.</p>
-                                    )}
-                                </div>
+                                {searchSubTab === 'filter' && (
+                                    <>
+                                        <div className="border-b border-white/[0.06] px-3 py-2">
+                                            <input
+                                                value={sidebarSearchQuery}
+                                                onChange={(e) => setSidebarSearchQuery(e.target.value)}
+                                                className="w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
+                                                placeholder="Filter by file name or path…"
+                                            />
+                                            <p className="mt-1 text-[10px] text-text-muted">Narrows the tree below (not full-text search).</p>
+                                        </div>
+                                        <div className="min-h-0 flex-1 overflow-auto p-2">
+                                            {treeData && searchFilteredTreeRoot ? (
+                                                <FileTreeNode node={searchFilteredTreeRoot} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
+                                            ) : treeData && sidebarSearchQuery.trim() && !searchFilteredTreeRoot ? (
+                                                <p className="px-2 py-3 text-xs text-text-secondary">No matches.</p>
+                                            ) : !treeData ? (
+                                                <p className="px-2 py-3 text-xs text-text-secondary">Loading…</p>
+                                            ) : (
+                                                <p className="px-2 py-3 text-xs text-text-secondary">Type to filter the workspace tree.</p>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                                {searchSubTab === 'text' && (
+                                    <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
+                                        <input
+                                            value={workspaceTextQuery}
+                                            onChange={(e) => setWorkspaceTextQuery(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') runWorkspaceTextSearch().catch(() => undefined);
+                                            }}
+                                            className="w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
+                                            placeholder="Search text in workspace…"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => runWorkspaceTextSearch().catch(() => undefined)}
+                                            disabled={workspaceSearchBusy || !workspaceTextQuery.trim()}
+                                            className="mt-2 rounded-none border border-accent/40 px-2 py-1.5 text-[11px] text-accent disabled:opacity-50"
+                                        >
+                                            {workspaceSearchBusy ? 'Searching…' : 'Search'}
+                                        </button>
+                                        <p className="mt-2 text-[10px] text-text-muted">Literal substring in indexed text file types (see backend). Click a row to open the file.</p>
+                                        <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-auto">
+                                            {workspaceMatches.length === 0 && !workspaceSearchBusy && (
+                                                <p className="text-xs text-text-secondary">{workspaceTextQuery.trim() ? 'No results.' : 'Enter text and Search.'}</p>
+                                            )}
+                                            {workspaceMatches.map((row, idx) => (
+                                                <button
+                                                    key={`${row.path}:${row.line}:${idx}`}
+                                                    type="button"
+                                                    onClick={() => openFile(row.path).catch(() => undefined)}
+                                                    className="w-full border border-surface-4 bg-surface-0 px-2 py-1.5 text-left text-[10px] hover:bg-surface-2"
+                                                >
+                                                    <span className="font-mono text-text-primary">{row.path}</span>
+                                                    <span className="text-text-muted"> :{row.line}</span>
+                                                    <p className="mt-0.5 truncate text-text-secondary">{row.preview}</p>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                         {sidebarTab === 'source-control' && showGitHubModal && (
                             <div className="p-3 text-center text-xs text-text-secondary">
-                                Large GitHub panel is open. Close it (Esc) to use the sidebar view.
+                                Large Git panel is open. Press Esc to return to the sidebar view.
                             </div>
                         )}
                         {sidebarTab === 'source-control' && !showGitHubModal && (
@@ -919,43 +1208,111 @@ export default function Builder() {
                         )}
                     </aside>
                 )}
+                {sidebarOpen && (
+                    <ResizeHandle
+                        axis="horizontal"
+                        onDelta={(dx) => setSidebarWidth((w) => Math.min(520, Math.max(200, w + dx)))}
+                        onCommit={commitSidebarLayout}
+                    />
+                )}
 
                 <div className="flex min-w-0 min-h-0 flex-1 flex-col">
                 <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <div className="border-b border-surface-3 bg-surface-1">
-                        <div className="flex items-center justify-between gap-3 px-3 py-2">
-                            <div className="min-w-0"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Editor</p><p className="truncate text-sm text-text-primary">{activeTab ? activeTab.path : 'Open a file or diff from the explorer or review panel.'}</p></div>
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-center rounded-btn border border-surface-4 bg-surface-0 p-1 text-[11px]">
+                    <div className="border-b border-white/[0.06] bg-[#252526]">
+                        <div className="flex gap-0.5 overflow-x-auto px-2 py-1">
+                            {tabs.length === 0 && (
+                                <span className="px-2 py-1 text-[11px] text-text-muted">No open editors</span>
+                            )}
+                            {tabs.map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    type="button"
+                                    onClick={() => setActiveTabId(tab.id)}
+                                    className={cn(
+                                        'group flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-none border border-b-0 px-2.5 py-1.5 text-[11px]',
+                                        activeTabId === tab.id
+                                            ? 'border-white/[0.08] bg-[#1e1e1e] text-text-primary'
+                                            : 'border-transparent bg-transparent text-text-muted hover:bg-white/[0.04] hover:text-text-secondary',
+                                    )}
+                                >
+                                    <span className="truncate">
+                                        {tab.title}
+                                        {tab.type === 'file' && tab.dirty ? ' ·' : ''}
+                                    </span>
                                     <button
                                         type="button"
-                                        onClick={() => setEditorWriteMode('review')}
-                                        className={cn('rounded px-2 py-1', editorWriteMode === 'review' ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')}
+                                        aria-label={`Close ${tab.title}`}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            closeTab(tab.id);
+                                        }}
+                                        className="px-0.5 text-text-muted hover:bg-white/10 hover:text-text-primary"
                                     >
-                                        Review mode
+                                        ×
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEditorWriteMode('direct')}
-                                        className={cn('rounded px-2 py-1', editorWriteMode === 'direct' ? 'bg-accent-green/15 text-accent-green' : 'text-text-secondary hover:bg-surface-2')}
-                                    >
-                                        Direct mode
-                                    </button>
+                                </button>
+                            ))}
+                        </div>
+                        {activeTab && (
+                            <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] bg-[#1e1e1e] px-2.5 py-1.5">
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate font-mono text-[11px] text-text-secondary" title={activeTab.path}>
+                                        {activeTab.path}
+                                    </p>
                                 </div>
-                                {activeTab?.type === 'file' && <button type="button" onClick={() => saveActiveFile().catch(() => undefined)} disabled={savingFile || !activeTab.dirty} className="rounded-btn border border-accent/40 px-3 py-1.5 text-xs text-accent disabled:opacity-50">{savingFile ? (editorWriteMode === 'review' ? 'Submitting…' : 'Saving…') : activeTab.dirty ? (editorWriteMode === 'review' ? 'Submit for Review' : 'Save File') : editorWriteMode === 'review' ? 'In Review' : 'Saved'}</button>}
-                                {loadingFile && <span className="text-[11px] text-text-secondary">Opening…</span>}
+                                <div className="flex shrink-0 items-center gap-2">
+                                    <div className="flex items-center border border-white/[0.08] bg-[#252526] p-0.5 text-[11px]">
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditorWriteMode('review')}
+                                            className={cn(
+                                                'px-2 py-0.5',
+                                                editorWriteMode === 'review' ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-white/[0.06]',
+                                            )}
+                                        >
+                                            Review
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEditorWriteMode('direct')}
+                                            className={cn(
+                                                'px-2 py-0.5',
+                                                editorWriteMode === 'direct' ? 'bg-accent-green/15 text-accent-green' : 'text-text-muted hover:bg-white/[0.06]',
+                                            )}
+                                        >
+                                            Direct
+                                        </button>
+                                    </div>
+                                    {activeTab.type === 'file' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => saveActiveFile().catch(() => undefined)}
+                                            disabled={savingFile || !activeTab.dirty}
+                                            className="border border-accent/35 px-2.5 py-1 text-[11px] text-accent disabled:opacity-50"
+                                        >
+                                            {savingFile
+                                                ? editorWriteMode === 'review'
+                                                    ? 'Submitting…'
+                                                    : 'Saving…'
+                                                : activeTab.dirty
+                                                  ? editorWriteMode === 'review'
+                                                      ? 'Submit for review'
+                                                      : 'Save'
+                                                  : editorWriteMode === 'review'
+                                                    ? 'In review'
+                                                    : 'Saved'}
+                                        </button>
+                                    )}
+                                    {loadingFile && <span className="text-[11px] text-text-muted">Opening…</span>}
+                                </div>
                             </div>
-                        </div>
-                        <div className="flex gap-1 overflow-auto border-t border-surface-3 px-2 py-2">
-                            {tabs.length === 0 && <span className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-1 text-[11px] text-text-secondary">No open tabs</span>}
-                            {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTabId(tab.id)} className={cn('group flex items-center gap-2 rounded-btn border px-3 py-1.5 text-xs', activeTabId === tab.id ? 'border-accent/40 bg-surface-0 text-text-primary' : 'border-surface-4 bg-surface-1 text-text-secondary hover:bg-surface-2')}><span className="truncate max-w-[180px]">{tab.title}{tab.type === 'file' && tab.dirty ? ' *' : ''}</span><span onClick={(event) => { event.stopPropagation(); closeTab(tab.id); }} className="rounded px-1 text-text-muted hover:bg-surface-2 hover:text-text-primary">×</span></button>)}
-                        </div>
+                        )}
                     </div>
-                    <div className="min-h-0 flex-1 bg-[#0d1117]">
-                        {activeTab?.type === 'file' && <Editor height="100%" language={activeTab.language} value={activeTab.content} theme="vs-dark" onChange={(value) => updateActiveTabContent(value || '')} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />}
+                    <div className="min-h-0 flex-1 bg-[#1e1e1e]">
+                        {activeTab?.type === 'file' && <Editor height="100%" language={activeTab.language} value={activeTab.content} theme="vs-dark" onChange={(value) => updateActiveTabContent(value || '')} onMount={handleMonacoMount} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />}
                         {activeTab?.type === 'diff' && <DiffEditor height="100%" original={activeTab.original} modified={activeTab.modified} theme="vs-dark" language={detectLanguage(activeTab.path)} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true }} />}
                         {!activeTab && (
-                            <div className="flex h-full min-h-0 flex-col overflow-auto bg-[#0d1117]">
+                            <div className="flex h-full min-h-0 flex-col overflow-auto bg-[#1e1e1e]">
                                 <input
                                     ref={welcomeFileInputRef}
                                     type="file"
@@ -966,69 +1323,89 @@ export default function Builder() {
                                         if (f) void openLocalFileToTab(f);
                                     }}
                                 />
-                                <div className="shrink-0 border-b border-[#2d2d2d] bg-[#1e1e1e] px-3 py-2">
-                                    <div className="flex items-center gap-2 rounded border border-[#3c3c3c] bg-[#252526] px-2 py-1.5 font-mono text-[11px] text-text-secondary">
-                                        <span className="shrink-0 text-text-muted">file:</span>
-                                        <span className="min-w-0 flex-1 truncate text-text-primary" title="Workspace root">
-                                            /// JimAI / workspace · {selectedDirectory === '.' ? 'repository root' : selectedDirectory}
-                                        </span>
-                                    </div>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => welcomeFileInputRef.current?.click()}
-                                            className="rounded border border-surface-4 bg-[#252526] px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2"
-                                        >
-                                            Open local file…
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => { setSidebarOpen(true); setSidebarTab('explorer'); }}
-                                            className="rounded border border-surface-4 bg-[#252526] px-3 py-1.5 text-xs text-text-primary hover:bg-surface-2"
-                                        >
-                                            Open from Explorer
-                                        </button>
-                                    </div>
-                                </div>
-                                <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto p-6">
-                                    <div className="w-full max-w-2xl space-y-4 rounded-card border border-surface-3 bg-surface-1 p-6">
+                                <div className="flex min-h-0 flex-1 justify-center overflow-auto px-4 py-8">
+                                    <div className="w-full max-w-3xl space-y-6">
                                         <div>
-                                            <p className="text-xs uppercase tracking-wide text-text-secondary">Start</p>
-                                            <h2 className="mt-1 text-lg font-semibold text-text-primary">Clone a repository or open files</h2>
-                                            <p className="mt-2 text-xs text-text-secondary">
-                                                Clone runs <code className="rounded bg-surface-0 px-1">git clone</code> in this workspace. Shell access must be allowed in Settings. Use a simple folder name (letters, numbers, <code className="rounded bg-surface-0 px-1">.</code> <code className="rounded bg-surface-0 px-1">_</code> <code className="rounded bg-surface-0 px-1">-</code>).
+                                            <h2 className="text-base font-medium text-text-primary">Open or clone a project</h2>
+                                            <p className="mt-1 text-[12px] leading-relaxed text-text-muted">
+                                                Workspace:{' '}
+                                                <span className="font-mono text-text-secondary">
+                                                    {selectedDirectory === '.' ? 'repository root' : selectedDirectory}
+                                                </span>
                                             </p>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => welcomeFileInputRef.current?.click()}
+                                                    className="border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[12px] text-text-primary hover:bg-white/[0.07]"
+                                                >
+                                                    Open local file
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSidebarOpen(true);
+                                                        setSidebarTab('explorer');
+                                                    }}
+                                                    className="border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[12px] text-text-primary hover:bg-white/[0.07]"
+                                                >
+                                                    Show explorer
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                                        <div className="space-y-2 rounded-none border border-white/[0.06] bg-[#252526] p-4">
+                                            <p className="text-[12px] text-text-muted">
+                                                Clone runs <code className="bg-black/30 px-1 font-mono text-[11px]">git clone</code> in this workspace (shell must be allowed in Settings). Folder name: letters, numbers,{' '}
+                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">.</code>{' '}
+                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">_</code>{' '}
+                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">-</code>.
+                                            </p>
                                             <input
                                                 value={cloneRepoUrl}
                                                 onChange={(e) => setCloneRepoUrl(e.target.value)}
-                                                className="rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none sm:col-span-2"
+                                                className="w-full border border-white/[0.1] bg-white px-2.5 py-2 text-sm text-black outline-none"
                                                 placeholder="https://github.com/owner/repo.git"
                                             />
-                                            <input
-                                                value={cloneFolderName}
-                                                onChange={(e) => setCloneFolderName(e.target.value)}
-                                                className="rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none"
-                                                placeholder="Folder name (optional)"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => runGitClone().catch(() => undefined)}
-                                                disabled={cloneBusy}
-                                                className="rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50"
-                                            >
-                                                {cloneBusy ? 'Cloning…' : 'Clone repository'}
-                                            </button>
-                                        </div>
-                                        <div className="grid gap-3 md:grid-cols-2">
-                                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
-                                                <p className="text-sm text-text-primary">Prompt preview</p>
-                                                <p className="mt-2 text-xs text-text-secondary">{loadingPreview ? 'Preparing builder preview…' : preview ? `${preview.team_agent_count} agents ready for the current objective.` : 'Start typing a build objective in the right panel.'}</p>
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                                <input
+                                                    value={cloneFolderName}
+                                                    onChange={(e) => setCloneFolderName(e.target.value)}
+                                                    className="flex-1 border border-white/[0.1] bg-white px-2.5 py-2 text-sm text-black outline-none"
+                                                    placeholder="Folder name (optional)"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => runGitClone().catch(() => undefined)}
+                                                    disabled={cloneBusy}
+                                                    className="shrink-0 border border-accent/35 px-3 py-2 text-[12px] text-accent disabled:opacity-50"
+                                                >
+                                                    {cloneBusy ? 'Cloning…' : 'Clone'}
+                                                </button>
                                             </div>
-                                            <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
-                                                <p className="text-sm text-text-primary">Suggested skills</p>
-                                                <p className="mt-2 text-xs text-text-secondary">{loadingRecommendedSkills ? 'Selecting skills…' : recommendedSkills.length > 0 ? recommendedSkills.slice(0, 4).map((skill) => skill.name).join(', ') : 'Skills appear once the objective is clear enough.'}</p>
+                                        </div>
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                            <div className="rounded-none border border-white/[0.06] bg-[#252526] p-3">
+                                                <p className="text-[12px] font-medium text-text-primary">Objective preview</p>
+                                                <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+                                                    {loadingPreview
+                                                        ? 'Preparing…'
+                                                        : preview
+                                                          ? `${preview.team_agent_count} agents for the current objective.`
+                                                          : 'Add a build objective in the right panel.'}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-none border border-white/[0.06] bg-[#252526] p-3">
+                                                <p className="text-[12px] font-medium text-text-primary">Suggested skills</p>
+                                                <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+                                                    {loadingRecommendedSkills
+                                                        ? 'Selecting…'
+                                                        : recommendedSkills.length > 0
+                                                          ? recommendedSkills
+                                                                .slice(0, 4)
+                                                                .map((skill) => skill.name)
+                                                                .join(', ')
+                                                          : 'Skills appear when the objective is clear enough.'}
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
@@ -1039,54 +1416,248 @@ export default function Builder() {
                 </section>
 
                 {bottomPanelOpen && (
-                <section className="shrink-0 border-t border-surface-3 bg-[#0a0f14]">
-                    <div className="flex items-center justify-between gap-3 border-b border-surface-3 px-3 py-2">
-                        <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Terminal / agent log</p><p className="text-xs text-text-muted">Shell output and live agent events stream here.</p></div>
-                        <div className="flex items-center gap-2"><input value={terminalCwd} onChange={(e) => setTerminalCwd(e.target.value)} className="w-36 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="cwd" /><input value={terminalCommand} onChange={(e) => setTerminalCommand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runTerminalCommand().catch(() => undefined); }} className="w-64 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="npm test" /><button type="button" onClick={() => runTerminalCommand().catch(() => undefined)} disabled={runningTerminal} className="rounded-btn border border-accent/40 px-3 py-1 text-xs text-accent disabled:opacity-50">{runningTerminal ? 'Running…' : 'Run'}</button></div>
-                    </div>
-                    <div className="h-[220px] overflow-auto px-3 py-3 font-mono text-[11px] leading-5 text-text-secondary">{activityRows.length === 0 ? <p className="text-text-muted">No terminal output or agent events yet.</p> : activityRows.map((row) => <div key={row.id} className="border-b border-surface-3/40 py-2 last:border-b-0"><div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted"><span>{formatTime(row.timestamp)}</span><span>{row.prefix}</span><span className="text-text-primary normal-case tracking-normal">{row.title}</span></div><pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>{row.body || '(no output)'}</pre></div>)}</div>
-                </section>
+                    <>
+                        <ResizeHandle
+                            axis="vertical"
+                            onDelta={(dy) => setBottomPanelHeight((h) => Math.min(600, Math.max(100, h - dy)))}
+                            onCommit={commitBottomLayout}
+                        />
+                        <section className="shrink-0 border-t border-white/[0.06] bg-[#1a1d21]">
+                            <div className="flex flex-col gap-2 border-b border-white/[0.06] px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-1">
+                                    {(['all', 'terminal', 'agent'] as const).map((key) => (
+                                        <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => setBottomLogTab(key)}
+                                            className={cn(
+                                                'px-2 py-1 text-[11px]',
+                                                bottomLogTab === key
+                                                    ? 'bg-white/[0.08] text-text-primary'
+                                                    : 'text-text-muted hover:bg-white/[0.05] hover:text-text-secondary',
+                                            )}
+                                        >
+                                            {key === 'all' ? 'All' : key === 'terminal' ? 'Terminal' : 'Log'}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:justify-end">
+                                    <input
+                                        value={terminalCwd}
+                                        onChange={(e) => setTerminalCwd(e.target.value)}
+                                        className="w-28 border border-white/[0.08] bg-[#252526] px-2 py-1 text-[11px] text-text-primary outline-none"
+                                        placeholder="cwd"
+                                    />
+                                    <input
+                                        value={terminalCommand}
+                                        onChange={(e) => setTerminalCommand(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') runTerminalCommand().catch(() => undefined);
+                                        }}
+                                        className="min-w-[8rem] flex-1 border border-white/[0.08] bg-[#252526] px-2 py-1 text-[11px] text-text-primary outline-none sm:max-w-xs"
+                                        placeholder="Command"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => runTerminalCommand().catch(() => undefined)}
+                                        disabled={runningTerminal}
+                                        className="shrink-0 border border-accent/35 px-2.5 py-1 text-[11px] text-accent disabled:opacity-50"
+                                    >
+                                        {runningTerminal ? 'Running…' : 'Run'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div
+                                style={{ height: bottomPanelHeight }}
+                                className="overflow-auto px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary"
+                            >
+                                {filteredActivityRows.length === 0 ? (
+                                    <p className="text-[11px] text-text-muted">
+                                        {activityRows.length === 0
+                                            ? 'No shell output or agent events yet.'
+                                            : 'Nothing in this filter.'}
+                                    </p>
+                                ) : (
+                                    filteredActivityRows.map((row) => (
+                                        <div key={row.id} className="border-b border-white/[0.04] py-2 last:border-b-0">
+                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
+                                                <span>{formatTime(row.timestamp)}</span>
+                                                <span className="capitalize">{row.prefix}</span>
+                                                <span className="text-text-secondary">{row.title}</span>
+                                            </div>
+                                            <pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>
+                                                {row.body || '(no output)'}
+                                            </pre>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </section>
+                    </>
                 )}
                 </div>
 
                 {rightPanelOpen && (
-                <aside className="flex w-[360px] shrink-0 flex-col border-l border-surface-3 bg-surface-1">
-                    <div className="border-b border-surface-3 px-4 py-3"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Local AI · Agent interface</p><p className="mt-1 text-sm text-text-primary">Run and supervise local agents from the editor</p></div>
-                    <div className="min-h-0 flex-1 overflow-auto p-4 space-y-4">
-                        <div className="grid grid-cols-3 gap-2 text-[11px]"><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Agents</p><p className="mt-1 text-text-primary">{visualNodes.length || previewNodes.length || 0}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Run</p><p className="mt-1 text-text-primary">{runStatus || 'idle'}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Reviews</p><p className="mt-1 text-text-primary">{runReviews.length}</p></div></div>
-                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Task</p>
-                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none" placeholder="Describe the app to build" />
-                            <textarea rows={4} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-3 py-2 text-xs text-black outline-none" placeholder="Optional repo context, constraints, or acceptance criteria" />
-                            <div className="mt-3 flex gap-2"><button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{loadingLaunch ? 'Launching...' : 'Start Autonomous Build'}</button><button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-btn border border-accent-red/40 px-3 py-2 text-xs text-accent-red disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button></div>
-                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">{skill.name}</span>)}</div>}
-                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer text-text-primary">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-btn border border-surface-3 bg-surface-1 p-2 text-[10px]">{recommendedSkillContext}</pre></details>}
+                    <ResizeHandle
+                        axis="horizontal"
+                        onDelta={(dx) => setRightWidth((w) => Math.min(720, Math.max(260, w - dx)))}
+                        onCommit={commitRightLayout}
+                    />
+                )}
+                {rightPanelOpen && (
+                <aside className="flex shrink-0 flex-col border-l border-white/[0.06] bg-[#252526]" style={{ width: rightWidth }}>
+                    <div className="border-b border-white/[0.06] px-3 py-2.5">
+                        <p className="text-[13px] font-medium text-text-primary">Build & agents</p>
+                        <p className="mt-0.5 text-[11px] text-text-muted">Objective, team, and reviews</p>
+                    </div>
+                    <div className="flex gap-2 border-b border-white/[0.06] px-3 py-2 text-[11px]">
+                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
+                            <p className="text-[10px] text-text-muted">Agents</p>
+                            <p className="truncate font-medium text-text-primary">{visualNodes.length || previewNodes.length || 0}</p>
                         </div>
-                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Current agent team</p>
-                            <div className="mt-3 space-y-2">{visualNodes.length === 0 ? <p className="text-xs text-text-secondary">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-btn border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{node.id}</p><p className="mt-1 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-full border border-surface-4 px-2 py-1 text-[10px] text-text-secondary">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
+                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
+                            <p className="text-[10px] text-text-muted">Run</p>
+                            <p className="truncate font-medium text-text-primary">{runStatus || 'idle'}</p>
                         </div>
-                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent control</p>
-                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
-                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
-                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-2 text-xs text-black outline-none" placeholder="Tell the active team what to change, prioritize, or verify." />
-                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-btn border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
+                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
+                            <p className="text-[10px] text-text-muted">Reviews</p>
+                            <p className="truncate font-medium text-text-primary">{runReviews.length}</p>
                         </div>
-                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
-                            <div className="flex items-center justify-between gap-2"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent diffs</p>{loadingReviews && <span className="text-[11px] text-text-secondary">Loading…</span>}</div>
-                            <div className="mt-3 space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-secondary">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-btn border border-surface-3 bg-surface-1 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{review.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-full border border-surface-4 bg-surface-0 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-btn border border-accent/40 px-2 py-1 text-[11px] text-accent">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-btn border border-accent-green/40 px-2 py-1 text-[11px] text-accent-green">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-btn border border-accent-red/40 px-2 py-1 text-[11px] text-accent-red">Undo</button></div></div>)}</div>
+                    </div>
+                    <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
+                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
+                            <p className="text-[11px] font-medium text-text-secondary">Task</p>
+                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none" placeholder="Describe the app to build" />
+                            <textarea rows={4} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-3 py-2 text-xs text-black outline-none" placeholder="Optional repo context, constraints, or acceptance criteria" />
+                            <div className="mt-3 flex gap-2"><button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-none border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{loadingLaunch ? 'Launching...' : 'Start Autonomous Build'}</button><button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-none border border-accent-red/40 px-3 py-2 text-xs text-accent-red disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button></div>
+                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">{skill.name}</span>)}</div>}
+                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer text-text-primary">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-none border border-surface-4 bg-surface-1 p-2 text-[10px]">{recommendedSkillContext}</pre></details>}
                         </div>
-                        <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
-                            <p className="text-[11px] uppercase tracking-wide text-text-secondary">Recent runs</p>
-                            <div className="mt-3 space-y-2">{runs.length === 0 ? <p className="text-xs text-text-secondary">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-btn border p-2 text-left', runId === row.id ? 'border-accent/40 bg-surface-1' : 'border-surface-3 bg-surface-0')}><p className="truncate text-xs text-text-primary">{row.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{row.status} · {row.action_count} actions</p></button>)}</div>
+                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
+                            <p className="text-[11px] font-medium text-text-secondary">Current team</p>
+                            <div className="mt-3 space-y-2">{visualNodes.length === 0 ? <p className="text-xs text-text-secondary">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-none border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{node.id}</p><p className="mt-1 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
+                        </div>
+                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
+                            <p className="text-[11px] font-medium text-text-secondary">Agent messages</p>
+                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
+                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
+                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-2 text-xs text-black outline-none" placeholder="Tell the active team what to change, prioritize, or verify." />
+                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-none border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
+                        </div>
+                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-medium text-text-secondary">Review diffs</p>
+                                {loadingReviews && <span className="text-[11px] text-text-muted">Loading…</span>}
+                            </div>
+                            <div className="mt-3 space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-secondary">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-none border border-surface-4 bg-surface-1 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{review.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-none border border-surface-4 bg-surface-0 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-none border border-accent/40 px-2 py-1 text-[11px] text-accent">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-none border border-accent-green/40 px-2 py-1 text-[11px] text-accent-green">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-none border border-accent-red/40 px-2 py-1 text-[11px] text-accent-red">Undo</button></div></div>)}</div>
+                        </div>
+                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
+                            <p className="text-[11px] font-medium text-text-secondary">Recent runs</p>
+                            <div className="mt-3 space-y-2">{runs.length === 0 ? <p className="text-xs text-text-secondary">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-none border p-2 text-left', runId === row.id ? 'border-accent/40 bg-surface-1' : 'border-surface-4 bg-surface-0')}><p className="truncate text-xs text-text-primary">{row.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{row.status} · {row.action_count} actions</p></button>)}</div>
                         </div>
                     </div>
                 </aside>
                 )}
             </div>
 
-            {(message || error) && <div className="border-t border-surface-3 bg-surface-1 px-4 py-2">{message && <p className="text-sm text-accent-green">{message}</p>}{error && <p className="text-sm text-accent-red">{error}</p>}</div>}
+            <BuilderStatusBar
+                fileLabel={
+                    activeTab?.type === 'file'
+                        ? activeTab.path
+                        : activeTab?.type === 'diff'
+                          ? `${activeTab.path} · diff`
+                          : 'No editor'
+                }
+                lineCol={
+                    activeTab?.type === 'file' && editorCursor
+                        ? `Ln ${editorCursor.line}, Col ${editorCursor.col}`
+                        : '—'
+                }
+                language={
+                    activeTab?.type === 'file'
+                        ? activeTab.language
+                        : activeTab?.type === 'diff'
+                          ? detectLanguage(activeTab.path)
+                          : '—'
+                }
+                branch={statusBarBranch}
+                notice={error ? { type: 'error', text: error } : message ? { type: 'ok', text: message } : null}
+                minimalChrome={minimalChrome}
+                onRestoreTopBar={() => {
+                    setMinimalChrome(false);
+                    persistMinimalChrome(false);
+                }}
+            />
+            {shortcutsOpen && (
+                <div
+                    className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[10vh]"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="builder-shortcuts-title"
+                >
+                    <button
+                        type="button"
+                        className="absolute inset-0 cursor-default"
+                        aria-label="Close shortcuts"
+                        onClick={() => setShortcutsOpen(false)}
+                    />
+                    <div className="relative z-10 w-full max-w-md border border-white/[0.1] bg-[#252526] p-4 shadow-none">
+                        <div className="flex items-start justify-between gap-2">
+                            <h2 id="builder-shortcuts-title" className="text-sm font-medium text-text-primary">
+                                Keyboard shortcuts
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setShortcutsOpen(false)}
+                                className="px-2 py-0.5 text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
+                            >
+                                Esc
+                            </button>
+                        </div>
+                        <ul className="mt-4 space-y-2.5 text-[12px] text-text-secondary">
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+P</kbd>{' '}
+                                Command palette
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+B</kbd> Toggle sidebar
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+E</kbd> Explorer
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+F</kbd> Search
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+G</kbd> Source control
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+`</kbd> or{' '}
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+J</kbd> Bottom panel
+                            </li>
+                            <li>
+                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+L</kbd> AI sidebar
+                            </li>
+                        </ul>
+                        <div className="mt-4 border-t border-white/[0.08] pt-4">
+                            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-text-secondary">
+                                <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 border border-white/20 bg-[#1e1e1e]"
+                                    checked={minimalChrome}
+                                    onChange={(e) => {
+                                        const v = e.target.checked;
+                                        setMinimalChrome(v);
+                                        persistMinimalChrome(v);
+                                    }}
+                                />
+                                Minimal chrome (hide top bar)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            )}
+            <BuilderCommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={paletteActions} />
             <GitHubPanel open={showGitHubModal} onClose={() => setShowGitHubModal(false)} onRepositoryChanged={refreshTree} />
         </div>
     );
@@ -1094,16 +1665,16 @@ export default function Builder() {
 
 function FileTreeNode({ node, depth, selectedDirectory, selectedFilePath, pendingCreate, onOpenFile, onSelectDirectory, onRequestCreate, onChangePendingValue, onCreate, onCancelCreate, creatingNode, writeMode }: { node: agentApi.RepoTreeNode; depth: number; selectedDirectory: string; selectedFilePath: string; pendingCreate: PendingCreate | null; onOpenFile: (path: string) => void; onSelectDirectory: (path: string) => void; onRequestCreate: (parentPath: string, kind: 'file' | 'folder') => void; onChangePendingValue: (value: string) => void; onCreate: () => void | Promise<void>; onCancelCreate: () => void; creatingNode: boolean; writeMode: 'direct' | 'review'; }) {
     if (node.type === 'file') {
-        return <button type="button" onClick={() => onOpenFile(node.path)} className={cn('flex w-full items-center rounded-btn px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 10}px` }}><span className="truncate">{node.name}</span></button>;
+        return <button type="button" onClick={() => onOpenFile(node.path)} className={cn('flex w-full items-center rounded-none px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 10}px` }}><span className="truncate">{node.name}</span></button>;
     }
     const children = Array.isArray(node.children) ? node.children : [];
     const isSelected = selectedDirectory === node.path;
     const showInlineCreate = pendingCreate?.parentPath === node.path;
     return (
         <details open={depth < 1 || selectedDirectory.startsWith(node.path === '.' ? '' : `${node.path}/`) || isSelected} className="mb-0.5">
-            <summary className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-btn px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 8}px` }} onClick={() => onSelectDirectory(node.path)}><span className="truncate">{node.name}</span><span className="flex shrink-0 items-center gap-1"><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'file'); }} className="rounded px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New file">+F</button><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'folder'); }} className="rounded px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New folder">+D</button></span></summary>
+            <summary className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-none px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 8}px` }} onClick={() => onSelectDirectory(node.path)}><span className="truncate">{node.name}</span><span className="flex shrink-0 items-center gap-1"><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'file'); }} className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New file">+F</button><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'folder'); }} className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New folder">+D</button></span></summary>
             <div className="mt-0.5">
-                {showInlineCreate && <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}><div className="rounded-btn border border-surface-4 bg-surface-0 p-2"><p className="text-[10px] text-text-secondary">New {pendingCreate.kind} in {pendingCreate.parentPath} · {writeMode === 'review' && pendingCreate.kind === 'file' ? 'submit to review' : 'write directly'}</p><input value={pendingCreate.value} onChange={(e) => onChangePendingValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onCreate(); if (e.key === 'Escape') onCancelCreate(); }} className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none" placeholder={`Enter ${pendingCreate.kind} name`} /><div className="mt-2 flex gap-2"><button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-btn border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{creatingNode ? (writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submit Review' : 'Create'}</button><button type="button" onClick={onCancelCreate} className="rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">Cancel</button></div></div></div>}
+                {showInlineCreate && <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}><div className="rounded-none border border-surface-4 bg-surface-0 p-2"><p className="text-[10px] text-text-secondary">New {pendingCreate.kind} in {pendingCreate.parentPath} · {writeMode === 'review' && pendingCreate.kind === 'file' ? 'submit to review' : 'write directly'}</p><input value={pendingCreate.value} onChange={(e) => onChangePendingValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onCreate(); if (e.key === 'Escape') onCancelCreate(); }} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none" placeholder={`Enter ${pendingCreate.kind} name`} /><div className="mt-2 flex gap-2"><button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-none border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{creatingNode ? (writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submit Review' : 'Create'}</button><button type="button" onClick={onCancelCreate} className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">Cancel</button></div></div></div>}
                 {children.map((child) => <FileTreeNode key={`${child.path}-${child.name}`} node={child} depth={depth + 1} selectedDirectory={selectedDirectory} selectedFilePath={selectedFilePath} pendingCreate={pendingCreate} onOpenFile={onOpenFile} onSelectDirectory={onSelectDirectory} onRequestCreate={onRequestCreate} onChangePendingValue={onChangePendingValue} onCreate={onCreate} onCancelCreate={onCancelCreate} creatingNode={creatingNode} writeMode={writeMode} />)}
             </div>
         </details>

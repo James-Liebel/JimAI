@@ -220,11 +220,11 @@ export default function Agents() {
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-surface-0 text-text-primary">
-            <header className="flex-shrink-0 border-b border-surface-3 px-4 py-3 flex items-center justify-between gap-4">
+            <header className="flex-shrink-0 border-b border-surface-4 px-4 py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                     <Bot className="w-5 h-5 text-accent" />
-                    <h1 className="text-lg font-semibold">Agents</h1>
-                    <span className="text-xs text-text-muted hidden sm:inline">
+                    <h1 className="text-xl font-semibold tracking-tight text-text-primary">Agents</h1>
+                    <span className="text-sm text-text-muted hidden sm:inline">
                         Personas, skills, and teams — local Ollama only
                     </span>
                 </div>
@@ -241,10 +241,10 @@ export default function Agents() {
                     <Loader2 className="w-8 h-8 animate-spin" />
                 </div>
             ) : (
-                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-0 border-t border-surface-3">
+                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-0 border-t border-surface-4">
                     {/* Left roster */}
-                    <aside className="lg:col-span-3 border-r border-surface-3 flex flex-col min-h-0 overflow-hidden bg-surface-1">
-                        <div className="p-3 border-b border-surface-3">
+                    <aside className="lg:col-span-3 border-r border-surface-4 flex flex-col min-h-0 overflow-hidden bg-surface-1">
+                        <div className="p-3 border-b border-surface-4">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -254,7 +254,7 @@ export default function Agents() {
                                         model: models[0] || 'qwen3:8b',
                                     }));
                                 }}
-                                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent-hover"
+                                className="w-full flex items-center justify-center gap-2 py-2 rounded-none bg-accent text-white text-sm font-medium hover:bg-accent-hover"
                             >
                                 <Plus className="w-4 h-4" /> New Agent
                             </button>
@@ -268,10 +268,10 @@ export default function Agents() {
                                     <div
                                         key={a.id}
                                         className={cn(
-                                            'relative rounded-lg border px-2 py-2 flex items-start gap-2 cursor-pointer transition-colors',
+                                            'relative rounded-none border px-2 py-2 flex items-start gap-2 cursor-pointer transition-colors',
                                             selectedAgentId === a.id && !selectedTeamId
                                                 ? 'border-accent bg-accent/10'
-                                                : 'border-surface-3 hover:bg-surface-2',
+                                                : 'border-surface-4 hover:bg-surface-2',
                                         )}
                                         onClick={() => selectAgent(a.id)}
                                     >
@@ -285,7 +285,7 @@ export default function Agents() {
                                         </div>
                                         <span
                                             className={cn(
-                                                'w-2 h-2 rounded-full mt-1 flex-shrink-0',
+                                                'w-2 h-2 rounded-none mt-1 flex-shrink-0',
                                                 a.status === 'running'
                                                     ? 'bg-amber-400'
                                                     : a.status === 'error'
@@ -305,7 +305,7 @@ export default function Agents() {
                                         </button>
                                         {menuOpen === a.id && (
                                             <div
-                                                className="absolute right-1 top-9 z-20 bg-surface-2 border border-surface-3 rounded-md shadow-lg text-xs py-1 min-w-[120px]"
+                                                className="absolute right-1 top-9 z-20 bg-surface-2 border border-surface-4 rounded-none shadow-none text-xs py-1 min-w-[120px]"
                                                 onClick={(e) => e.stopPropagation()}
                                             >
                                                 <button
@@ -332,7 +332,7 @@ export default function Agents() {
                                 ))
                             )}
                         </div>
-                        <div className="p-3 border-t border-surface-3 space-y-2">
+                        <div className="p-3 border-t border-surface-4 space-y-2">
                             <p className="text-[10px] uppercase tracking-wide text-text-muted px-1">Teams</p>
                             <button
                                 type="button"
@@ -345,7 +345,7 @@ export default function Agents() {
                                         agent_ids: agents[0] ? [agents[0].id] : [],
                                     });
                                 }}
-                                className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg border border-surface-3 text-sm hover:bg-surface-2"
+                                className="w-full flex items-center justify-center gap-2 py-1.5 rounded-none border border-surface-4 text-sm hover:bg-surface-2"
                             >
                                 <Users className="w-4 h-4" /> New Team
                             </button>
@@ -355,10 +355,10 @@ export default function Agents() {
                                     type="button"
                                     onClick={() => selectTeam(t.id)}
                                     className={cn(
-                                        'w-full text-left rounded-lg border px-2 py-2 text-sm',
+                                        'w-full text-left rounded-none border px-2 py-2 text-sm',
                                         selectedTeamId === t.id
                                             ? 'border-accent bg-accent/10'
-                                            : 'border-surface-3 hover:bg-surface-2',
+                                            : 'border-surface-4 hover:bg-surface-2',
                                     )}
                                 >
                                     <div className="font-medium">{t.name}</div>
@@ -369,7 +369,7 @@ export default function Agents() {
                     </aside>
 
                     {/* Center */}
-                    <main className="lg:col-span-6 flex flex-col min-h-0 border-r border-surface-3">
+                    <main className="lg:col-span-6 flex flex-col min-h-0 border-r border-surface-4">
                         {selectedTeamId ? (
                             <TeamCenter
                                 team={teams.find((t) => t.id === selectedTeamId)}
@@ -382,7 +382,7 @@ export default function Agents() {
                             />
                         ) : agentDetail ? (
                             <>
-                                <div className="p-4 border-b border-surface-3 space-y-3 max-h-[45vh] overflow-y-auto">
+                                <div className="p-4 border-b border-surface-4 space-y-3 max-h-[45vh] overflow-y-auto">
                                     <input
                                         className="w-full text-xl font-semibold bg-transparent border-b border-transparent focus:border-accent outline-none"
                                         value={agentDetail.name}
@@ -392,7 +392,7 @@ export default function Agents() {
                                         onBlur={() => void saveAgentFields({ name: agentDetail.name })}
                                     />
                                     <input
-                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                                         value={agentDetail.role}
                                         onChange={(e) =>
                                             setAgentDetail({ ...agentDetail, role: e.target.value })
@@ -400,7 +400,7 @@ export default function Agents() {
                                         onBlur={() => void saveAgentFields({ role: agentDetail.role })}
                                     />
                                     <select
-                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                                         value={agentDetail.model}
                                         onChange={(e) => {
                                             const m = e.target.value;
@@ -415,7 +415,7 @@ export default function Agents() {
                                         ))}
                                     </select>
                                     <textarea
-                                        className="w-full min-h-[120px] text-sm bg-surface-2 rounded p-2 border border-surface-3 font-mono"
+                                        className="w-full min-h-[120px] text-sm bg-surface-2 rounded p-2 border border-surface-4 font-mono"
                                         placeholder="System prompt / persona"
                                         value={agentDetail.system_prompt}
                                         onChange={(e) =>
@@ -467,7 +467,7 @@ export default function Agents() {
                                 </div>
                                 <div className="flex-1 flex flex-col min-h-0 p-4">
                                     <p className="text-xs text-text-muted mb-2">Test chat (skills injected on server)</p>
-                                    <div className="flex-1 overflow-y-auto space-y-2 mb-2 rounded-lg border border-surface-3 p-2 bg-surface-1">
+                                    <div className="flex-1 overflow-y-auto space-y-2 mb-2 rounded-none border border-surface-4 p-2 bg-surface-1">
                                         {chatMessages.map((msg, i) => (
                                             <div
                                                 key={i}
@@ -485,9 +485,9 @@ export default function Agents() {
                                         {streaming && (
                                             <div className="text-xs text-text-muted flex items-center gap-1">
                                                 <span className="inline-flex gap-0.5">
-                                                    <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />
-                                                    <span className="w-1 h-1 rounded-full bg-accent animate-pulse delay-75" />
-                                                    <span className="w-1 h-1 rounded-full bg-accent animate-pulse delay-150" />
+                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse" />
+                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse delay-75" />
+                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse delay-150" />
                                                 </span>
                                                 Generating
                                             </div>
@@ -496,7 +496,7 @@ export default function Agents() {
                                     </div>
                                     <div className="flex gap-2">
                                         <textarea
-                                            className="flex-1 min-h-[44px] max-h-32 text-sm bg-surface-2 rounded px-2 py-2 border border-surface-3 resize-y"
+                                            className="flex-1 min-h-[44px] max-h-32 text-sm bg-surface-2 rounded px-2 py-2 border border-surface-4 resize-y"
                                             placeholder="Message… (Ctrl+Enter to send)"
                                             value={chatInput}
                                             onChange={(e) => setChatInput(e.target.value)}
@@ -506,7 +506,7 @@ export default function Agents() {
                                             type="button"
                                             disabled={streaming}
                                             onClick={() => void sendChat()}
-                                            className="px-4 rounded-lg bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
+                                            className="px-4 rounded-none bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
                                         >
                                             <Send className="w-4 h-4" />
                                         </button>
@@ -523,7 +523,7 @@ export default function Agents() {
 
                     {/* Skills */}
                     <aside className="lg:col-span-3 flex flex-col min-h-0 bg-surface-1">
-                        <div className="p-3 border-b border-surface-3">
+                        <div className="p-3 border-b border-surface-4">
                             <h2 className="text-sm font-semibold mb-2">Skills</h2>
                             {agentDetail ? (
                                 <>
@@ -533,14 +533,14 @@ export default function Agents() {
                                             setGenSkillForm({ name: '', description: '', example: '' });
                                             setModal({ type: 'generateSkill' });
                                         }}
-                                        className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-accent text-accent text-sm hover:bg-accent/10 mb-2"
+                                        className="w-full flex items-center justify-center gap-2 py-2 rounded-none border border-accent text-accent text-sm hover:bg-accent/10 mb-2"
                                     >
                                         <Sparkles className="w-4 h-4" /> Generate skill
                                     </button>
                                     <input
                                         type="search"
                                         placeholder="Filter skills…"
-                                        className="w-full text-xs bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                                        className="w-full text-xs bg-surface-2 rounded px-2 py-1 border border-surface-4"
                                         value={skillFilter}
                                         onChange={(e) => setSkillFilter(e.target.value)}
                                     />
@@ -554,7 +554,7 @@ export default function Agents() {
                                 filteredSkills.map((s) => (
                                     <div
                                         key={s.slug}
-                                        className="rounded-lg border border-surface-3 p-2 text-xs bg-surface-0"
+                                        className="rounded-none border border-surface-4 p-2 text-xs bg-surface-0"
                                     >
                                         <div className="font-medium">{s.name}</div>
                                         <p className="text-text-muted line-clamp-2 mt-1">{s.preview}</p>
@@ -598,13 +598,13 @@ export default function Agents() {
                 <Modal onClose={() => setModal(null)} title="New agent">
                     <label className="block text-xs text-text-muted mb-1">Name</label>
                     <input
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         value={newAgentForm.name}
                         onChange={(e) => setNewAgentForm({ ...newAgentForm, name: e.target.value })}
                     />
                     <label className="block text-xs text-text-muted mb-1">Role template</label>
                     <select
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         value={newAgentForm.role}
                         onChange={(e) => {
                             const r = e.target.value;
@@ -622,7 +622,7 @@ export default function Agents() {
                     </select>
                     <label className="block text-xs text-text-muted mb-1">Model</label>
                     <select
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         value={newAgentForm.model}
                         onChange={(e) => setNewAgentForm({ ...newAgentForm, model: e.target.value })}
                     >
@@ -634,7 +634,7 @@ export default function Agents() {
                     </select>
                     <button
                         type="button"
-                        className="w-full py-2 rounded-lg bg-accent text-white text-sm"
+                        className="w-full py-2 rounded-none bg-accent text-white text-sm"
                         onClick={async () => {
                             const sys = ROLE_DEFAULTS[newAgentForm.role] || '';
                             const a = await api.createWorkspaceAgent({
@@ -656,19 +656,19 @@ export default function Agents() {
             {modal?.type === 'newTeam' && (
                 <Modal onClose={() => setModal(null)} title="New team">
                     <input
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         placeholder="Team name"
                         value={newTeamForm.name}
                         onChange={(e) => setNewTeamForm({ ...newTeamForm, name: e.target.value })}
                     />
                     <textarea
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         placeholder="Description"
                         value={newTeamForm.description}
                         onChange={(e) => setNewTeamForm({ ...newTeamForm, description: e.target.value })}
                     />
                     <select
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         value={newTeamForm.workflow}
                         onChange={(e) =>
                             setNewTeamForm({
@@ -690,7 +690,7 @@ export default function Agents() {
                                         {idx === 0 ? 'Lead' : `#${idx + 1}`}
                                     </span>
                                     <select
-                                        className="flex-1 bg-surface-2 rounded px-1 py-0.5 border border-surface-3"
+                                        className="flex-1 bg-surface-2 rounded px-1 py-0.5 border border-surface-4"
                                         value={id}
                                         onChange={(e) => {
                                             const next = [...newTeamForm.agent_ids];
@@ -753,7 +753,7 @@ export default function Agents() {
                     </button>
                     <button
                         type="button"
-                        className="w-full py-2 rounded-lg bg-accent text-white text-sm"
+                        className="w-full py-2 rounded-none bg-accent text-white text-sm"
                         onClick={async () => {
                             await api.createTeam({
                                 ...newTeamForm,
@@ -770,26 +770,26 @@ export default function Agents() {
             {modal?.type === 'generateSkill' && agentDetail && (
                 <Modal onClose={() => setModal(null)} title="Generate skill">
                     <input
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         placeholder="Skill name"
                         value={genSkillForm.name}
                         onChange={(e) => setGenSkillForm({ ...genSkillForm, name: e.target.value })}
                     />
                     <textarea
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         placeholder="Description (optional)"
                         value={genSkillForm.description}
                         onChange={(e) => setGenSkillForm({ ...genSkillForm, description: e.target.value })}
                     />
                     <textarea
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-3"
+                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
                         placeholder="Example task (optional)"
                         value={genSkillForm.example}
                         onChange={(e) => setGenSkillForm({ ...genSkillForm, example: e.target.value })}
                     />
                     <button
                         type="button"
-                        className="w-full py-2 rounded-lg bg-accent text-white text-sm flex items-center justify-center gap-2"
+                        className="w-full py-2 rounded-none bg-accent text-white text-sm flex items-center justify-center gap-2"
                         onClick={async () => {
                             const res = await api.generateSkill(agentDetail.id, {
                                 skill_name: genSkillForm.name,
@@ -806,13 +806,13 @@ export default function Agents() {
             {modal?.type === 'previewSkill' && agentDetail && (
                 <Modal onClose={() => setModal(null)} title="Preview skill">
                     <textarea
-                        className="w-full min-h-[240px] text-xs font-mono bg-surface-2 rounded p-2 border border-surface-3 mb-2"
+                        className="w-full min-h-[240px] text-xs font-mono bg-surface-2 rounded p-2 border border-surface-4 mb-2"
                         value={modal.markdown}
                         onChange={(e) => setModal({ ...modal, markdown: e.target.value })}
                     />
                     <button
                         type="button"
-                        className="w-full py-2 rounded-lg bg-accent text-white text-sm"
+                        className="w-full py-2 rounded-none bg-accent text-white text-sm"
                         onClick={async () => {
                             await api.saveSkill(agentDetail.id, modal.slug, modal.markdown);
                             setModal(null);
@@ -827,13 +827,13 @@ export default function Agents() {
             {modal?.type === 'editSkill' && agentDetail && (
                 <Modal onClose={() => setModal(null)} title={`Edit ${modal.slug}`}>
                     <textarea
-                        className="w-full min-h-[280px] text-xs font-mono bg-surface-2 rounded p-2 border border-surface-3 mb-2"
+                        className="w-full min-h-[280px] text-xs font-mono bg-surface-2 rounded p-2 border border-surface-4 mb-2"
                         value={modal.content}
                         onChange={(e) => setModal({ ...modal, content: e.target.value })}
                     />
                     <button
                         type="button"
-                        className="w-full py-2 rounded-lg bg-accent text-white text-sm"
+                        className="w-full py-2 rounded-none bg-accent text-white text-sm"
                         onClick={async () => {
                             await api.saveSkill(agentDetail.id, modal.slug, modal.content);
                             setModal(null);
@@ -871,7 +871,7 @@ function Modal({
             role="dialog"
             aria-modal
         >
-            <div className="bg-surface-1 border border-surface-3 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-xl">
+            <div className="bg-surface-1 border border-surface-4 rounded-none max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-none">
                 <div className="flex justify-between items-center mb-3">
                     <h3 className="font-semibold">{title}</h3>
                     <button type="button" onClick={onClose} className="p-1 rounded hover:bg-surface-3">
@@ -919,7 +919,7 @@ function TeamCenter({
                 {roster.map((a, i) => (
                     <span
                         key={a.id}
-                        className="text-xs px-2 py-1 rounded-full bg-surface-2 border border-surface-3"
+                        className="text-xs px-2 py-1 rounded-none bg-surface-2 border border-surface-4"
                     >
                         {i === 0 ? 'Lead: ' : ''}
                         {a.avatar} {a.name}
@@ -927,7 +927,7 @@ function TeamCenter({
                 ))}
             </div>
             <textarea
-                className="w-full min-h-[80px] text-sm bg-surface-2 rounded p-2 border border-surface-3 mb-2"
+                className="w-full min-h-[80px] text-sm bg-surface-2 rounded p-2 border border-surface-4 mb-2"
                 placeholder="What task should this team tackle?"
                 value={teamTask}
                 onChange={(e) => setTeamTask(e.target.value)}
@@ -936,11 +936,11 @@ function TeamCenter({
                 type="button"
                 disabled={teamRunning}
                 onClick={onRun}
-                className="mb-4 px-4 py-2 rounded-lg bg-accent text-white text-sm disabled:opacity-50"
+                className="mb-4 px-4 py-2 rounded-none bg-accent text-white text-sm disabled:opacity-50"
             >
                 {teamRunning ? 'Running…' : 'Run team'}
             </button>
-            <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-surface-3 p-2 bg-surface-1 text-xs font-mono whitespace-pre-wrap">
+            <div className="flex-1 min-h-0 overflow-y-auto rounded-none border border-surface-4 p-2 bg-surface-1 text-xs font-mono whitespace-pre-wrap">
                 {teamLog || <span className="text-text-muted">Execution log will appear here.</span>}
             </div>
         </div>

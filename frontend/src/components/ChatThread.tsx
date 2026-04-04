@@ -43,7 +43,7 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
         <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-2 py-4' : 'px-4 py-6'} space-y-3`}>
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-text-muted animate-fade-in px-4">
-                    <div className={`rounded-xl bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
+                    <div className={`rounded-none bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
                         AI
                     </div>
                     <h2 className={`font-semibold text-text-secondary mb-1 ${isMobile ? 'text-sm' : 'text-base'}`}>
@@ -61,7 +61,7 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
                             { icon: '📊', label: 'Data', desc: 'EDA, ML', color: 'text-accent-amber' },
                             { icon: '👁', label: 'Vision', desc: 'Images, OCR', color: 'text-accent-purple' },
                         ].map((item) => (
-                            <div key={item.label} className={`bg-surface-1 rounded-md border border-surface-3 ${isMobile ? 'p-2.5' : 'p-3'}`}>
+                            <div key={item.label} className={`bg-surface-1 rounded-none border border-surface-4 ${isMobile ? 'p-2.5' : 'p-3'}`}>
                                 <div className={`${item.color} font-medium flex items-center gap-1.5 mb-0.5 ${isMobile ? 'text-xs' : 'text-xs'}`}>
                                     <span>{item.icon}</span> {item.label}
                                 </div>
@@ -80,11 +80,11 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
 
             {isStreaming && messages.length > 0 && messages[messages.length - 1]?.content === '' && (
                 <div className="flex justify-start animate-fade-in">
-                    <div className="bg-surface-1 rounded-lg px-4 py-3 border border-surface-3">
+                    <div className="bg-surface-1 rounded-none px-4 py-3 border border-surface-4">
                         <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
-                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
-                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
                             <span className="ml-2 text-[11px] text-text-muted">
                                 {searchingWeb ? (searchStatus || 'Searching web…') : 'Thinking...'}
                             </span>

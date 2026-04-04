@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 type StatusPayload = {
     power: { enabled: boolean; release_gpu_on_off?: boolean };
@@ -78,45 +79,44 @@ export default function Dashboard() {
     if (loading && !status) return <div className="p-6 text-text-secondary">Loading dashboard...</div>;
 
     return (
-        <div className="h-full overflow-auto p-5 md:p-8">
-            <div className="mx-auto w-full max-w-6xl space-y-6">
+        <div className="h-full overflow-auto p-6 md:p-10">
+            <div className="mx-auto w-full max-w-[min(112rem,calc(100%-2rem))] space-y-8">
             {consecutiveFailures >= 2 && (
                 <div className="rounded-card border border-accent-amber/40 bg-accent-amber/10 px-4 py-3 flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-full bg-accent-amber animate-pulse flex-shrink-0" />
+                    <span className="w-2 h-2 rounded-none bg-accent-amber animate-pulse flex-shrink-0" />
                     <p className="text-xs text-accent-amber flex-1">
                         Backend connection lost. Attempting to reconnect...
                     </p>
                 </div>
             )}
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                        <h1 className="text-lg md:text-xl font-semibold text-text-primary">jimAI Dashboard</h1>
-                        <p className="text-xs md:text-sm text-text-secondary">{runState}</p>
-                        {lastUpdatedLabel && (
-                            <p className="text-[11px] text-text-muted mt-0.5">Last updated: {lastUpdatedLabel}</p>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={togglePower}
-                            className={`px-4 py-2 rounded-btn text-sm font-semibold border ${
-                                status?.power?.enabled
-                                    ? 'bg-accent-red/15 border-accent-red/50 text-accent-red'
-                                    : 'bg-accent-green/15 border-accent-green/50 text-accent-green'
-                            }`}
-                        >
-                            {status?.power?.enabled ? 'Turn OFF' : 'Turn ON'}
-                        </button>
-                        <Link to="/audit" className="px-4 py-2 rounded-btn border border-accent/40 text-sm text-accent hover:bg-accent/10">
-                            Run Audit
-                        </Link>
-                        <Link to="/self-code" className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary hover:bg-surface-2">
-                            Start Run
-                        </Link>
-                    </div>
-                </div>
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-6 md:p-8">
+                <PageHeader
+                    variant="embedded"
+                    title="jimAI Dashboard"
+                    description={runState}
+                    meta={lastUpdatedLabel ? `Last updated: ${lastUpdatedLabel}` : undefined}
+                    actions={
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={togglePower}
+                                className={`px-4 py-2 rounded-btn text-sm font-semibold border ${
+                                    status?.power?.enabled
+                                        ? 'bg-accent-red/15 border-accent-red/50 text-accent-red'
+                                        : 'bg-accent-green/15 border-accent-green/50 text-accent-green'
+                                }`}
+                            >
+                                {status?.power?.enabled ? 'Turn OFF' : 'Turn ON'}
+                            </button>
+                            <Link to="/audit" className="px-4 py-2 rounded-btn border border-accent/40 text-sm text-accent hover:bg-accent/10">
+                                Run Audit
+                            </Link>
+                            <Link to="/self-code" className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary hover:bg-surface-2">
+                                Start Run
+                            </Link>
+                        </div>
+                    }
+                />
                 {error && (
                     <div className="mt-3 flex items-center gap-3">
                         <p className="text-xs text-accent-red flex-1">{error}</p>
@@ -137,15 +137,15 @@ export default function Dashboard() {
                 <MetricCard label="Reviews Applied" value={metrics.reviews_applied ?? 0} />
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-6 md:p-8">
                 <div className="flex items-center justify-between">
-                    <h2 className="text-sm md:text-base font-semibold text-text-primary">Recent Runs</h2>
+                    <h2 className="text-base font-semibold text-text-primary">Recent Runs</h2>
                     <Link to="/workflow" className="text-xs text-accent hover:underline">Open Workflow Review</Link>
                 </div>
                 <div className="mt-4 space-y-3">
                     {runs.length === 0 && <p className="text-xs text-text-secondary">No runs yet.</p>}
                     {runs.map((run) => (
-                        <div key={run.id} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                        <div key={run.id} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                             <div className="flex items-center justify-between gap-2">
                                 <p className="text-sm font-medium text-text-primary truncate">{run.objective}</p>
                                 <span className={`text-xs px-2 py-1 rounded ${
@@ -165,12 +165,12 @@ export default function Dashboard() {
                 </div>
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
-                <h2 className="text-sm md:text-base font-semibold text-text-primary">Recent Memory Summaries</h2>
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-6 md:p-8">
+                <h2 className="text-base font-semibold text-text-primary">Recent Memory Summaries</h2>
                 <div className="mt-4 space-y-3">
                     {memory.length === 0 && <p className="text-xs text-text-secondary">No memory entries yet.</p>}
                     {memory.map((entry, index) => (
-                        <div key={index} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                        <div key={index} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                             <p className="text-sm text-text-primary">{String(entry.objective || 'Untitled run')}</p>
                             <p className="text-[11px] text-text-muted mt-1">
                                 status: {String(entry.status || 'unknown')} • run: {String(entry.run_id || '')}
@@ -186,7 +186,7 @@ export default function Dashboard() {
 
 function MetricCard({ label, value }: { label: string; value: number }) {
     return (
-        <div className="rounded-card border border-surface-3 bg-surface-1 p-4">
+        <div className="rounded-card border border-surface-4 bg-surface-1 p-6">
             <p className="text-xs uppercase tracking-wide text-text-secondary">{label}</p>
             <p className="mt-2 text-2xl font-semibold text-text-primary">{value}</p>
         </div>

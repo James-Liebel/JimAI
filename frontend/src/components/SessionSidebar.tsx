@@ -54,14 +54,14 @@ export default function SessionSidebar({
 
     return (
         <div className={cn(
-            'flex flex-col bg-surface-1 border-surface-3 h-full',
+            'flex h-full flex-col border-surface-4 bg-surface-1',
             isMobile
                 ? 'fixed inset-0 z-50 w-full animate-fade-in'
-                : 'w-64 flex-shrink-0 border-r',
+                : 'w-72 shrink-0 border-r',
         )}>
             {/* Header */}
             <div className={cn(
-                'flex items-center justify-between border-b border-surface-3',
+                'flex items-center justify-between border-b border-surface-4',
                 isMobile ? 'px-4 py-3' : 'px-3 py-2',
             )}>
                 <span className={cn(
@@ -72,9 +72,10 @@ export default function SessionSidebar({
                 </span>
                 <div className="flex items-center gap-1">
                     <button
+                        type="button"
                         onClick={onNew}
                         className={cn(
-                            'rounded text-text-muted hover:text-accent hover:bg-surface-2 transition-colors',
+                            'text-text-muted transition-colors hover:bg-surface-2 hover:text-accent',
                             isMobile ? 'p-2.5' : 'p-1.5',
                         )}
                         title="New chat"
@@ -82,9 +83,10 @@ export default function SessionSidebar({
                         <Plus size={isMobile ? 20 : 14} />
                     </button>
                     <button
+                        type="button"
                         onClick={onClose}
                         className={cn(
-                            'rounded text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors',
+                            'text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
                             isMobile ? 'p-2.5' : 'p-1.5',
                         )}
                     >
@@ -94,8 +96,8 @@ export default function SessionSidebar({
             </div>
 
             {/* Search input */}
-            <div className={cn('border-b border-surface-3', isMobile ? 'px-4 py-2' : 'px-3 py-1.5')}>
-                <div className="flex items-center gap-1.5 bg-surface-0 rounded border border-surface-4 px-2 py-1">
+            <div className={cn('border-b border-surface-4', isMobile ? 'px-4 py-2' : 'px-3 py-1.5')}>
+                <div className="flex items-center gap-1.5 border border-surface-4 bg-surface-0 px-2 py-1">
                     <Search size={isMobile ? 14 : 12} className="text-text-muted flex-shrink-0" />
                     <input
                         type="text"
@@ -109,6 +111,7 @@ export default function SessionSidebar({
                     />
                     {searchInput && (
                         <button
+                            type="button"
                             onClick={() => { setSearchInput(''); setSearchQuery(''); }}
                             className="text-text-muted hover:text-text-secondary"
                         >
@@ -177,12 +180,13 @@ export default function SessionSidebar({
                                     </div>
                                 </div>
                                 <button
+                                    type="button"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onDelete(chat.id);
                                     }}
                                     className={cn(
-                                        'rounded text-text-muted hover:text-accent-red hover:bg-surface-3 transition-all flex-shrink-0',
+                                        'shrink-0 text-text-muted transition-colors hover:bg-surface-2 hover:text-accent-red',
                                         isMobile
                                             ? 'p-2 opacity-100'
                                             : 'p-1 opacity-0 group-hover:opacity-100',

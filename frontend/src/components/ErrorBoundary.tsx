@@ -34,7 +34,7 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
                             An unexpected error occurred. You can try reloading the app.
                         </p>
                         {isDev && this.state.error && (
-                            <pre className="mb-5 text-left text-xs text-text-muted bg-surface-0 border border-surface-3 rounded-btn p-3 overflow-auto max-h-48 whitespace-pre-wrap">
+                            <pre className="mb-5 text-left text-xs text-text-muted bg-surface-0 border border-surface-4 rounded-btn p-3 overflow-auto max-h-48 whitespace-pre-wrap">
                                 {this.state.error.message}
                                 {'\n'}
                                 {this.state.error.stack}

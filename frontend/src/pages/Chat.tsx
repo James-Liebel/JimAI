@@ -140,13 +140,13 @@ export default function Chat() {
             )}
 
             <div className="flex-1 flex flex-col min-w-0 relative">
-                <div className={`flex-shrink-0 flex items-center justify-between border-b border-surface-3 ${isMobile ? 'px-3 py-2' : 'px-4 py-2'}`}>
+                <div className={`flex shrink-0 items-center justify-between border-b border-surface-4 ${isMobile ? 'px-3 py-2' : 'px-5 py-3'}`}>
                     <div className="flex items-center gap-2">
                         {isMobile ? (
                             <>
                                 <button
                                     onClick={() => setShowMobileDrawer(true)}
-                                    className="p-2 rounded text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors"
+                                    className="p-2 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
                                     title="Chat history"
                                 >
                                     <Menu size={20} />
@@ -158,7 +158,7 @@ export default function Chat() {
                                 {!showSidebar && (
                                     <button
                                         onClick={() => setShowSidebar(true)}
-                                        className="p-1.5 rounded text-text-muted hover:text-text-secondary hover:bg-surface-2 text-xs"
+                                        className="p-1.5 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
                                         title="Show chat history"
                                     >
                                         ☰
@@ -170,41 +170,41 @@ export default function Chat() {
                     <div className="flex items-center gap-2">
                         <button
                             onClick={handleNewChat}
-                            className={`flex items-center gap-1.5 bg-surface-2 hover:bg-surface-3 text-text-secondary rounded text-xs transition-colors border border-surface-3 ${isMobile ? 'px-3 py-2 min-h-[36px]' : 'px-2.5 py-1.5'}`}
+                            className={`flex items-center gap-1.5 border border-surface-4 bg-surface-2 text-xs text-text-secondary transition-colors hover:bg-surface-2 ${isMobile ? 'min-h-[36px] px-3 py-2' : 'px-2.5 py-1.5'}`}
                         >
                             + New
                         </button>
                         {!isMobile && (
                             <button
                                 onClick={() => setShowAgentPanel(!showAgentPanel)}
-                                className="px-2.5 py-1.5 rounded text-xs text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors"
+                                className="px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
                             >
                                 {showAgentPanel ? 'Hide' : 'Show'} Agent Panel
                             </button>
                         )}
                     </div>
                 </div>
-                <div className={`flex-shrink-0 border-b border-surface-3 bg-surface-1/50 ${isMobile ? 'px-3 py-1.5' : 'px-4 py-1.5'}`}>
+                <div className={`flex-shrink-0 border-b border-surface-4 bg-surface-1 ${isMobile ? 'px-3 py-1.5' : 'px-4 py-1.5'}`}>
                     <div className="flex flex-wrap items-center gap-2 text-[11px]">
                         <p className="text-text-secondary">
                             Auto mode: web research and browser-style lookup run in the background when your prompt needs external info.
                         </p>
                         {searchingWeb && (
-                            <span className="rounded-full border border-accent-blue/30 bg-accent-blue/10 px-2 py-1 text-accent-blue">
+                            <span className="rounded-none border border-accent-blue/30 bg-accent-blue/10 px-2 py-1 text-accent-blue">
                                 {searchStatus || 'Searching web…'}
                             </span>
                         )}
                         {lastAssistantMessage && (
                             <>
                                 {lastSourceCount > 0 && (
-                                    <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                    <span className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                         Last answer used {lastSourceCount} source{lastSourceCount === 1 ? '' : 's'}
                                     </span>
                                 )}
                                 {lastRouting?.auto_web_research_attempted && (
                                     <span
                                         className={cn(
-                                            'rounded-full border px-2 py-1',
+                                            'rounded-none border px-2 py-1',
                                             lastRouting.auto_web_research_ok
                                                 ? 'border-accent-green/30 bg-accent-green/10 text-accent-green'
                                                 : 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber',
@@ -214,17 +214,17 @@ export default function Chat() {
                                     </span>
                                 )}
                                 {lastQueryCount > 0 && (
-                                    <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
+                                    <span className="rounded-none border border-surface-4 px-2 py-1 text-text-primary">
                                         {lastQueryCount} search quer{lastQueryCount === 1 ? 'y' : 'ies'}
                                     </span>
                                 )}
                                 {lastFetchedPages > 0 && (
-                                    <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
+                                    <span className="rounded-none border border-surface-4 px-2 py-1 text-text-primary">
                                         {lastFetchedPages} page{lastFetchedPages === 1 ? '' : 's'} read
                                     </span>
                                 )}
                                 {lastDomainCount > 0 && (
-                                    <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">
+                                    <span className="rounded-none border border-surface-4 px-2 py-1 text-text-primary">
                                         {lastDomainCount} site{lastDomainCount === 1 ? '' : 's'}
                                     </span>
                                 )}
@@ -245,7 +245,7 @@ export default function Chat() {
                         </div>
 
                         {(localPcRunning || localPcLog.trim()) && (
-                            <div className="flex-shrink-0 max-h-36 overflow-auto border-t border-surface-3 bg-[#0d1117] px-3 py-2">
+                            <div className="flex-shrink-0 max-h-36 overflow-auto border-t border-surface-4 bg-[#0d1117] px-3 py-2">
                                 <p className="mb-1 text-[10px] uppercase tracking-wide text-text-muted">Local PC · filesystem agent (auto-approved)</p>
                                 <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-text-secondary">
                                     {localPcRunning && !localPcLog ? 'Running local filesystem agent…' : localPcLog}

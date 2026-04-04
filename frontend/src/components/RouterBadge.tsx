@@ -60,15 +60,15 @@ export default function RouterBadge({ routing }: Props) {
         return (
             <div className="flex items-center gap-1 group/badge relative flex-wrap">
                 <span className="text-[10px] text-text-muted">Compare:</span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] border ${ROLE_STYLES.chat}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES.chat}`}>
                     {modelShortName(compare_models[0])}
                 </span>
                 <span className="text-[9px] text-text-muted">vs</span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] border ${ROLE_STYLES.chat}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES.chat}`}>
                     {modelShortName(compare_models[1])}{npu_used_for === 'model_b' && <span className="ml-0.5 text-[9px] text-amber-400">NPU</span>}
                 </span>
                 <span className="text-[9px] text-text-muted">→</span>
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] border ${ROLE_STYLES.chat}`}>
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES.chat}`}>
                     {modelShortName(judge_model)}
                 </span>
                 <Tooltip reasoning="Two models answered; judge chose/synthesized the response." />
@@ -85,7 +85,7 @@ export default function RouterBadge({ routing }: Props) {
                     return (
                         <span key={`${model}-${i}`} className="flex items-center gap-0.5">
                             {i > 0 && <span className="text-[9px] text-text-muted mx-0.5">→</span>}
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] border ${ROLE_STYLES[r] || ROLE_STYLES.chat}`}>
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES[r] || ROLE_STYLES.chat}`}>
                                 {modelShortName(model)}
                             </span>
                         </span>
@@ -98,7 +98,7 @@ export default function RouterBadge({ routing }: Props) {
 
     return (
         <div className="group/badge relative inline-flex items-center gap-1.5">
-            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border ${ROLE_STYLES[role] || ROLE_STYLES.chat}`}>
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES[role] || ROLE_STYLES.chat}`}>
                 {manual_override && (
                     <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" className="opacity-60">
                         <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
@@ -108,7 +108,7 @@ export default function RouterBadge({ routing }: Props) {
             </span>
             {auto_web_research_attempted && (
                 <span
-                    className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] border ${
+                    className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[9px] border ${
                         auto_web_research_ok
                             ? 'border-accent-green/30 text-accent-green bg-accent-green/10'
                             : auto_web_research_offline
@@ -124,7 +124,7 @@ export default function RouterBadge({ routing }: Props) {
                 </span>
             )}
             {npu_used_for === 'review' && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] border border-amber-500/25 text-amber-400 bg-amber-500/10">Review NPU</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-none text-[9px] border border-amber-500/25 text-amber-400 bg-amber-500/10">Review NPU</span>
             )}
             <Tooltip reasoning={reasoning} />
         </div>
@@ -133,7 +133,7 @@ export default function RouterBadge({ routing }: Props) {
 
 function Tooltip({ reasoning }: { reasoning: string }) {
     return (
-        <div className="absolute bottom-full left-0 mb-1 w-48 p-2 bg-surface-3 border border-surface-4 rounded-md shadow-xl opacity-0 group-hover/badge:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] text-text-secondary">
+        <div className="absolute bottom-full left-0 mb-1 w-48 p-2 bg-surface-3 border border-surface-4 rounded-none shadow-none opacity-0 group-hover/badge:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] text-text-secondary">
             {reasoning}
         </div>
     );

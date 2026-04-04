@@ -61,6 +61,7 @@ from .runtime import (
     workflow_store,
 )
 from .web_research import search_web
+from .memory_index import IGNORED_DIR_NAMES, TEXT_SUFFIXES
 
 router = APIRouter(prefix="/api/agent-space", tags=["agent-space"])
 
@@ -238,6 +239,14 @@ class ToolShellRequest(BaseModel):
     cwd: str = "."
     profile: str | None = None
     timeout: int = 120
+
+
+class WorkspaceTextSearchRequest(BaseModel):
+    """Literal substring search across text-like files under the repository (IDE-style find in files)."""
+
+    query: str = Field(..., min_length=1, max_length=500)
+    path_prefix: str = ""
+    max_results: int = Field(default=150, ge=1, le=500)
 
 
 class TeamAgentRequest(BaseModel):
@@ -2551,6 +2560,60 @@ async def export_module(req: ExportRequest) -> dict[str, Any]:
     if not req.include_paths:
         raise HTTPException(status_code=400, detail="include_paths is required.")
     return export_items(req.target_folder, req.include_paths, label=req.label)
+
+
+def _search_text_in_repo(query: str, directory: Path, max_results: int) -> list[dict[str, Any]]:
+    """Line-level substring search; same ignore rules as code index."""
+    needle = (query or "").strip()
+    if not needle:
+        return []
+    root_resolved = PROJECT_ROOT.resolve()
+    matches: list[dict[str, Any]] = []
+    try:
+        dir_resolved = directory.resolve()
+    except Exception:
+        return []
+    if not str(dir_resolved).startswith(str(root_resolved)):
+        return []
+    for path in dir_resolved.rglob("*"):
+        if len(matches) >= max_results:
+            break
+        if not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(root_resolved)
+        except ValueError:
+            continue
+        if any(part in IGNORED_DIR_NAMES for part in rel.parts):
+            continue
+        if path.suffix.lower() not in TEXT_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        lines = text.splitlines()
+        for line_no, line in enumerate(lines, start=1):
+            if len(matches) >= max_results:
+                break
+            if needle in line:
+                matches.append(
+                    {
+                        "path": rel.as_posix(),
+                        "line": line_no,
+                        "preview": line.strip()[:280],
+                    }
+                )
+    return matches
+
+
+@router.post("/workspace/search-text")
+async def workspace_search_text(req: WorkspaceTextSearchRequest) -> dict[str, Any]:
+    rel, abs_path = _resolve_repo_path((req.path_prefix or ".").strip() or ".")
+    if not abs_path.is_dir():
+        raise HTTPException(status_code=400, detail="path_prefix must be a directory inside the repository.")
+    matches = _search_text_in_repo(req.query.strip(), abs_path, req.max_results)
+    return {"query": req.query.strip(), "path_prefix": rel or ".", "matches": matches, "count": len(matches)}
 
 
 @router.get("/tools/tree")

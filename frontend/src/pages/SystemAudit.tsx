@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 type AuditMode = 'quick' | 'deep';
 
@@ -66,30 +67,32 @@ export default function SystemAudit() {
     );
 
     return (
-        <div className="h-full overflow-auto p-4 md:p-6 space-y-4">
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4 space-y-3">
-                <h1 className="text-lg font-semibold text-text-primary">System Audit</h1>
-                <p className="text-xs text-text-secondary">
-                    Run a full readiness audit across power, policy, model runtime, state stores, and run health.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => runAudit('quick')}
-                        className="px-3 py-2 rounded-btn border border-accent-blue/40 text-accent-blue text-xs disabled:opacity-60"
-                    >
-                        {loading ? 'Running...' : 'Run Quick Audit'}
-                    </button>
-                    <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => runAudit('deep')}
-                        className="px-3 py-2 rounded-btn border border-accent-green/40 text-accent-green text-xs disabled:opacity-60"
-                    >
-                        {loading ? 'Running...' : 'Run Deep Audit'}
-                    </button>
-                </div>
+        <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
+            <PageHeader
+                title="System Audit"
+                description="Run a full readiness audit across power, policy, model runtime, state stores, and run health."
+                actions={
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => runAudit('quick')}
+                            className="px-3 py-2 rounded-btn border border-accent-blue/40 text-accent-blue text-xs disabled:opacity-60"
+                        >
+                            {loading ? 'Running...' : 'Run Quick Audit'}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => runAudit('deep')}
+                            className="px-3 py-2 rounded-btn border border-accent-green/40 text-accent-green text-xs disabled:opacity-60"
+                        >
+                            {loading ? 'Running...' : 'Run Deep Audit'}
+                        </button>
+                    </div>
+                }
+            />
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
                 <div className="grid md:grid-cols-2 gap-2">
                     <Toggle
                         label="Include Web Research Probe"
@@ -110,7 +113,7 @@ export default function SystemAudit() {
             </section>
 
             {audit && (
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <div className="grid md:grid-cols-4 gap-2">
                         <Stat label="Total" value={audit.summary.total} />
                         <Stat label="Pass" value={audit.summary.pass} tone="pass" />
@@ -120,16 +123,16 @@ export default function SystemAudit() {
                 </section>
             )}
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4 space-y-2">
-                <h2 className="text-sm font-semibold text-text-primary">Checks</h2>
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-2">
+                <h2 className="text-base font-semibold text-text-primary">Checks</h2>
                 {sortedChecks.length === 0 && (
                     <p className="text-xs text-text-secondary">No audit results yet.</p>
                 )}
                 {sortedChecks.map((check) => (
-                    <div key={check.id} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                    <div key={check.id} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(check.status)}`} />
+                                <span className={`w-2 h-2 rounded-none flex-shrink-0 ${statusDotClass(check.status)}`} />
                                 <p className="text-sm text-text-primary truncate">{check.title}</p>
                             </div>
                             <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-btn border flex-shrink-0 ${statusTone(check.status)}`}>
@@ -143,7 +146,7 @@ export default function SystemAudit() {
                             </p>
                         )}
                         {check.details && Object.keys(check.details).length > 0 && (
-                            <pre className="mt-2 text-[11px] text-text-muted whitespace-pre-wrap rounded-btn border border-surface-3 bg-surface-1 p-2">
+                            <pre className="mt-2 text-[11px] text-text-muted whitespace-pre-wrap rounded-btn border border-surface-4 bg-surface-1 p-2">
                                 {JSON.stringify(check.details, null, 2)}
                             </pre>
                         )}
@@ -195,7 +198,7 @@ function Stat({
                 ? 'text-accent-red'
                 : 'text-text-primary';
     return (
-        <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+        <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
             <p className="text-[11px] uppercase tracking-wide text-text-secondary">{label}</p>
             <p className={`text-lg font-semibold mt-1 ${color}`}>{value}</p>
         </div>

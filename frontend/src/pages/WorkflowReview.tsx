@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 type DiffFile = {
     path: string;
@@ -225,26 +226,29 @@ export default function WorkflowReview() {
 
     return (
         <div className="h-full overflow-hidden flex flex-col md:flex-row">
-            <aside className="md:w-[340px] border-r border-surface-3 bg-surface-1 overflow-auto">
-                <div className="p-5 border-b border-surface-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <h1 className="text-base font-semibold text-text-primary">Workflow Review</h1>
-                        <button
-                            type="button"
-                            onClick={() => setAdvancedMode((prev) => !prev)}
-                            className={`px-2.5 py-1.5 rounded-btn border text-xs ${
-                                advancedMode
-                                    ? 'border-accent/40 text-accent bg-accent/10'
-                                    : 'border-surface-4 text-text-secondary hover:bg-surface-2'
-                            }`}
-                        >
-                            {advancedMode ? 'Advanced: ON' : 'Simple: ON'}
-                        </button>
-                    </div>
-                    <p className="text-xs text-text-secondary">
-                        Inspect file changes and approve/apply.
-                        {advancedMode ? ' Commit + deep summary are visible.' : ' Commit + deep summary are hidden.'}
-                    </p>
+            <aside className="md:w-[340px] border-r border-surface-4 bg-surface-1 overflow-auto">
+                <div className="p-5 border-b border-surface-4">
+                    <PageHeader
+                        variant="embedded"
+                        className="!pb-0"
+                        title="Workflow Review"
+                        description={`Inspect file changes and approve/apply.${
+                            advancedMode ? ' Commit + deep summary are visible.' : ' Commit + deep summary are hidden.'
+                        }`}
+                        actions={
+                            <button
+                                type="button"
+                                onClick={() => setAdvancedMode((prev) => !prev)}
+                                className={`px-2.5 py-1.5 rounded-btn border text-xs ${
+                                    advancedMode
+                                        ? 'border-accent/40 text-accent bg-accent/10'
+                                        : 'border-surface-4 text-text-secondary hover:bg-surface-2'
+                                }`}
+                            >
+                                {advancedMode ? 'Advanced: ON' : 'Simple: ON'}
+                            </button>
+                        }
+                    />
                 </div>
                 <div className="p-3 space-y-3">
                     {reviews.length === 0 && <p className="text-xs text-text-secondary p-2">No pending reviews.</p>}
@@ -255,7 +259,7 @@ export default function WorkflowReview() {
                             className={`w-full text-left rounded-btn border p-3 ${
                                 selectedId === review.id
                                     ? 'bg-surface-2 border-accent/50'
-                                    : 'bg-surface-0 border-surface-3 hover:bg-surface-2'
+                                    : 'bg-surface-0 border-surface-4 hover:bg-surface-2'
                             }`}
                         >
                             <p className="text-sm text-text-primary truncate">{review.objective}</p>
@@ -267,15 +271,15 @@ export default function WorkflowReview() {
                 </div>
             </aside>
 
-            <section className="flex-1 overflow-auto p-6 md:p-8">
-                <div className="mx-auto w-full max-w-6xl space-y-6">
+            <section className="flex-1 overflow-auto p-6 md:p-10">
+                <div className="mx-auto w-full max-w-[min(112rem,calc(100%-2rem))] space-y-6">
                     {!selected && <p className="text-sm text-text-secondary">Select a review to inspect proposed changes.</p>}
                     {selected && (
                         <>
-                            <div className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+                            <div className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
                                 <div className="flex flex-wrap items-start justify-between gap-3">
                                     <div>
-                                        <h2 className="text-lg font-semibold text-text-primary">{selected.objective}</h2>
+                                        <h2 className="text-base font-semibold text-text-primary">{selected.objective}</h2>
                                         <p className="text-xs text-text-secondary mt-1">Review ID: {selected.id}</p>
                                     </div>
                                     <span className={`px-3 py-1 rounded text-xs ${
@@ -288,19 +292,19 @@ export default function WorkflowReview() {
                                     </span>
                                 </div>
                                 <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                         <p className="text-[11px] text-text-muted">Files</p>
                                         <p className="mt-1 text-sm text-text-primary">{selectedSummary?.file_count || diffFiles.length || 0}</p>
                                     </div>
-                                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                         <p className="text-[11px] text-text-muted">Added</p>
                                         <p className="mt-1 text-sm text-accent-green">+{selectedSummary?.added_lines || 0}</p>
                                     </div>
-                                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                         <p className="text-[11px] text-text-muted">Removed</p>
                                         <p className="mt-1 text-sm text-accent-red">-{selectedSummary?.removed_lines || 0}</p>
                                     </div>
-                                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                         <p className="text-[11px] text-text-muted">Snapshot</p>
                                         <p className="mt-1 text-sm text-text-primary break-all">
                                             {selected.snapshot_id ? selected.snapshot_id.slice(0, 8) : 'none'}
@@ -375,7 +379,7 @@ export default function WorkflowReview() {
                             </div>
 
                             {selectedSummary && (
-                                <div className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+                                <div className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
                                     <div className="flex items-center justify-between gap-2">
                                         <h3 className="text-sm font-semibold text-text-primary">Change Summary</h3>
                                         {!advancedMode && (
@@ -407,7 +411,7 @@ export default function WorkflowReview() {
                                 </div>
                             )}
 
-                            <div className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+                            <div className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
                                 <h3 className="text-sm font-semibold text-text-primary">Changed Files</h3>
                                 <div className="mt-3 grid md:grid-cols-[260px_minmax(0,1fr)] gap-3">
                                     <div className="max-h-[56vh] overflow-auto space-y-2">
@@ -422,16 +426,16 @@ export default function WorkflowReview() {
                                                 className={`w-full text-left rounded-btn border p-2 ${
                                                     selectedFilePath === file.path
                                                         ? 'bg-surface-2 border-accent/50'
-                                                        : 'bg-surface-0 border-surface-3 hover:bg-surface-2'
+                                                        : 'bg-surface-0 border-surface-4 hover:bg-surface-2'
                                                 }`}
                                             >
                                                 <p className="text-xs text-text-primary break-all">{file.path}</p>
                                             </button>
                                         ))}
                                     </div>
-                                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                                         <p className="text-[11px] text-text-secondary mb-2">{selectedFilePath || 'No file selected'}</p>
-                                        <pre className="max-h-[56vh] overflow-auto bg-surface-1 border border-surface-3 p-3 text-xs text-text-primary whitespace-pre-wrap">
+                                        <pre className="max-h-[56vh] overflow-auto bg-surface-1 border border-surface-4 p-3 text-xs text-text-primary whitespace-pre-wrap">
                                             {selectedPatch || selected.diff || 'No diff content.'}
                                         </pre>
                                     </div>
@@ -440,7 +444,7 @@ export default function WorkflowReview() {
                         </>
                     )}
 
-                    <div className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+                    <div className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
                         <h3 className="text-sm font-semibold text-text-primary">Rollback</h3>
                         <p className="text-xs text-text-secondary mt-1">Restore a snapshot created from apply/direct runs.</p>
                         <div className="mt-3 flex flex-wrap items-center gap-2">

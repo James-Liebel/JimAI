@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 export default function SelfCode() {
     const [advancedMode, setAdvancedMode] = useState(false);
@@ -245,11 +246,12 @@ export default function SelfCode() {
     }, [latestAppliedReview, refreshRunReviews, refreshRuns]);
 
     return (
-        <div className="h-full overflow-auto p-5 md:p-8">
-            <div className="mx-auto w-full max-w-6xl space-y-6">
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
-                    <div className="flex items-center justify-between gap-2">
-                        <h1 className="text-lg font-semibold text-text-primary">Improve jimAI</h1>
+        <div className="h-full overflow-auto p-6 md:p-10">
+            <div className="mx-auto w-full max-w-[min(112rem,calc(100%-2rem))] space-y-6">
+                <PageHeader
+                    title="Improve jimAI"
+                    description="Self-improve requires your prompt. You can run directly from prompt, or generate specific suggestions and confirm them first."
+                    actions={
                         <button
                             type="button"
                             onClick={() => setAdvancedMode((prev) => !prev)}
@@ -261,11 +263,10 @@ export default function SelfCode() {
                         >
                             {advancedMode ? 'Advanced: ON' : 'Simple: ON'}
                         </button>
-                    </div>
-                    <p className="text-xs text-text-secondary mt-2">
-                        Self-improve requires your prompt. You can run directly from prompt, or generate specific suggestions and confirm them first.
-                    </p>
-                    <label className="mt-4 block text-xs font-medium text-text-primary">Self-Improve Prompt (Required / Editable)</label>
+                    }
+                />
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
+                    <label className="block text-xs font-medium text-text-primary">Self-Improve Prompt (Required / Editable)</label>
                     <textarea
                         value={prompt}
                         onChange={(event) => setPrompt(event.target.value)}
@@ -350,21 +351,21 @@ export default function SelfCode() {
                         current run: {runId || 'none'} {runStatus ? `-> ${runStatus}` : ''}
                     </p>
                     {selectedRun?.completion_summary?.text && (
-                        <div className="mt-3 rounded-btn border border-surface-3 bg-surface-0 p-3">
+                        <div className="mt-3 rounded-btn border border-surface-4 bg-surface-0 p-3">
                             <p className="text-[11px] uppercase tracking-wide text-text-secondary">Latest Summary</p>
                             <p className="text-xs text-text-primary mt-1">{selectedRun.completion_summary.text}</p>
                         </div>
                     )}
                 </section>
 
-                <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                     <h2 className="text-sm font-semibold text-text-primary">Suggested Improvements (Confirm Before Run)</h2>
                     <div className="mt-3 space-y-2">
                         {suggestions.length === 0 && (
                             <p className="text-xs text-text-secondary">No suggestions yet. Generate suggestions from your prompt first.</p>
                         )}
                         {suggestions.map((row) => (
-                            <label key={row.id} className="flex items-start gap-2 rounded-btn border border-surface-3 bg-surface-0 p-3">
+                            <label key={row.id} className="flex items-start gap-2 rounded-btn border border-surface-4 bg-surface-0 p-3">
                                 <input
                                     type="checkbox"
                                     checked={Boolean(confirmedMap[row.id])}
@@ -389,7 +390,7 @@ export default function SelfCode() {
 
                 <section className={`grid grid-cols-1 ${advancedMode ? 'lg:grid-cols-[320px_minmax(0,1fr)]' : ''} gap-4`}>
                     {advancedMode && (
-                        <div className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                        <div className="rounded-card border border-surface-4 bg-surface-1 p-4">
                             <h2 className="text-sm font-semibold text-text-primary">Recent Runs</h2>
                             <div className="mt-3 max-h-[420px] overflow-auto space-y-2">
                                 {runs.length === 0 && <p className="text-xs text-text-secondary">No runs yet.</p>}
@@ -403,7 +404,7 @@ export default function SelfCode() {
                                             setEvents([]);
                                         }}
                                         className={`w-full text-left rounded-btn border p-3 ${
-                                            runId === run.id ? 'border-accent/50 bg-surface-2' : 'border-surface-3 bg-surface-0'
+                                            runId === run.id ? 'border-accent/50 bg-surface-2' : 'border-surface-4 bg-surface-0'
                                         }`}
                                     >
                                         <p className="text-xs text-text-primary truncate">{run.objective}</p>
@@ -419,12 +420,12 @@ export default function SelfCode() {
                         </div>
                     )}
 
-                    <div className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                    <div className="rounded-card border border-surface-4 bg-surface-1 p-4">
                         <h2 className="text-sm font-semibold text-text-primary">Live Events</h2>
                         <div className="mt-3 max-h-[420px] overflow-auto space-y-2">
                             {events.length === 0 && <p className="text-xs text-text-secondary">No events yet.</p>}
                             {events.map((event, idx) => (
-                                <div key={`${idx}-${event.type}`} className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                                <div key={`${idx}-${event.type}`} className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                                     <p className="text-[11px] text-text-primary">{event.type}</p>
                                     <p className="text-[11px] text-text-secondary">{String(event.message || '')}</p>
                                 </div>
@@ -434,7 +435,7 @@ export default function SelfCode() {
                 </section>
 
                 {advancedMode && (
-                    <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
+                    <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
                         <h2 className="text-sm font-semibold text-text-primary">Review Diffs From This Run</h2>
                         {runReviews.length > 0 && (
                             <p className="mt-2 text-xs text-text-secondary">
@@ -449,7 +450,7 @@ export default function SelfCode() {
                         <div className="mt-3 space-y-2">
                             {runReviews.length === 0 && <p className="text-xs text-text-secondary">No review diffs yet for current run.</p>}
                             {runReviews.map((review) => (
-                                <div key={review.id} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                                <div key={review.id} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                     <div className="flex items-center justify-between gap-2">
                                         <p className="text-xs text-text-primary truncate">{review.objective}</p>
                                         <span className="text-[11px] text-text-secondary">{review.status}</span>

@@ -102,29 +102,29 @@ export default function Notebook() {
     return (
         <div className="h-full flex flex-col bg-surface-0">
             {/* Toolbar */}
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 border-b border-surface-3 bg-surface-1">
-                <span className="text-sm font-medium text-text-secondary">📓 Notebook</span>
+            <header className="flex-shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-surface-4 bg-surface-1">
+                <h1 className="text-xl font-semibold tracking-tight text-text-primary">Notebook</h1>
                 <div className="flex-1" />
                 <button
                     onClick={() => addCell('code')}
-                    className="px-2.5 py-1 text-xs bg-surface-2 hover:bg-surface-3 text-text-secondary rounded border border-surface-3 transition-colors"
+                    className="px-2.5 py-1 text-xs bg-surface-2 hover:bg-surface-3 text-text-secondary rounded border border-surface-4 transition-colors"
                 >
                     + Code Cell
                 </button>
                 <button
                     onClick={() => addCell('markdown')}
-                    className="px-2.5 py-1 text-xs bg-surface-2 hover:bg-surface-3 text-text-secondary rounded border border-surface-3 transition-colors"
+                    className="px-2.5 py-1 text-xs bg-surface-2 hover:bg-surface-3 text-text-secondary rounded border border-surface-4 transition-colors"
                 >
                     + Markdown Cell
                 </button>
-            </div>
+            </header>
 
             {/* Cells */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 max-w-5xl mx-auto w-full">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 max-w-[min(100rem,calc(100%-2rem))] mx-auto w-full">
                 {cells.map((cell, idx) => (
-                    <div key={cell.id} className="border border-surface-3 rounded-md bg-surface-1 overflow-hidden group">
+                    <div key={cell.id} className="border border-surface-4 rounded-none bg-surface-1 overflow-hidden group">
                         {/* Cell toolbar */}
-                        <div className="flex items-center gap-1 px-2 py-1 bg-surface-2 border-b border-surface-3">
+                        <div className="flex items-center gap-1 px-2 py-1 bg-surface-2 border-b border-surface-4">
                             <span className="text-[10px] text-text-muted font-mono w-6">[{idx + 1}]</span>
                             <span className="text-[10px] text-text-muted">{cell.type}</span>
                             <div className="flex-1" />
@@ -179,7 +179,7 @@ export default function Notebook() {
 
                         {/* Output */}
                         {cell.output && (
-                            <div className="border-t border-surface-3 bg-surface-0 p-3">
+                            <div className="border-t border-surface-4 bg-surface-0 p-3">
                                 <pre className="text-xs font-mono text-text-secondary whitespace-pre-wrap max-h-60 overflow-y-auto">
                                     {cell.output}
                                 </pre>

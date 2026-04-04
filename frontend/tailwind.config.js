@@ -4,12 +4,13 @@ export default {
     theme: {
         extend: {
             colors: {
+                /** Flat neutrals: depth mostly from borders, not many gray steps */
                 surface: {
-                    0: '#000000',
-                    1: '#0f1012',
-                    2: '#1a1c20',
-                    3: '#272b31',
-                    4: '#353b44',
+                    0: '#0a0a0a',
+                    1: '#121212',
+                    2: '#1a1a1a',
+                    3: '#2a2a2a',
+                    4: '#383838',
                 },
                 accent: {
                     DEFAULT: '#f5f5f5',
@@ -38,9 +39,9 @@ export default {
                 normal: '1.6',
             },
             borderRadius: {
-                card: '14px',
-                btn: '10px',
-                badge: '8px',
+                card: '0',
+                btn: '0',
+                badge: '0',
             },
             animation: {
                 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

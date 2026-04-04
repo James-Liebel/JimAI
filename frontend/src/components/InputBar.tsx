@@ -138,19 +138,20 @@ export default function InputBar({
     };
 
     const overrideOption = MODEL_OPTIONS.find((o) => o.value === modelOverride);
-    const borderClass = modelOverride && overrideOption?.color ? overrideOption.color : 'border-surface-3';
+    const borderClass = modelOverride && overrideOption?.color ? overrideOption.color : 'border-surface-4';
     const modelSelectValue = modelOverride || `__speed_${speedMode}`;
 
     return (
         <div className="space-y-2">
             {/* Attached file pill */}
             {attachedFile && (
-                <div className="flex items-center gap-2 bg-surface-2 rounded px-3 py-1.5 text-xs text-text-secondary w-fit animate-fade-in">
+                <div className="flex w-fit items-center gap-2 border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
                     <span className="text-text-muted">📎</span>
                     <span>{attachedFile.name}</span>
                     <button
+                        type="button"
                         onClick={() => setAttachedFile(null)}
-                        className="text-text-muted hover:text-accent-red transition-colors ml-1"
+                        className="ml-1 text-text-muted transition-colors hover:text-accent-red"
                     >
                         ×
                     </button>
@@ -159,16 +160,17 @@ export default function InputBar({
 
             {/* Pasted image thumbnail */}
             {pastedImage && (
-                <div className="flex items-center gap-2 bg-surface-2 rounded px-3 py-1.5 text-xs text-text-secondary w-fit animate-fade-in">
+                <div className="flex w-fit items-center gap-2 border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
                     <img
                         src={`data:image/png;base64,${pastedImage}`}
                         alt="Pasted"
-                        className="w-8 h-8 rounded object-cover"
+                        className="h-8 w-8 border border-surface-4 object-cover"
                     />
                     <span>Image attached → vision model</span>
                     <button
+                        type="button"
                         onClick={() => setPastedImage(null)}
-                        className="text-text-muted hover:text-accent-red transition-colors ml-1"
+                        className="ml-1 text-text-muted transition-colors hover:text-accent-red"
                     >
                         ×
                     </button>
@@ -177,15 +179,16 @@ export default function InputBar({
 
             {/* Main input area */}
             <div className={cn(
-                'flex items-end gap-1.5 bg-surface-1 rounded-lg border-2 p-2 transition-colors',
+                'flex min-w-0 items-end gap-1.5 border bg-surface-1 p-2 transition-colors',
                 borderClass,
-                'focus-within:border-accent',
+                'focus-within:border-white/45',
                 isMobile && 'min-h-[52px]',
             )}>
                 <button
+                    type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                        'rounded text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors flex-shrink-0',
+                        'shrink-0 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
                         isMobile ? 'p-2.5' : 'p-2',
                     )}
                     title="Attach file"
@@ -203,8 +206,9 @@ export default function InputBar({
                 {isMobile && (
                     <>
                         <button
+                            type="button"
                             onClick={() => cameraInputRef.current?.click()}
-                            className="p-2.5 rounded text-text-muted hover:text-text-secondary hover:bg-surface-2 transition-colors flex-shrink-0"
+                            className="shrink-0 p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
                             title="Take photo"
                         >
                             <Camera size={20} />
@@ -237,12 +241,13 @@ export default function InputBar({
 
                 {isMobile && (
                     <button
+                        type="button"
                         onClick={isListening ? stopListening : startListening}
                         className={cn(
-                            'p-2.5 rounded transition-all flex-shrink-0',
+                            'shrink-0 p-2.5 transition-colors',
                             isListening
-                                ? 'text-accent-red bg-accent-red/10 animate-pulse-slow'
-                                : 'text-text-muted hover:text-text-secondary hover:bg-surface-2',
+                                ? 'animate-pulse-slow bg-accent-red/10 text-accent-red'
+                                : 'text-text-muted hover:bg-surface-2 hover:text-text-secondary',
                         )}
                         title={isListening ? 'Stop listening' : 'Voice input'}
                     >
@@ -251,14 +256,15 @@ export default function InputBar({
                 )}
 
                 <button
+                    type="button"
                     onClick={handleSend}
                     disabled={isStreaming || (!text.trim() && !pastedImage)}
                     className={cn(
-                        'rounded transition-all flex-shrink-0',
+                        'shrink-0 transition-colors',
                         isMobile ? 'p-2.5' : 'p-2',
                         isStreaming || (!text.trim() && !pastedImage)
-                            ? 'text-text-muted cursor-not-allowed'
-                            : 'text-accent hover:bg-accent/10',
+                            ? 'cursor-not-allowed text-text-muted'
+                            : 'text-accent hover:bg-white/5',
                     )}
                     title={isMobile ? 'Send' : 'Send (Ctrl+Enter)'}
                 >
@@ -302,7 +308,7 @@ export default function InputBar({
                         onModelOverrideChange(value);
                     }}
                     className={cn(
-                        'bg-surface-2 text-text-primary border border-surface-3 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
+                        'bg-surface-2 text-text-primary border border-surface-4 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
                         isMobile ? 'text-xs px-3 py-1.5 min-h-[36px]' : 'text-[11px] px-2 py-0.5',
                     )}
                 >

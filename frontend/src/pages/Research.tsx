@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import * as agentApi from '../lib/agentSpaceApi';
+import { PageHeader } from '../components/PageHeader';
 
 type StepState = 'pending' | 'running' | 'done' | 'skipped';
 
@@ -228,14 +229,13 @@ export default function Research() {
     };
 
     return (
-        <div className="h-full overflow-auto p-4 md:p-6 space-y-4">
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4">
-                <h1 className="text-lg font-semibold text-text-primary">Research</h1>
-                <p className="text-xs text-text-secondary mt-1">
-                    Claude-style local research: rewrite, search, read, synthesize, cite.
-                </p>
-
-                <form onSubmit={onSubmit} className="mt-3 flex flex-col md:flex-row gap-2">
+        <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
+            <PageHeader
+                title="Research"
+                description="Claude-style local research: rewrite, search, read, synthesize, cite."
+            />
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
+                <form onSubmit={onSubmit} className="flex flex-col md:flex-row gap-2">
                     <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -250,9 +250,9 @@ export default function Research() {
                         {searching ? (
                             <span className="flex items-center gap-1.5">
                                 <span className="inline-flex gap-0.5">
-                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:0ms]" />
-                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:150ms]" />
-                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:300ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:0ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:150ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:300ms]" />
                                 </span>
                                 {activeStepLabel ? activeStepLabel.replace(/\.\.\.$/, '') : 'Researching'}
                             </span>
@@ -275,7 +275,7 @@ export default function Research() {
                         <button
                             key={item}
                             onClick={() => runSuggested(item)}
-                            className="text-[11px] px-2 py-1 rounded border border-surface-4 bg-surface-0 text-text-secondary hover:text-text-primary hover:border-surface-3"
+                            className="text-[11px] px-2 py-1 rounded border border-surface-4 bg-surface-0 text-text-secondary hover:text-text-primary hover:border-surface-4"
                         >
                             {item}
                         </button>
@@ -332,19 +332,19 @@ export default function Research() {
                     </div>
                 )}
                 <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                         <p className="text-[11px] text-text-muted">Trust</p>
                         <p className="mt-1 text-xs text-text-primary">{trustLabel}</p>
                     </div>
-                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                         <p className="text-[11px] text-text-muted">Sources</p>
                         <p className="mt-1 text-xs text-text-primary">{sourceCount}</p>
                     </div>
-                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                         <p className="text-[11px] text-text-muted">Status</p>
                         <p className="mt-1 text-xs text-text-primary">{searching ? (activeStepLabel || 'Working') : 'Ready'}</p>
                     </div>
-                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-2">
+                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
                         <p className="text-[11px] text-text-muted">Mode</p>
                         <p className="mt-1 text-xs text-text-primary">{forceLive ? 'Forced live' : 'Auto'}</p>
                     </div>
@@ -356,7 +356,7 @@ export default function Research() {
                 )}
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4 space-y-3">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-text-primary">Pipeline</h2>
                 <div className="space-y-1">
                     {STEP_ORDER.map((step) => (
@@ -396,16 +396,16 @@ export default function Research() {
                     <div className="space-y-2">
                         <h3 className="text-xs font-semibold text-text-primary">Top evidence</h3>
                         {rankedSources.slice(0, 3).map((row, idx) => (
-                            <div key={`${row.url}-evidence-${idx}`} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                            <div key={`${row.url}-evidence-${idx}`} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                                    <span className="rounded-full border border-surface-4 px-2 py-1 text-text-primary">#{idx + 1}</span>
+                                    <span className="rounded-none border border-surface-4 px-2 py-1 text-text-primary">#{idx + 1}</span>
                                     {row.provider && (
-                                        <span className="rounded-full border border-surface-4 px-2 py-1 text-text-secondary">{row.provider}</span>
+                                        <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">{row.provider}</span>
                                     )}
                                     {row.engine && (
-                                        <span className="rounded-full border border-surface-4 px-2 py-1 text-text-secondary">{row.engine}</span>
+                                        <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">{row.engine}</span>
                                     )}
-                                    <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                    <span className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                         {confidenceLabel((row as { score?: number }).score)}
                                     </span>
                                     {sourceDomain(row.url) && (
@@ -427,10 +427,10 @@ export default function Research() {
                 )}
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-4 space-y-3">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
                 <h2 className="text-sm font-semibold text-text-primary">Answer</h2>
                 {compactSummary && (
-                    <div className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                         <p className="text-[11px] uppercase tracking-wide text-text-secondary">Compact Summary</p>
                         <p className="mt-2 text-sm text-text-primary">{compactSummaryLine}</p>
                     </div>
@@ -440,9 +440,9 @@ export default function Research() {
                         {searching ? (
                             <>
                                 <span className="inline-flex gap-0.5">
-                                    <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:0ms]" />
-                                    <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:150ms]" />
-                                    <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:300ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:0ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:150ms]" />
+                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:300ms]" />
                                 </span>
                                 {activeStepLabel || 'Streaming answer...'}
                             </>
@@ -465,7 +465,7 @@ export default function Research() {
                     </p>
                 )}
                 {Object.keys(timings).length > 0 && (
-                    <div className="text-[11px] text-text-muted border-t border-surface-3 pt-2">
+                    <div className="text-[11px] text-text-muted border-t border-surface-4 pt-2">
                         {Object.entries(timings).map(([key, value]) => (
                             <span key={key} className="mr-3">
                                 {key}: {Number(value).toFixed(3)}s

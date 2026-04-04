@@ -1121,6 +1121,33 @@ export async function streamResearch(
     }
 }
 
+export interface WorkspaceTextSearchMatch {
+    path: string;
+    line: number;
+    preview: string;
+}
+
+export async function workspaceTextSearch(payload: {
+    query: string;
+    path_prefix?: string;
+    max_results?: number;
+}): Promise<{ query: string; path_prefix: string; matches: WorkspaceTextSearchMatch[]; count: number }> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/workspace/search-text`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            query: payload.query,
+            path_prefix: payload.path_prefix ?? '',
+            max_results: payload.max_results ?? 150,
+        }),
+    });
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `workspace search failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
 export async function listRepoTree(
     path = '.',
     depth = 8,

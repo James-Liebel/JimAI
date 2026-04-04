@@ -61,10 +61,10 @@ export default function AgentStatus({ onClose }: Props) {
     const formatTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
     return (
-        <div className="w-64 flex-shrink-0 border-l border-surface-3 bg-surface-1 flex flex-col">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-surface-3">
+        <div className="w-64 flex-shrink-0 border-l border-surface-4 bg-surface-1 flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-surface-4">
                 <div className="flex items-center gap-1.5">
-                    {isActive && <div className="w-1.5 h-1.5 rounded-full bg-accent-amber animate-pulse" />}
+                    {isActive && <div className="w-1.5 h-1.5 rounded-none bg-accent-amber animate-pulse" />}
                     <span className="text-xs font-medium text-text-secondary">
                         {isActive ? 'Agent Running' : 'Agent Status'}
                     </span>

@@ -79,13 +79,13 @@ export default function FileUpload({ onUpload }: Props) {
                 <div
                     className={cn(
                         'fixed bottom-20 right-4 z-50 animate-slide-up',
-                        'bg-surface-2 border border-surface-3 rounded-lg px-4 py-3 shadow-xl',
+                        'bg-surface-2 border border-surface-4 rounded-none px-4 py-3 shadow-none',
                         'flex items-center gap-3',
                     )}
                 >
                     {uploadStatus.state === 'uploading' && (
                         <>
-                            <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                            <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-none animate-spin" />
                             <span className="text-sm text-text-secondary">
                                 Uploading {uploadStatus.name}...
                             </span>

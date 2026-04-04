@@ -102,12 +102,12 @@ export default function MessageBubble({ message }: Props) {
         <div className={cn('group animate-slide-up', isUser ? 'flex justify-end' : 'flex justify-start')}>
             <div
                 className={cn(
-                    'rounded-lg px-4 py-3 transition-all',
+                    'border border-surface-4 px-4 py-3 transition-colors',
                     isUser
-                        ? 'bg-surface-2 text-text-primary border border-surface-3 rounded-br-sm'
-                        : 'w-full bg-surface-1 text-text-primary rounded-bl-sm border border-surface-3',
-                    isUser && (isMobile ? 'max-w-[90%]' : 'max-w-[70%]'),
-                    !isUser && (isMobile ? 'max-w-full' : 'max-w-[85%]'),
+                        ? 'bg-surface-2 text-text-primary'
+                        : 'w-full bg-surface-1 text-text-primary',
+                    isUser && (isMobile ? 'max-w-[90%]' : 'max-w-[min(42rem,78%)]'),
+                    !isUser && (isMobile ? 'max-w-full' : 'max-w-[min(52rem,92%)]'),
                 )}
             >
                 <div
@@ -152,17 +152,17 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Sources accordion */}
                 {!isUser && (hasSources || autoWebAttempted) && (
-                    <div className="mt-2 pt-2 border-t border-surface-3/50 space-y-2">
+                    <div className="mt-2 pt-2 border-t border-white/12 space-y-2">
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                             {hasSources && (
-                                <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                <span className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                     Web-backed · {message.sources!.length} source{message.sources!.length === 1 ? '' : 's'}
                                 </span>
                             )}
                             {autoWebAttempted && (
                                 <span
                                     className={cn(
-                                        'rounded-full border px-2 py-1',
+                                        'rounded-none border px-2 py-1',
                                         autoWebOk
                                             ? 'border-accent-green/30 bg-accent-green/10 text-accent-green'
                                             : 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber',
@@ -172,12 +172,12 @@ export default function MessageBubble({ message }: Props) {
                                     </span>
                                 )}
                             {autoWebQueries > 0 && (
-                                <span className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
+                                <span className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
                                     {autoWebQueries} quer{autoWebQueries === 1 ? 'y' : 'ies'}
                                 </span>
                             )}
                             {autoWebPages > 0 && (
-                                <span className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
+                                <span className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
                                     {autoWebPages} page{autoWebPages === 1 ? '' : 's'} read
                                 </span>
                             )}
@@ -196,7 +196,7 @@ export default function MessageBubble({ message }: Props) {
                                         href={normalizeSourceUrl(s)}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
+                                        className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                                         title={s.text}
                                     >
                                         #{i + 1} {sourceDisplayLabel(s)}
@@ -206,7 +206,7 @@ export default function MessageBubble({ message }: Props) {
                                             key={`${s.source}-${i}`}
                                             type="button"
                                             onClick={() => setShowSources((prev) => !prev)}
-                                            className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
+                                            className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                                             title={s.text}
                                         >
                                             #{i + 1} {sourceDisplayLabel(s)}
@@ -217,7 +217,7 @@ export default function MessageBubble({ message }: Props) {
                                     <button
                                         type="button"
                                         onClick={() => setShowSources((prev) => !prev)}
-                                        className="rounded-full border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-muted hover:text-text-primary"
+                                        className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-muted hover:text-text-primary"
                                     >
                                         +{rankedSources.length - 3} more
                                     </button>
@@ -267,7 +267,7 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Review verdict (layered confirmation) */}
                 {message.routing?.review && !isUser && (
-                    <details className="mt-2 pt-2 border-t border-surface-3/30">
+                    <details className="mt-2 pt-2 border-t border-white/10">
                         <summary className="text-[11px] text-text-muted cursor-pointer hover:text-text-secondary">
                             ✓ Review
                         </summary>
@@ -282,14 +282,14 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Self-consistency badge (math) */}
                 {message.routing?.consistency && message.routing.consistency.n_samples != null && message.routing.consistency.n_samples > 1 && !isUser && (
-                    <div className="mt-2 pt-2 border-t border-surface-3/30 flex items-center gap-2">
+                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-2">
                         <ConsistencyBadge consistency={message.routing.consistency} />
                     </div>
                 )}
 
                 {/* Router badge (model + compare/judge when used) */}
                 {message.routing && !isUser && (
-                    <div className="mt-2 pt-2 border-t border-surface-3/30 flex items-center justify-between flex-wrap gap-1">
+                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between flex-wrap gap-1">
                         <RouterBadge routing={message.routing} />
                         <span className="text-[10px] text-text-muted">{formatTimestamp(message.timestamp)}</span>
                     </div>
@@ -324,7 +324,7 @@ export default function MessageBubble({ message }: Props) {
                                         ? 'What was good about this? (optional)'
                                         : 'What was wrong? (optional)'}
                                     className={cn(
-                                        'w-full bg-surface-2 text-text-primary rounded p-2 resize-none border border-surface-3 focus:border-accent outline-none',
+                                        'w-full bg-surface-2 text-text-primary rounded p-2 resize-none border border-surface-4 focus:border-accent outline-none',
                                         isMobile ? 'text-sm min-h-[44px]' : 'text-xs',
                                     )}
                                     rows={2}
@@ -336,7 +336,7 @@ export default function MessageBubble({ message }: Props) {
                                         onChange={(e) => setCorrection(e.target.value)}
                                         placeholder="What should it have said instead? (optional)"
                                         className={cn(
-                                            'w-full bg-surface-2 text-text-primary rounded p-2 resize-none border border-surface-3 focus:border-accent outline-none',
+                                            'w-full bg-surface-2 text-text-primary rounded p-2 resize-none border border-surface-4 focus:border-accent outline-none',
                                             isMobile ? 'text-sm min-h-[44px]' : 'text-xs',
                                         )}
                                         rows={2}
@@ -382,17 +382,17 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     const [open, setOpen] = useState(false);
     if (judge.passed && judge.confidence === 'high' && judge.issues.length === 0) {
         return (
-            <div className="mt-2 pt-2 border-t border-surface-3/30 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-accent-green" title={`Verified by ${judge.judge_model} — no issues`} />
+            <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-none bg-accent-green" title={`Verified by ${judge.judge_model} — no issues`} />
                 <span className="text-[11px] text-text-muted">Verified by {judge.judge_model}</span>
             </div>
         );
     }
     if (judge.passed && (judge.confidence !== 'high' || judge.suggestions.length > 0)) {
         return (
-            <div className="mt-2 pt-2 border-t border-surface-3/30">
+            <div className="mt-2 pt-2 border-t border-white/10">
                 <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    <span className="w-2 h-2 rounded-none bg-amber-400" />
                     Suggestions available — click to expand
                 </button>
                 {open && (
@@ -405,7 +405,7 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     }
     if (!judge.passed && judge.was_revised) {
         return (
-            <details className="mt-2 pt-2 border-t border-surface-3/30">
+            <details className="mt-2 pt-2 border-t border-white/10">
                 <summary className="text-[11px] text-amber-400 cursor-pointer">⚠ Response revised by judge — issues were found</summary>
                 <div className="mt-1.5 space-y-1 text-[11px] text-text-muted">
                     <p className="font-medium text-amber-400">Issues:</p>
@@ -422,7 +422,7 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     }
     if (!judge.passed) {
         return (
-            <details className="mt-2 pt-2 border-t border-surface-3/30">
+            <details className="mt-2 pt-2 border-t border-white/10">
                 <summary className="text-[11px] text-accent-red cursor-pointer">⚠ Judge flagged issues — review carefully</summary>
                 <div className="mt-1.5 space-y-1 text-[11px] text-text-muted">
                     <ul className="list-disc ml-4">{judge.issues.map((i, k) => <li key={k}>{i}</li>)}</ul>
@@ -504,7 +504,7 @@ function CodeBlock({ code, language, showRun }: { code: string; language: string
                 {code}
             </SyntaxHighlighter>
             {output && (
-                <div className="mt-1 bg-surface-0 border border-surface-3 rounded p-2 text-xs font-mono">
+                <div className="mt-1 bg-surface-0 border border-surface-4 rounded p-2 text-xs font-mono">
                     {output.stdout && <pre className="text-accent-green whitespace-pre-wrap">{output.stdout}</pre>}
                     {output.stderr && <pre className="text-accent-red whitespace-pre-wrap">{output.stderr}</pre>}
                 </div>

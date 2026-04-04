@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getStoredGitHubToken, setStoredGitHubToken } from '../lib/githubApi';
+import { PageHeader } from '../components/PageHeader';
 
 export default function Settings() {
     const [settings, setSettings] = useState<Record<string, unknown>>({});
@@ -284,20 +285,23 @@ export default function Settings() {
     };
 
     return (
-        <div className="h-full overflow-auto p-5 md:p-8">
-            <div className="mx-auto w-full max-w-6xl space-y-6">
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
-                <h1 className="text-lg font-semibold text-text-primary">Settings</h1>
-                <p className="text-xs text-text-secondary mt-2">Core controls for model, safety, and automation.</p>
-                <div className="mt-4">
-                    <button
-                        type="button"
-                        onClick={resetRuntimeData}
-                        className="px-3 py-2 rounded-btn border border-accent-red/40 text-accent-red text-xs"
-                    >
-                        Reset Runtime Data (Clear Diffs/Runs)
-                    </button>
-                </div>
+        <div className="h-full overflow-auto p-6 md:p-10">
+            <div className="mx-auto w-full max-w-[min(112rem,calc(100%-2rem))] space-y-6">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-6 md:p-8">
+                <PageHeader
+                    variant="embedded"
+                    title="Settings"
+                    description="Core controls for model, safety, and automation."
+                    actions={
+                        <button
+                            type="button"
+                            onClick={resetRuntimeData}
+                            className="px-3 py-2 rounded-btn border border-accent-red/40 text-accent-red text-xs"
+                        >
+                            Reset Runtime Data (Clear Diffs/Runs)
+                        </button>
+                    }
+                />
 
                 <div className="mt-5 grid md:grid-cols-2 gap-4">
                     <InputField
@@ -512,7 +516,7 @@ export default function Settings() {
                 </div>
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6 space-y-4">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
                 <h2 className="text-sm font-semibold text-text-primary">Phone Notifications</h2>
                 <p className="text-xs text-text-secondary">
                     Send a notification to this device when long jimAI tasks finish.
@@ -549,7 +553,7 @@ export default function Settings() {
                 </div>
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6 space-y-4">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
                 <h2 className="text-sm font-semibold text-text-primary">Free Stack Integration</h2>
                 <p className="text-xs text-text-secondary">
                     Connect jimAI to your local Postgres/Redis/Qdrant/MinIO/observability services and Gotify push notifications.
@@ -598,7 +602,7 @@ export default function Settings() {
                 {freeStackStatus && (
                     <div className="space-y-2 max-h-[220px] overflow-auto">
                         {freeStackStatus.services.map((svc) => (
-                            <div key={svc.key} className="rounded-btn border border-surface-3 bg-surface-0 p-3 text-xs">
+                            <div key={svc.key} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
                                 <p className="text-text-primary">{svc.name}</p>
                                 <p className="text-text-secondary mt-1">{svc.url}</p>
                                 <p className="text-text-muted mt-1">
@@ -610,7 +614,7 @@ export default function Settings() {
                 )}
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6 space-y-4">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
                 <h2 className="text-sm font-semibold text-text-primary">Proactive & Self-Improvement</h2>
                 <p className="text-xs text-text-secondary">
                     proactive: {String(Boolean(proactiveStatus.running))} • goals: {String(proactiveStatus.goal_count ?? 0)}
@@ -637,7 +641,7 @@ export default function Settings() {
                 <textarea value={newGoalObjective} onChange={(e) => setNewGoalObjective(e.target.value)} rows={2} className="w-full bg-surface-0 border border-surface-4 rounded-btn px-3 py-2 text-xs text-text-primary" />
                 <div className="space-y-2 max-h-[180px] overflow-auto">
                     {proactiveGoals.map((goal) => (
-                        <div key={goal.id} className="rounded-btn border border-surface-3 bg-surface-0 p-3 text-xs">
+                        <div key={goal.id} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
                             <p className="text-text-primary">{goal.name}</p>
                             <p className="text-text-secondary mt-1">{goal.objective}</p>
                             <p className="text-text-muted mt-1">every {goal.interval_seconds}s • enabled {String(goal.enabled)}</p>
@@ -646,7 +650,7 @@ export default function Settings() {
                 </div>
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6 space-y-4">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
                 <h2 className="text-sm font-semibold text-text-primary">Local Code Index</h2>
                 <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={rebuildIndex} className="px-3 py-2 rounded-btn border border-accent/40 text-accent">
@@ -664,7 +668,7 @@ export default function Settings() {
                 </div>
                 <div className="space-y-2 max-h-[220px] overflow-auto">
                     {indexResults.map((row, idx) => (
-                        <div key={idx} className="rounded-btn border border-surface-3 bg-surface-0 p-3">
+                        <div key={idx} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                             <p className="text-sm text-text-primary">{String(row.path || '')}</p>
                             <p className="text-xs text-text-secondary mt-1">{String(row.excerpt || '').slice(0, 150)}</p>
                         </div>
@@ -672,11 +676,11 @@ export default function Settings() {
                 </div>
             </section>
 
-            <section className="rounded-card border border-surface-3 bg-surface-1 p-5 md:p-6">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
                 <h2 className="text-sm font-semibold text-text-primary">Action Logs</h2>
                 <div className="mt-3 max-h-[300px] overflow-auto space-y-2">
                     {logs.map((row, idx) => (
-                        <div key={idx} className="rounded-btn border border-surface-3 bg-surface-0 p-3 text-xs">
+                        <div key={idx} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
                             <p className="text-text-primary">
                                 run {String(row.run_id || '').slice(0, 8)} • {String((row as any).agent_id || '')}
                             </p>

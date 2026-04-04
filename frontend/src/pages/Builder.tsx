@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import { Bot, Files, GitBranch, Search, Terminal } from 'lucide-react';
 import * as agentApi from '../lib/agentSpaceApi';
 import GitHubPanel from '../components/GitHubPanel';
 import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
@@ -31,6 +32,19 @@ const parentDirectory = (path: string) => {
     parts.pop();
     return parts.filter(Boolean).join('/') || '.';
 };
+
+function filterRepoTree(node: agentApi.RepoTreeNode, q: string): agentApi.RepoTreeNode | null {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return node;
+    if (node.type === 'file') {
+        return node.name.toLowerCase().includes(needle) || node.path.toLowerCase().includes(needle) ? node : null;
+    }
+    const rawKids = node.children || [];
+    const mapped = rawKids.map((c) => filterRepoTree(c, q)).filter((c): c is agentApi.RepoTreeNode => c != null);
+    if (mapped.length) return { ...node, children: mapped };
+    if (node.name.toLowerCase().includes(needle) || node.path.toLowerCase().includes(needle)) return { ...node, children: rawKids };
+    return null;
+}
 const formatTime = (ts?: number) => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--');
 const statusTone = (status: NodeStatus) => status === 'running' ? 'border-accent/40 bg-accent/10' : status === 'completed' ? 'border-accent-green/40 bg-accent-green/10' : status === 'failed' ? 'border-accent-red/40 bg-accent-red/10' : 'border-surface-3 bg-surface-1';
 
@@ -97,7 +111,12 @@ export default function Builder() {
     const [sharedSelectedSkills, setSharedSelectedSkills] = useState<Array<{ slug: string; name: string }>>([]);
     const [sharedLastRunId, setSharedLastRunId] = useState('');
     const [sharedLastRunStatus, setSharedLastRunStatus] = useState('');
-    const [showGitHubPanel, setShowGitHubPanel] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarTab, setSidebarTab] = useState<'explorer' | 'search' | 'source-control'>('explorer');
+    const [rightPanelOpen, setRightPanelOpen] = useState(true);
+    const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+    const [showGitHubModal, setShowGitHubModal] = useState(false);
+    const [sidebarSearchQuery, setSidebarSearchQuery] = useState('');
     const [recommendedSkills, setRecommendedSkills] = useState<agentApi.AgentSkillSummary[]>([]);
     const [recommendedSkillContext, setRecommendedSkillContext] = useState('');
     const [loadingRecommendedSkills, setLoadingRecommendedSkills] = useState(false);
@@ -594,41 +613,236 @@ export default function Builder() {
         tone: row.exitCode === 0 ? 'text-text-secondary' : 'text-accent-red',
     }))].sort((a, b) => b.timestamp - a.timestamp).slice(0, 200), [events, terminalRows]);
 
+    const searchFilteredTreeRoot = useMemo(() => {
+        if (!treeData) return null;
+        if (!sidebarSearchQuery.trim()) return treeData.tree;
+        return filterRepoTree(treeData.tree, sidebarSearchQuery);
+    }, [sidebarSearchQuery, treeData]);
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            const metaOrCtrl = e.ctrlKey || e.metaKey;
+            if (!metaOrCtrl || e.repeat) return;
+            if (e.key === 'b' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setSidebarOpen((s) => !s);
+                return;
+            }
+            if (e.code === 'KeyE' && e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setSidebarOpen(true);
+                setSidebarTab('explorer');
+                return;
+            }
+            if (e.code === 'KeyF' && e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setSidebarOpen(true);
+                setSidebarTab('search');
+                return;
+            }
+            if (e.code === 'KeyG' && e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setSidebarOpen(true);
+                setSidebarTab('source-control');
+                return;
+            }
+            if (e.key === 'j' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setBottomPanelOpen((s) => !s);
+                return;
+            }
+            if ((e.key === '`' || e.code === 'Backquote') && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setBottomPanelOpen(true);
+                return;
+            }
+            if (e.code === 'KeyL' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                setRightPanelOpen((s) => !s);
+                return;
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => window.removeEventListener('keydown', onKeyDown, true);
+    }, []);
+
+    useEffect(() => {
+        if (!showGitHubModal) return;
+        const onEsc = (ev: KeyboardEvent) => {
+            if (ev.key === 'Escape') setShowGitHubModal(false);
+        };
+        window.addEventListener('keydown', onEsc);
+        return () => window.removeEventListener('keydown', onEsc);
+    }, [showGitHubModal]);
+
+    const activityBtnClass = (active: boolean) =>
+        cn(
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition-colors',
+            active ? 'border-l-2 border-l-accent bg-white/10 text-text-primary' : 'text-text-muted hover:bg-white/5 hover:text-text-primary',
+        );
+
     return (
         <div className="h-full min-h-0 flex flex-col bg-surface-0 text-text-primary">
-            <div className="flex items-center justify-between gap-4 border-b border-surface-3 bg-surface-1 px-4 py-3">
-                <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-text-secondary">Builder IDE</p>
-                    <h1 className="mt-1 text-lg font-semibold">Cursor-style build workspace</h1>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <button type="button" onClick={() => setShowGitHubPanel(true)} className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1 text-text-primary hover:bg-surface-2">
-                        GitHub
+            <div className="flex h-9 shrink-0 items-center gap-3 border-b border-surface-3 bg-[#1e1e1e] px-3 text-[11px] text-text-secondary">
+                <span className="font-medium text-text-primary">JimAI Builder</span>
+                <span className="hidden sm:inline">·</span>
+                <span className="hidden sm:inline text-text-muted">Local agents · Ollama</span>
+                <span className="hidden flex-1 justify-center text-center font-mono text-[10px] text-text-muted lg:flex">
+                    Ctrl+B sidebar · Ctrl+Shift+E/F/G · Ctrl+` panel · Ctrl+J panel · Ctrl+L AI
+                </span>
+                <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                        type="button"
+                        onClick={() => { setSidebarOpen(true); setSidebarTab('source-control'); }}
+                        className="rounded border border-surface-4 px-2 py-0.5 text-text-primary hover:bg-white/5"
+                    >
+                        Source Control
                     </button>
-                    <span className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1">team {sharedSavedTeamName || sharedTeamName || 'Auto Build Team'}</span>
-                    {sharedSelectedSkills.slice(0, 4).map((skill) => <span key={skill.slug} className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-accent">{skill.name}</span>)}
-                    {(runId || sharedLastRunId) && <span className="rounded-full border border-surface-4 bg-surface-0 px-2.5 py-1">{runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}</span>}
+                    <button
+                        type="button"
+                        onClick={() => setShowGitHubModal(true)}
+                        className="rounded border border-surface-4 px-2 py-0.5 text-text-primary hover:bg-white/5"
+                        title="Large GitHub panel"
+                    >
+                        GitHub…
+                    </button>
+                    <span className="max-w-[120px] truncate rounded border border-surface-4 px-2 py-0.5">{sharedSavedTeamName || sharedTeamName || 'Team'}</span>
+                    {(runId || sharedLastRunId) && (
+                        <span className="hidden truncate rounded border border-surface-4 px-2 py-0.5 sm:inline">
+                            {runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}
+                        </span>
+                    )}
                 </div>
             </div>
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_360px] xl:grid-rows-[minmax(0,1fr)_240px]">
-                <aside className="border-b border-r border-surface-3 bg-surface-1 xl:row-span-2 flex min-h-[260px] flex-col xl:min-h-0">
-                    <div className="border-b border-surface-3 px-3 py-3">
-                        <div className="flex items-center justify-between gap-2">
-                            <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Explorer</p><p className="mt-1 text-sm text-text-primary">Repo tree</p></div>
-                            <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-btn border border-surface-4 px-2 py-1 text-[11px] text-text-secondary hover:bg-surface-2">{loadingTree ? 'Refreshing…' : 'Refresh'}</button>
-                        </div>
-                        <div className="mt-3 flex gap-2">
-                            <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1.5 text-[11px] text-text-primary hover:bg-surface-2">+ File</button>
-                            <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1.5 text-[11px] text-text-primary hover:bg-surface-2">+ Folder</button>
-                        </div>
-                    </div>
-                    <div className="min-h-0 flex-1 overflow-auto p-2">
-                        {treeData ? <FileTreeNode node={treeData.tree} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} /> : <p className="px-2 py-3 text-xs text-text-secondary">Loading repository tree…</p>}
-                    </div>
-                </aside>
+            <div className="flex min-h-0 flex-1">
+                <nav
+                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-[#2d2d2d] bg-[#252526] py-1"
+                    aria-label="Activity bar"
+                >
+                    <button
+                        type="button"
+                        className={activityBtnClass(sidebarOpen && sidebarTab === 'explorer')}
+                        title="Explorer (Ctrl+Shift+E)"
+                        onClick={() => { setSidebarOpen(true); setSidebarTab('explorer'); }}
+                    >
+                        <Files size={20} strokeWidth={1.5} aria-hidden />
+                    </button>
+                    <button
+                        type="button"
+                        className={activityBtnClass(sidebarOpen && sidebarTab === 'search')}
+                        title="Search (Ctrl+Shift+F)"
+                        onClick={() => { setSidebarOpen(true); setSidebarTab('search'); }}
+                    >
+                        <Search size={20} strokeWidth={1.5} aria-hidden />
+                    </button>
+                    <button
+                        type="button"
+                        className={activityBtnClass(sidebarOpen && sidebarTab === 'source-control')}
+                        title="Source Control (Ctrl+Shift+G)"
+                        onClick={() => { setSidebarOpen(true); setSidebarTab('source-control'); }}
+                    >
+                        <GitBranch size={20} strokeWidth={1.5} aria-hidden />
+                    </button>
+                    <div className="min-h-2 flex-1" />
+                    <button
+                        type="button"
+                        className={activityBtnClass(bottomPanelOpen)}
+                        title="Toggle panel — Terminal (Ctrl+` or Ctrl+J)"
+                        onClick={() => setBottomPanelOpen((s) => !s)}
+                    >
+                        <Terminal size={20} strokeWidth={1.5} aria-hidden />
+                    </button>
+                    <button
+                        type="button"
+                        className={activityBtnClass(rightPanelOpen)}
+                        title="Toggle AI sidebar (Ctrl+L)"
+                        onClick={() => setRightPanelOpen((s) => !s)}
+                    >
+                        <Bot size={20} strokeWidth={1.5} aria-hidden />
+                    </button>
+                </nav>
 
-                <section className="flex min-h-[340px] min-w-0 flex-col xl:min-h-0">
+                {sidebarOpen && (
+                    <aside className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-surface-3 bg-surface-1">
+                        {sidebarTab === 'explorer' && (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                <div className="border-b border-surface-3 px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Explorer</p>
+                                        <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-btn border border-surface-4 px-2 py-0.5 text-[10px] text-text-secondary hover:bg-surface-2">
+                                            {loadingTree ? '…' : 'Refresh'}
+                                        </button>
+                                    </div>
+                                    <p className="mt-2 text-[10px] leading-snug text-text-muted">
+                                        New repo: use the panel terminal (<kbd className="rounded border border-surface-4 px-0.5 font-mono text-[9px]">git init</kbd> /{' '}
+                                        <kbd className="rounded border border-surface-4 px-0.5 font-mono text-[9px]">git clone</kbd>) or create a repo on{' '}
+                                        <a href="https://github.com/new" target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                                            github.com/new
+                                        </a>
+                                        .
+                                    </p>
+                                    <div className="mt-2 flex gap-1.5">
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ File</button>
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-btn border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ Folder</button>
+                                    </div>
+                                </div>
+                                <div className="min-h-0 flex-1 overflow-auto p-2">
+                                    {treeData ? (
+                                        <FileTreeNode node={treeData.tree} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
+                                    ) : (
+                                        <p className="px-2 py-3 text-xs text-text-secondary">Loading repository tree…</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {sidebarTab === 'search' && (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                <div className="border-b border-surface-3 px-3 py-2">
+                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Search</p>
+                                    <input
+                                        value={sidebarSearchQuery}
+                                        onChange={(e) => setSidebarSearchQuery(e.target.value)}
+                                        className="mt-2 w-full rounded-btn border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
+                                        placeholder="Filter files by name or path…"
+                                        autoFocus
+                                    />
+                                    <p className="mt-1 text-[10px] text-text-muted">Matches filter the explorer tree below.</p>
+                                </div>
+                                <div className="min-h-0 flex-1 overflow-auto p-2">
+                                    {treeData && searchFilteredTreeRoot ? (
+                                        <FileTreeNode node={searchFilteredTreeRoot} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
+                                    ) : treeData && sidebarSearchQuery.trim() && !searchFilteredTreeRoot ? (
+                                        <p className="px-2 py-3 text-xs text-text-secondary">No matches.</p>
+                                    ) : !treeData ? (
+                                        <p className="px-2 py-3 text-xs text-text-secondary">Loading…</p>
+                                    ) : (
+                                        <p className="px-2 py-3 text-xs text-text-secondary">Type to filter the workspace tree.</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {sidebarTab === 'source-control' && showGitHubModal && (
+                            <div className="p-3 text-center text-xs text-text-secondary">
+                                Large GitHub panel is open. Close it (Esc) to use the sidebar view.
+                            </div>
+                        )}
+                        {sidebarTab === 'source-control' && !showGitHubModal && (
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                <GitHubPanel
+                                    open
+                                    variant="embedded"
+                                    onClose={() => setSidebarOpen(false)}
+                                    onRepositoryChanged={refreshTree}
+                                    onExpandToModal={() => setShowGitHubModal(true)}
+                                />
+                            </div>
+                        )}
+                    </aside>
+                )}
+
+                <div className="flex min-w-0 min-h-0 flex-1 flex-col">
+                <section className="flex min-h-0 min-w-0 flex-1 flex-col">
                     <div className="border-b border-surface-3 bg-surface-1">
                         <div className="flex items-center justify-between gap-3 px-3 py-2">
                             <div className="min-w-0"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Editor</p><p className="truncate text-sm text-text-primary">{activeTab ? activeTab.path : 'Open a file or diff from the explorer or review panel.'}</p></div>
@@ -665,8 +879,20 @@ export default function Builder() {
                     </div>
                 </section>
 
-                <aside className="border-b border-l border-surface-3 bg-surface-1 xl:min-h-0 flex min-h-[300px] flex-col">
-                    <div className="border-b border-surface-3 px-4 py-3"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent interface</p><p className="mt-1 text-sm text-text-primary">Run and supervise agents from the editor</p></div>
+                {bottomPanelOpen && (
+                <section className="shrink-0 border-t border-surface-3 bg-[#0a0f14]">
+                    <div className="flex items-center justify-between gap-3 border-b border-surface-3 px-3 py-2">
+                        <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Terminal / agent log</p><p className="text-xs text-text-muted">Shell output and live agent events stream here.</p></div>
+                        <div className="flex items-center gap-2"><input value={terminalCwd} onChange={(e) => setTerminalCwd(e.target.value)} className="w-36 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="cwd" /><input value={terminalCommand} onChange={(e) => setTerminalCommand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runTerminalCommand().catch(() => undefined); }} className="w-64 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="npm test" /><button type="button" onClick={() => runTerminalCommand().catch(() => undefined)} disabled={runningTerminal} className="rounded-btn border border-accent/40 px-3 py-1 text-xs text-accent disabled:opacity-50">{runningTerminal ? 'Running…' : 'Run'}</button></div>
+                    </div>
+                    <div className="h-[220px] overflow-auto px-3 py-3 font-mono text-[11px] leading-5 text-text-secondary">{activityRows.length === 0 ? <p className="text-text-muted">No terminal output or agent events yet.</p> : activityRows.map((row) => <div key={row.id} className="border-b border-surface-3/40 py-2 last:border-b-0"><div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted"><span>{formatTime(row.timestamp)}</span><span>{row.prefix}</span><span className="text-text-primary normal-case tracking-normal">{row.title}</span></div><pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>{row.body || '(no output)'}</pre></div>)}</div>
+                </section>
+                )}
+                </div>
+
+                {rightPanelOpen && (
+                <aside className="flex w-[360px] shrink-0 flex-col border-l border-surface-3 bg-surface-1">
+                    <div className="border-b border-surface-3 px-4 py-3"><p className="text-[11px] uppercase tracking-wide text-text-secondary">Local AI · Agent interface</p><p className="mt-1 text-sm text-text-primary">Run and supervise local agents from the editor</p></div>
                     <div className="min-h-0 flex-1 overflow-auto p-4 space-y-4">
                         <div className="grid grid-cols-3 gap-2 text-[11px]"><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Agents</p><p className="mt-1 text-text-primary">{visualNodes.length || previewNodes.length || 0}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Run</p><p className="mt-1 text-text-primary">{runStatus || 'idle'}</p></div><div className="rounded-btn border border-surface-3 bg-surface-0 p-2"><p className="text-text-muted">Reviews</p><p className="mt-1 text-text-primary">{runReviews.length}</p></div></div>
                         <div className="rounded-card border border-surface-3 bg-surface-0 p-3">
@@ -698,18 +924,11 @@ export default function Builder() {
                         </div>
                     </div>
                 </aside>
-
-                <section className="col-span-1 border-t border-surface-3 bg-[#0a0f14] xl:col-span-2 xl:col-start-2 xl:border-l">
-                    <div className="flex items-center justify-between gap-3 border-b border-surface-3 px-3 py-2">
-                        <div><p className="text-[11px] uppercase tracking-wide text-text-secondary">Terminal / agent log</p><p className="text-xs text-text-muted">Shell output and live agent events stream here.</p></div>
-                        <div className="flex items-center gap-2"><input value={terminalCwd} onChange={(e) => setTerminalCwd(e.target.value)} className="w-36 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="cwd" /><input value={terminalCommand} onChange={(e) => setTerminalCommand(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') runTerminalCommand().catch(() => undefined); }} className="w-64 rounded-btn border border-surface-4 bg-surface-1 px-2 py-1 text-xs text-text-primary outline-none" placeholder="npm test" /><button type="button" onClick={() => runTerminalCommand().catch(() => undefined)} disabled={runningTerminal} className="rounded-btn border border-accent/40 px-3 py-1 text-xs text-accent disabled:opacity-50">{runningTerminal ? 'Running…' : 'Run'}</button></div>
-                    </div>
-                    <div className="h-[240px] overflow-auto px-3 py-3 font-mono text-[11px] leading-5 text-text-secondary">{activityRows.length === 0 ? <p className="text-text-muted">No terminal output or agent events yet.</p> : activityRows.map((row) => <div key={row.id} className="border-b border-surface-3/40 py-2 last:border-b-0"><div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-text-muted"><span>{formatTime(row.timestamp)}</span><span>{row.prefix}</span><span className="text-text-primary normal-case tracking-normal">{row.title}</span></div><pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>{row.body || '(no output)'}</pre></div>)}</div>
-                </section>
+                )}
             </div>
 
             {(message || error) && <div className="border-t border-surface-3 bg-surface-1 px-4 py-2">{message && <p className="text-sm text-accent-green">{message}</p>}{error && <p className="text-sm text-accent-red">{error}</p>}</div>}
-            <GitHubPanel open={showGitHubPanel} onClose={() => setShowGitHubPanel(false)} onRepositoryChanged={refreshTree} />
+            <GitHubPanel open={showGitHubModal} onClose={() => setShowGitHubModal(false)} onRepositoryChanged={refreshTree} />
         </div>
     );
 }

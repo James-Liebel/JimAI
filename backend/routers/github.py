@@ -6,7 +6,8 @@ import re
 import subprocess
 from urllib.parse import quote
 
-from fastapi import APIRouter, Header, HTTPException
+import httpx
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from agent_space.paths import PROJECT_ROOT
@@ -70,6 +71,92 @@ def _origin_url() -> str:
         return _run_git(["config", "--get", "remote.origin.url"]).strip()
     except HTTPException:
         return ""
+
+
+def _github_rest_auth_header(token: str) -> str:
+    """Fine-grained PATs use Bearer; classic PATs use token."""
+    t = (token or "").strip()
+    if t.startswith("github_pat_"):
+        return f"Bearer {t}"
+    return f"token {t}"
+
+
+@router.get("/remote-repos")
+async def github_remote_repos(
+    max_repos: int = Query(default=200, ge=1, le=500),
+    x_github_token: str | None = Header(default=None),
+) -> dict:
+    """List repositories visible to the user (owner, collaborator, org) via GitHub REST API."""
+    token = (x_github_token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="GitHub token required. Paste a personal access token in the Git panel (local browser storage).",
+        )
+
+    repos: list[dict] = []
+    page = 1
+    per_page = min(100, max_repos)
+    auth = _github_rest_auth_header(token)
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": auth,
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        while len(repos) < max_repos:
+            resp = await client.get(
+                "https://api.github.com/user/repos",
+                params={
+                    "per_page": per_page,
+                    "page": page,
+                    "sort": "updated",
+                    "affiliation": "owner,collaborator,organization_member",
+                },
+                headers=headers,
+            )
+            if resp.status_code == 401:
+                raise HTTPException(
+                    status_code=401,
+                    detail="GitHub rejected this token. For classic PATs use repo scope; for fine-grained allow repository read.",
+                )
+            if resp.status_code != 200:
+                detail = (resp.text or "GitHub API error").strip()[:800]
+                raise HTTPException(status_code=502, detail=detail)
+
+            try:
+                batch = resp.json()
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail="Invalid JSON from GitHub API.") from exc
+
+            if not isinstance(batch, list) or not batch:
+                break
+
+            for row in batch:
+                if len(repos) >= max_repos:
+                    break
+                if not isinstance(row, dict):
+                    continue
+                clone_url = str(row.get("clone_url") or "").strip()
+                if not clone_url:
+                    continue
+                repos.append({
+                    "id": row.get("id"),
+                    "name": str(row.get("name") or ""),
+                    "full_name": str(row.get("full_name") or ""),
+                    "clone_url": clone_url,
+                    "description": row.get("description"),
+                    "private": bool(row.get("private")),
+                    "updated_at": str(row.get("updated_at") or ""),
+                    "default_branch": str(row.get("default_branch") or "main"),
+                })
+
+            if len(batch) < per_page:
+                break
+            page += 1
+
+    return {"repos": repos, "count": len(repos)}
 
 
 def _auth_url(origin_url: str, token: str) -> str:

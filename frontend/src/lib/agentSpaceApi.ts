@@ -2051,6 +2051,8 @@ export async function builderLaunch(payload: {
     create_git_checkpoint?: boolean;
     /** When set, all builder subagents use this Ollama tag for the run (team design + execution). */
     ollama_model?: string;
+    /** `auto` assigns a local model per subagent role from installed Ollama models; `manual` uses settings + optional ollama_model. */
+    builder_model_mode?: 'auto' | 'manual';
 }): Promise<BuilderLaunchResponse> {
     const resp = await fetchWithTimeout(
         `${BASE}/api/agent-space/builder/launch`,
@@ -2075,6 +2077,7 @@ export async function builderPreview(payload: {
     auto_agent_packs?: boolean;
     use_saved_teams?: boolean;
     ollama_model?: string;
+    builder_model_mode?: 'auto' | 'manual';
 }): Promise<BuilderPreviewResponse> {
     const resp = await fetchWithTimeout(
         `${BASE}/api/agent-space/builder/preview`,

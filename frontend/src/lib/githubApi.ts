@@ -168,6 +168,30 @@ export async function pushGitHubChanges() {
     return resp.json();
 }
 
+export type GitHubRemoteRepo = {
+    id: number;
+    name: string;
+    full_name: string;
+    clone_url: string;
+    description: string | null;
+    private: boolean;
+    updated_at: string;
+    default_branch: string;
+};
+
+/** Repositories the token can see (owner, collaborator, org), newest first. */
+export async function listGitHubRemoteRepos(maxRepos = 200): Promise<GitHubRemoteRepo[]> {
+    const params = new URLSearchParams();
+    params.set('max_repos', String(Math.min(500, Math.max(1, maxRepos))));
+    const resp = await fetchWithTimeout(`${BASE}/api/github/remote-repos?${params.toString()}`, { headers: authHeaders() });
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `list GitHub repos failed: ${resp.status}`);
+    }
+    const data = await resp.json();
+    return Array.isArray(data.repos) ? data.repos : [];
+}
+
 export async function pullGitHubChanges() {
     const resp = await fetchWithTimeout(`${BASE}/api/github/pull`, {
         method: 'POST',

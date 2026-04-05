@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Builder from '../pages/Builder';
 import * as agentApi from '../lib/agentSpaceApi';
+import * as workspaceAgentsApi from '../lib/workspaceAgentsApi';
 
 function renderBuilder() {
     return render(
@@ -16,6 +17,8 @@ function renderBuilder() {
 describe('Builder page', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
+        sessionStorage.setItem('jimai-builder-workspace-unlocked', '1');
+        vi.spyOn(workspaceAgentsApi, 'listOllamaModels').mockResolvedValue(['qwen3:8b']);
         vi.spyOn(agentApi, 'getSettings').mockResolvedValue({
             review_gate: true,
             allow_shell: false,
@@ -74,14 +77,14 @@ describe('Builder page', () => {
         vi.spyOn(agentApi, 'getResearchStatus').mockResolvedValue({});
     });
 
-    it('renders objective input', async () => {
+    it('renders agent message input', async () => {
         renderBuilder();
         await waitFor(() => {
-            expect(screen.getByPlaceholderText(/describe the app to build/i)).not.toBeNull();
+            expect(screen.getByPlaceholderText(/message the agent/i)).not.toBeNull();
         });
     });
 
-    it('launch button is disabled while form is submitting', async () => {
+    it('send button is disabled while form is submitting', async () => {
         let resolveLaunch!: (value: agentApi.BuilderLaunchResponse) => void;
         vi.spyOn(agentApi, 'builderLaunch').mockReturnValue(
             new Promise((resolve) => {
@@ -90,17 +93,16 @@ describe('Builder page', () => {
         );
 
         renderBuilder();
-        await waitFor(() => screen.getByPlaceholderText(/describe the app to build/i));
+        await waitFor(() => screen.getByPlaceholderText(/message the agent/i));
 
         const user = userEvent.setup();
-        await user.type(screen.getByPlaceholderText(/describe the app to build/i), 'Build a todo app');
+        await user.type(screen.getByPlaceholderText(/message the agent/i), 'Build a todo app');
 
-        const launchBtn = screen.getByRole('button', { name: /start autonomous build/i });
-        await user.click(launchBtn);
+        const sendBtn = screen.getByRole('button', { name: /send to agent/i });
+        await user.click(sendBtn);
 
-        // During the pending launch the button should be disabled
         await waitFor(() => {
-            const btn = screen.getByRole('button', { name: /launching/i });
+            const btn = screen.getByRole('button', { name: /working/i });
             expect((btn as HTMLButtonElement).disabled).toBe(true);
         });
 
@@ -126,7 +128,7 @@ describe('Builder page', () => {
         });
     });
 
-    it('launch button shows "Launching..." while pending', async () => {
+    it('send button shows Working while pending', async () => {
         let resolveLaunch!: (value: agentApi.BuilderLaunchResponse) => void;
         vi.spyOn(agentApi, 'builderLaunch').mockReturnValue(
             new Promise((resolve) => {
@@ -135,14 +137,14 @@ describe('Builder page', () => {
         );
 
         renderBuilder();
-        await waitFor(() => screen.getByPlaceholderText(/describe the app to build/i));
+        await waitFor(() => screen.getByPlaceholderText(/message the agent/i));
 
         const user = userEvent.setup();
-        await user.type(screen.getByPlaceholderText(/describe the app to build/i), 'Build a weather app');
-        await user.click(screen.getByRole('button', { name: /start autonomous build/i }));
+        await user.type(screen.getByPlaceholderText(/message the agent/i), 'Build a weather app');
+        await user.click(screen.getByRole('button', { name: /send to agent/i }));
 
         await waitFor(() => {
-            expect(screen.getByText('Launching...')).not.toBeNull();
+            expect(screen.getByText('Working…')).not.toBeNull();
         });
 
         await act(async () => {
@@ -170,11 +172,11 @@ describe('Builder page', () => {
         vi.spyOn(agentApi, 'builderLaunch').mockRejectedValue(new Error('Network error'));
 
         renderBuilder();
-        await waitFor(() => screen.getByPlaceholderText(/describe the app to build/i));
+        await waitFor(() => screen.getByPlaceholderText(/message the agent/i));
 
         const user = userEvent.setup();
-        await user.type(screen.getByPlaceholderText(/describe the app to build/i), 'Build a broken app');
-        await user.click(screen.getByRole('button', { name: /start autonomous build/i }));
+        await user.type(screen.getByPlaceholderText(/message the agent/i), 'Build a broken app');
+        await user.click(screen.getByRole('button', { name: /send to agent/i }));
 
         await waitFor(() => {
             expect(screen.getByText('Network error')).not.toBeNull();

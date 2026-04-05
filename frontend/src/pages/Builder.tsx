@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { ArrowUpCircle, Bot, ChevronRight, Files, GitBranch, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
+import { ArrowUpCircle, Bot, ChevronRight, Files, GitBranch, Github, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getGitHubStatus } from '../lib/githubApi';
@@ -16,11 +16,23 @@ import {
     persistBuilderLayout,
     persistMinimalChrome,
 } from '../components/builder/builderStorage';
+import { BuilderGitHubCloneModal } from '../components/builder/BuilderGitHubCloneModal';
 import { ResizeHandle } from '../components/builder/ResizeHandle';
 import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
 import { listOllamaModels } from '../lib/workspaceAgentsApi';
 
-const BUILDER_OLLAMA_MODEL_KEY = 'jimai-builder-ollama-model';
+const BUILDER_MODEL_CHOICE_KEY = 'jimai-builder-model-choice';
+const BUILDER_WORKSPACE_UNLOCKED_KEY = 'jimai-builder-workspace-unlocked';
+
+type AgentChatLine = { id: string; role: 'user' | 'assistant' | 'system'; content: string; at: number };
+
+function readSessionBuilderUnlocked(): boolean {
+    try {
+        return sessionStorage.getItem(BUILDER_WORKSPACE_UNLOCKED_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
 
 type NodeStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
 type PendingCreate = { parentPath: string; kind: 'file' | 'folder'; value: string };
@@ -162,9 +174,10 @@ export default function Builder() {
     const [sharedSelectedSkills, setSharedSelectedSkills] = useState<Array<{ slug: string; name: string }>>([]);
     const [sharedLastRunId, setSharedLastRunId] = useState('');
     const [sharedLastRunStatus, setSharedLastRunStatus] = useState('');
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [builderWorkspaceUnlocked, setBuilderWorkspaceUnlocked] = useState(readSessionBuilderUnlocked);
+    const [sidebarOpen, setSidebarOpen] = useState(readSessionBuilderUnlocked);
     const [sidebarTab, setSidebarTab] = useState<'explorer' | 'search' | 'source-control'>('explorer');
-    const [rightPanelOpen, setRightPanelOpen] = useState(true);
+    const [rightPanelOpen, setRightPanelOpen] = useState(readSessionBuilderUnlocked);
     const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
     const [bottomLogTab, setBottomLogTab] = useState<'all' | 'terminal' | 'agent'>('all');
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -174,6 +187,7 @@ export default function Builder() {
     const [cloneRepoUrl, setCloneRepoUrl] = useState('');
     const [cloneFolderName, setCloneFolderName] = useState('');
     const [cloneBusy, setCloneBusy] = useState(false);
+    const [githubCloneModalOpen, setGithubCloneModalOpen] = useState(false);
     const welcomeFileInputRef = useRef<HTMLInputElement>(null);
     const [sidebarWidth, setSidebarWidth] = useState(() => loadBuilderLayout().sidebarWidth);
     const [rightWidth, setRightWidth] = useState(() => loadBuilderLayout().rightWidth);
@@ -204,11 +218,11 @@ export default function Builder() {
     const [runningTerminal, setRunningTerminal] = useState(false);
     const [agentTo, setAgentTo] = useState('');
     const [agentChannel, setAgentChannel] = useState('change-request');
-    const [agentMessage, setAgentMessage] = useState('');
-    const [sendingAgentMessage, setSendingAgentMessage] = useState(false);
+    const [sendingAgentChat, setSendingAgentChat] = useState(false);
     const [explorerExpandedDirs, setExplorerExpandedDirs] = useState<Set<string>>(() => new Set(['.']));
     const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-    const [builderOllamaModel, setBuilderOllamaModel] = useState('');
+    const [builderModelChoice, setBuilderModelChoice] = useState('__auto__');
+    const [agentChatMessages, setAgentChatMessages] = useState<AgentChatLine[]>([]);
     const [rightTreeScope, setRightTreeScope] = useState<'hidden' | 'workspace' | 'open_file'>('hidden');
     const [rightTreeData, setRightTreeData] = useState<agentApi.RepoTreeResponse | null>(null);
     const [rightTreeLoading, setRightTreeLoading] = useState(false);
@@ -216,13 +230,31 @@ export default function Builder() {
 
     const currentRun = useMemo(() => runs.find((row) => row.id === runId) || null, [runId, runs]);
     const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
-    const builderOllamaOptions = useMemo(() => {
+    const builderModelSelectOptions = useMemo(() => {
         const out = [...ollamaModels];
-        if (builderOllamaModel && !out.includes(builderOllamaModel)) {
-            out.push(builderOllamaModel);
+        if (
+            builderModelChoice &&
+            builderModelChoice !== '__auto__' &&
+            builderModelChoice !== '' &&
+            !out.includes(builderModelChoice)
+        ) {
+            out.push(builderModelChoice);
         }
         return out;
-    }, [builderOllamaModel, ollamaModels]);
+    }, [builderModelChoice, ollamaModels]);
+
+    const showSidePanels = builderWorkspaceUnlocked;
+
+    const unlockBuilderWorkspace = useCallback(() => {
+        try {
+            sessionStorage.setItem(BUILDER_WORKSPACE_UNLOCKED_KEY, '1');
+        } catch {
+            /* ignore */
+        }
+        setBuilderWorkspaceUnlocked(true);
+        setSidebarOpen(true);
+        setRightPanelOpen(true);
+    }, []);
 
     const refreshRuns = useCallback(async () => {
         const rows = await agentApi.listRuns(50);
@@ -353,23 +385,22 @@ export default function Builder() {
             .then((models) => {
                 if (!active) return;
                 setOllamaModels(models);
-                const saved = (() => {
-                    try {
-                        return localStorage.getItem(BUILDER_OLLAMA_MODEL_KEY) || '';
-                    } catch {
-                        return '';
-                    }
-                })();
-                const next = saved && models.includes(saved) ? saved : models[0] || '';
-                setBuilderOllamaModel(next);
+                try {
+                    const raw = localStorage.getItem(BUILDER_MODEL_CHOICE_KEY);
+                    if (raw === null) setBuilderModelChoice('__auto__');
+                    else setBuilderModelChoice(raw);
+                } catch {
+                    setBuilderModelChoice('__auto__');
+                }
             })
             .catch(() => {
                 if (!active) return;
                 setOllamaModels([]);
                 try {
-                    setBuilderOllamaModel(localStorage.getItem(BUILDER_OLLAMA_MODEL_KEY) || '');
+                    const raw = localStorage.getItem(BUILDER_MODEL_CHOICE_KEY);
+                    setBuilderModelChoice(typeof raw === 'string' ? raw : '__auto__');
                 } catch {
-                    setBuilderOllamaModel('');
+                    setBuilderModelChoice('__auto__');
                 }
             });
         return () => {
@@ -420,14 +451,15 @@ export default function Builder() {
                 team_name: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
                 auto_agent_packs: true,
                 use_saved_teams: true,
-                ...(builderOllamaModel.trim() ? { ollama_model: builderOllamaModel.trim() } : {}),
+                builder_model_mode: builderModelChoice === '__auto__' ? 'auto' : 'manual',
+                ...(builderModelChoice !== '__auto__' && builderModelChoice ? { ollama_model: builderModelChoice } : {}),
             }).then((data) => active && setPreview(data)).catch(() => active && setPreview(null)).finally(() => active && setLoadingPreview(false));
         }, 400);
         return () => {
             active = false;
             window.clearTimeout(timer);
         };
-    }, [builderOllamaModel, context, prompt, sharedSavedTeamName, sharedTeamName]);
+    }, [builderModelChoice, context, prompt, sharedSavedTeamName, sharedTeamName]);
 
     useEffect(() => {
         const objective = [prompt.trim(), context.trim()].filter(Boolean).join('\n\n');
@@ -508,12 +540,13 @@ export default function Builder() {
                 dirsAlongPath(row.path).forEach((d) => next.add(d));
                 return next;
             });
+            unlockBuilderWorkspace();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to open file.');
         } finally {
             setLoadingFile(false);
         }
-    }, [upsertTab]);
+    }, [unlockBuilderWorkspace, upsertTab]);
 
     const openLocalFileToTab = useCallback(
         async (file: File) => {
@@ -534,50 +567,71 @@ export default function Builder() {
                     true,
                 );
                 setMessage(`Opened “${name}” from disk. Save to write it into the workspace.`);
+                unlockBuilderWorkspace();
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Could not read that file.');
             }
         },
-        [selectedDirectory, upsertTab],
+        [selectedDirectory, unlockBuilderWorkspace, upsertTab],
+    );
+
+    const runGitCloneWith = useCallback(
+        async (urlInput: string, folderNameInput?: string) => {
+            const url = urlInput.trim();
+            if (!url) {
+                const msg = 'Enter a repository URL to clone.';
+                setError(msg);
+                throw new Error(msg);
+            }
+            const dirRaw = (folderNameInput ?? '').trim() || defaultCloneFolderFromUrl(url);
+            const dir = sanitizeCloneDir(dirRaw) || 'repo';
+            setCloneRepoUrl(url);
+            if ((folderNameInput ?? '').trim()) {
+                setCloneFolderName(sanitizeCloneDir(dirRaw) || dir);
+            } else {
+                setCloneFolderName('');
+            }
+            setCloneBusy(true);
+            setError('');
+            setMessage('');
+            setBottomPanelOpen(true);
+            try {
+                const escapedUrl = url.replace(/"/g, '');
+                const escapedDir = dir.replace(/"/g, '');
+                const result = await agentApi.toolsShell({
+                    command: `git clone "${escapedUrl}" "${escapedDir}"`,
+                    cwd: '.',
+                    profile: normalizeProfile(settings.command_profile),
+                    timeout: 600,
+                });
+                const exit = Number(result.exit_code ?? (result.success ? 0 : 1));
+                const ok = exit === 0;
+                if (!ok) {
+                    throw new Error(String(result.stderr || result.stdout || 'git clone failed.'));
+                }
+                setMessage(`Cloned into ${dir}. Explorer refreshed.`);
+                setCloneRepoUrl('');
+                setCloneFolderName('');
+                await refreshTree();
+                unlockBuilderWorkspace();
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : 'Clone failed. Enable shell in Settings if it is disabled.';
+                setError(msg);
+                throw err instanceof Error ? err : new Error(msg);
+            } finally {
+                setCloneBusy(false);
+            }
+        },
+        [refreshTree, settings.command_profile, unlockBuilderWorkspace],
     );
 
     const runGitClone = useCallback(async () => {
-        const url = cloneRepoUrl.trim();
-        if (!url) {
-            setError('Enter a repository URL to clone.');
-            return;
-        }
-        const dirRaw = cloneFolderName.trim() || defaultCloneFolderFromUrl(url);
-        const dir = sanitizeCloneDir(dirRaw) || 'repo';
-        setCloneBusy(true);
-        setError('');
-        setMessage('');
-        setBottomPanelOpen(true);
         try {
-            const escapedUrl = url.replace(/"/g, '');
-            const escapedDir = dir.replace(/"/g, '');
-            const result = await agentApi.toolsShell({
-                command: `git clone "${escapedUrl}" "${escapedDir}"`,
-                cwd: '.',
-                profile: normalizeProfile(settings.command_profile),
-                timeout: 600,
-            });
-            const exit = Number(result.exit_code ?? (result.success ? 0 : 1));
-            const ok = exit === 0;
-            if (!ok) {
-                setError(String(result.stderr || result.stdout || 'git clone failed.'));
-                return;
-            }
-            setMessage(`Cloned into ${dir}. Explorer refreshed.`);
-            setCloneRepoUrl('');
-            setCloneFolderName('');
-            await refreshTree();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Clone failed. Enable shell in Settings if it is disabled.');
-        } finally {
-            setCloneBusy(false);
+            await runGitCloneWith(cloneRepoUrl, cloneFolderName);
+        } catch {
+            /* error surfaced via setError */
         }
-    }, [cloneFolderName, cloneRepoUrl, refreshTree, settings.command_profile]);
+    }, [cloneFolderName, cloneRepoUrl, runGitCloneWith]);
 
     const openReviewDiff = useCallback((review: agentApi.AgentSpaceReview, path: string) => {
         const tab = buildDiffTab(review, path);
@@ -690,77 +744,155 @@ export default function Builder() {
             }
             setPendingCreate(null);
             await refreshTree();
+            unlockBuilderWorkspace();
         } catch (err) {
             setError(err instanceof Error ? err.message : `Failed to create ${pendingCreate.kind}.`);
         } finally {
             setCreatingNode(false);
         }
-    }, [editorWriteMode, handleWriteResult, openFile, pendingCreate, refreshTree, upsertTab]);
+    }, [editorWriteMode, handleWriteResult, openFile, pendingCreate, refreshTree, unlockBuilderWorkspace, upsertTab]);
 
-    const launchBuild = useCallback(async () => {
-        const cleanPrompt = prompt.trim();
-        if (!cleanPrompt) {
-            setError('Enter a build prompt first.');
+    const launchBuild = useCallback(
+        async (objectiveOverride?: string): Promise<boolean> => {
+            const cleanPrompt = (objectiveOverride ?? prompt).trim();
+            if (!cleanPrompt) {
+                setError('Enter a message or build objective first.');
+                return false;
+            }
+            setError('');
+            setMessage('');
+            setLoadingLaunch(true);
+            setEvents([]);
+            try {
+                const skillNames = sharedSelectedSkills.map((skill) => skill.name).filter(Boolean);
+                const finalContext = skillNames.length
+                    ? [context.trim(), `Preferred skills from Agent Studio:\n- ${skillNames.join('\n- ')}`].filter(Boolean).join('\n\n')
+                    : context.trim();
+                const response = await agentApi.builderLaunch({
+                    prompt: cleanPrompt,
+                    context: finalContext,
+                    team_name: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
+                    save_team: true,
+                    auto_agent_packs: true,
+                    use_saved_teams: true,
+                    review_gate: Boolean(settings.review_gate ?? true),
+                    allow_shell: Boolean(settings.allow_shell ?? false),
+                    command_profile: normalizeProfile(settings.command_profile),
+                    required_checks: [],
+                    autonomous: true,
+                    continue_on_subagent_failure: Boolean(settings.continue_on_subagent_failure ?? true),
+                    builder_model_mode: builderModelChoice === '__auto__' ? 'auto' : 'manual',
+                    ...(builderModelChoice !== '__auto__' && builderModelChoice ? { ollama_model: builderModelChoice } : {}),
+                });
+                setRunId(response.run.id);
+                setRunStatus(response.run.status);
+                setSharedLastRunId(response.run.id);
+                setSharedLastRunStatus(response.run.status);
+                writeSharedWorkspaceDraft({
+                    prompt: cleanPrompt,
+                    context,
+                    teamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
+                    savedTeamId: sharedSavedTeamId,
+                    savedTeamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
+                    selectedSkills: sharedSelectedSkills,
+                    lastRunId: response.run.id,
+                    lastRunStatus: response.run.status,
+                    lastRunObjective: cleanPrompt,
+                });
+                setMessage(`Build run started: ${response.run.id}.`);
+                setAgentChatMessages((prev) => [
+                    ...prev,
+                    {
+                        id: `sys-${Date.now()}`,
+                        role: 'system',
+                        content: `Started autonomous run ${response.run.id.slice(0, 8)}…`,
+                        at: Date.now(),
+                    },
+                ]);
+                await refreshRuns();
+                return true;
+            } catch (err) {
+                setError(err instanceof Error ? err.message : 'Failed to start build run.');
+                return false;
+            } finally {
+                setLoadingLaunch(false);
+            }
+        },
+        [
+            builderModelChoice,
+            context,
+            prompt,
+            refreshRuns,
+            settings.allow_shell,
+            settings.command_profile,
+            settings.continue_on_subagent_failure,
+            settings.review_gate,
+            sharedSavedTeamId,
+            sharedSavedTeamName,
+            sharedSelectedSkills,
+            sharedTeamName,
+        ],
+    );
+
+    const sendAgentChat = useCallback(async () => {
+        const text = prompt.trim();
+        if (!text) {
+            setError('Enter a message.');
             return;
         }
+        if (!runId) {
+            setAgentChatMessages((prev) => [
+                ...prev,
+                { id: `u-${Date.now()}`, role: 'user', content: text, at: Date.now() },
+            ]);
+            const ok = await launchBuild(text);
+            if (ok) setPrompt('');
+            return;
+        }
+        const status = (runStatus || '').toLowerCase();
+        const steer = status === 'running';
+        setSendingAgentChat(true);
         setError('');
         setMessage('');
-        setLoadingLaunch(true);
-        setEvents([]);
         try {
-            const skillNames = sharedSelectedSkills.map((skill) => skill.name).filter(Boolean);
-            const finalContext = skillNames.length ? [context.trim(), `Preferred skills from Agent Studio:\n- ${skillNames.join('\n- ')}`].filter(Boolean).join('\n\n') : context.trim();
-            const response = await agentApi.builderLaunch({
-                prompt: cleanPrompt,
-                context: finalContext,
-                team_name: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
-                save_team: true,
-                auto_agent_packs: true,
-                use_saved_teams: true,
-                review_gate: Boolean(settings.review_gate ?? true),
-                allow_shell: Boolean(settings.allow_shell ?? false),
-                command_profile: normalizeProfile(settings.command_profile),
-                required_checks: [],
-                autonomous: true,
-                continue_on_subagent_failure: Boolean(settings.continue_on_subagent_failure ?? true),
-                ...(builderOllamaModel.trim() ? { ollama_model: builderOllamaModel.trim() } : {}),
-            });
-            setRunId(response.run.id);
-            setRunStatus(response.run.status);
-            setSharedLastRunId(response.run.id);
-            setSharedLastRunStatus(response.run.status);
-            writeSharedWorkspaceDraft({
-                prompt: cleanPrompt,
-                context,
-                teamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
-                savedTeamId: sharedSavedTeamId,
-                savedTeamName: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
-                selectedSkills: sharedSelectedSkills,
-                lastRunId: response.run.id,
-                lastRunStatus: response.run.status,
-                lastRunObjective: cleanPrompt,
-            });
-            setMessage(`Build run started: ${response.run.id}.`);
-            await refreshRuns();
+            setAgentChatMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text, at: Date.now() }]);
+            if (steer) {
+                await agentApi.postRunMessage(runId, {
+                    from_agent: 'user',
+                    to_agent: agentTo.trim(),
+                    channel: agentChannel.trim() || 'change-request',
+                    content: text,
+                });
+                setPrompt('');
+                setAgentChatMessages((prev) => [
+                    ...prev,
+                    {
+                        id: `s-${Date.now()}`,
+                        role: 'system',
+                        content: `Sent on “${agentChannel || 'change-request'}”${agentTo.trim() ? ` → ${agentTo.trim()}` : ''}.`,
+                        at: Date.now(),
+                    },
+                ]);
+                setMessage('Instruction sent to the active run.');
+            } else {
+                setPrompt('');
+                await launchBuild(text);
+            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to start build run.');
+            setError(err instanceof Error ? err.message : 'Failed to send.');
+            setAgentChatMessages((prev) => [
+                ...prev,
+                {
+                    id: `e-${Date.now()}`,
+                    role: 'system',
+                    content: err instanceof Error ? err.message : 'Request failed.',
+                    at: Date.now(),
+                },
+            ]);
         } finally {
-            setLoadingLaunch(false);
+            setSendingAgentChat(false);
         }
-    }, [
-        builderOllamaModel,
-        context,
-        prompt,
-        refreshRuns,
-        settings.allow_shell,
-        settings.command_profile,
-        settings.continue_on_subagent_failure,
-        settings.review_gate,
-        sharedSavedTeamId,
-        sharedSavedTeamName,
-        sharedSelectedSkills,
-        sharedTeamName,
-    ]);
+    }, [agentChannel, agentTo, launchBuild, prompt, runId, runStatus]);
 
     const stopBuild = useCallback(async () => {
         if (!runId) return;
@@ -779,34 +911,6 @@ export default function Builder() {
             setLoadingStop(false);
         }
     }, [refreshRuns, runId]);
-
-    const sendAgentControl = useCallback(async () => {
-        if (!agentMessage.trim()) {
-            setError('Enter an agent task or instruction first.');
-            return;
-        }
-        if (!runId) {
-            setError('No active run selected.');
-            return;
-        }
-        setSendingAgentMessage(true);
-        setError('');
-        setMessage('');
-        try {
-            await agentApi.postRunMessage(runId, {
-                from_agent: 'user',
-                to_agent: agentTo.trim(),
-                channel: agentChannel.trim() || 'general',
-                content: agentMessage.trim(),
-            });
-            setAgentMessage('');
-            setMessage(`Sent ${agentChannel} message to ${agentTo || 'agent team'}.`);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to send agent instruction.');
-        } finally {
-            setSendingAgentMessage(false);
-        }
-    }, [agentChannel, agentMessage, agentTo, runId]);
 
     const runTerminalCommand = useCallback(async () => {
         const command = terminalCommand.trim();
@@ -901,6 +1005,26 @@ export default function Builder() {
         return activityRows.filter((r) => r.prefix === bottomLogTab);
     }, [activityRows, bottomLogTab]);
 
+    const agentActivityDigest = useMemo(() => {
+        const lines: string[] = [];
+        for (const evt of events.slice(-80)) {
+            const t = evt.type || '';
+            if (
+                t.includes('error')
+                || t.includes('failed')
+                || t === 'run.log'
+                || t.startsWith('subagent')
+                || t === 'run.workflow'
+                || t.includes('action')
+            ) {
+                const msg = typeof evt.message === 'string' && evt.message.trim() ? evt.message.trim() : '';
+                const bit = msg || (evt.data ? JSON.stringify(evt.data).slice(0, 160) : '');
+                if (bit) lines.push(bit);
+            }
+        }
+        return lines.slice(-24).join('\n');
+    }, [events]);
+
     const searchFilteredTreeRoot = useMemo(() => {
         if (!treeData) return null;
         if (!sidebarSearchQuery.trim()) return treeData.tree;
@@ -951,13 +1075,17 @@ export default function Builder() {
                 id: 'toggle-sidebar',
                 label: 'Toggle sidebar',
                 hint: 'Ctrl+B',
-                run: () => setSidebarOpen((s) => !s),
+                run: () => {
+                    if (!builderWorkspaceUnlocked) return;
+                    setSidebarOpen((s) => !s);
+                },
             },
             {
                 id: 'focus-explorer',
                 label: 'Show explorer',
                 hint: 'Ctrl+Shift+E',
                 run: () => {
+                    if (!builderWorkspaceUnlocked) return;
                     setSidebarOpen(true);
                     setSidebarTab('explorer');
                 },
@@ -967,6 +1095,7 @@ export default function Builder() {
                 label: 'Show search',
                 hint: 'Ctrl+Shift+F',
                 run: () => {
+                    if (!builderWorkspaceUnlocked) return;
                     setSidebarOpen(true);
                     setSidebarTab('search');
                 },
@@ -975,6 +1104,7 @@ export default function Builder() {
                 id: 'focus-text-search',
                 label: 'Search in files (text)',
                 run: () => {
+                    if (!builderWorkspaceUnlocked) return;
                     setSidebarOpen(true);
                     setSidebarTab('search');
                     setSearchSubTab('text');
@@ -985,6 +1115,7 @@ export default function Builder() {
                 label: 'Show source control',
                 hint: 'Ctrl+Shift+G',
                 run: () => {
+                    if (!builderWorkspaceUnlocked) return;
                     setSidebarOpen(true);
                     setSidebarTab('source-control');
                 },
@@ -1025,7 +1156,10 @@ export default function Builder() {
                 id: 'toggle-ai',
                 label: 'Toggle AI sidebar',
                 hint: 'Ctrl+L',
-                run: () => setRightPanelOpen((s) => !s),
+                run: () => {
+                    if (!builderWorkspaceUnlocked) return;
+                    setRightPanelOpen((s) => !s);
+                },
             },
             {
                 id: 'open-file',
@@ -1041,7 +1175,7 @@ export default function Builder() {
                 },
             },
         ],
-        [minimalChrome, builderFullLayout, navigate],
+        [builderWorkspaceUnlocked, minimalChrome, builderFullLayout, navigate],
     );
 
     useEffect(() => {
@@ -1057,6 +1191,10 @@ export default function Builder() {
 
             if (!metaOrCtrl) return;
             if (isShortcutFocusInEditorField(e.target)) return;
+
+            if (!showSidePanels) {
+                return;
+            }
 
             if (e.key === 'b' && !e.shiftKey && !e.altKey) {
                 e.preventDefault();
@@ -1099,7 +1237,7 @@ export default function Builder() {
         };
         window.addEventListener('keydown', onKeyDown, true);
         return () => window.removeEventListener('keydown', onKeyDown, true);
-    }, []);
+    }, [showSidePanels]);
 
     useEffect(() => {
         if (!showGitHubModal) return;
@@ -1145,7 +1283,14 @@ export default function Builder() {
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                     <button
                         type="button"
-                        onClick={() => { setSidebarOpen(true); setSidebarTab('source-control'); }}
+                        onClick={() => {
+                            if (!builderWorkspaceUnlocked) {
+                                setMessage('Open or clone a project first to use the Git sidebar.');
+                                return;
+                            }
+                            setSidebarOpen(true);
+                            setSidebarTab('source-control');
+                        }}
                         className="px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
                         title="Open source control in sidebar (Ctrl+Shift+G). Use Expand there for a larger panel."
                     >
@@ -1187,30 +1332,43 @@ export default function Builder() {
                     className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-[#2A2A30] bg-[#1A1A1E] py-1"
                     aria-label="Activity bar"
                 >
-                    <button
-                        type="button"
-                        className={activityBtnClass(sidebarOpen && sidebarTab === 'explorer')}
-                        title="Explorer (Ctrl+Shift+E)"
-                        onClick={() => { setSidebarOpen(true); setSidebarTab('explorer'); }}
-                    >
-                        <Files size={20} strokeWidth={1.5} aria-hidden />
-                    </button>
-                    <button
-                        type="button"
-                        className={activityBtnClass(sidebarOpen && sidebarTab === 'search')}
-                        title="Search — Find files & text (Ctrl+Shift+F)"
-                        onClick={() => { setSidebarOpen(true); setSidebarTab('search'); }}
-                    >
-                        <Search size={20} strokeWidth={1.5} aria-hidden />
-                    </button>
-                    <button
-                        type="button"
-                        className={activityBtnClass(sidebarOpen && sidebarTab === 'source-control')}
-                        title="Source Control (Ctrl+Shift+G)"
-                        onClick={() => { setSidebarOpen(true); setSidebarTab('source-control'); }}
-                    >
-                        <GitBranch size={20} strokeWidth={1.5} aria-hidden />
-                    </button>
+                    {showSidePanels && (
+                        <>
+                            <button
+                                type="button"
+                                className={activityBtnClass(sidebarOpen && sidebarTab === 'explorer')}
+                                title="Explorer (Ctrl+Shift+E)"
+                                onClick={() => {
+                                    setSidebarOpen(true);
+                                    setSidebarTab('explorer');
+                                }}
+                            >
+                                <Files size={20} strokeWidth={1.5} aria-hidden />
+                            </button>
+                            <button
+                                type="button"
+                                className={activityBtnClass(sidebarOpen && sidebarTab === 'search')}
+                                title="Search — Find files & text (Ctrl+Shift+F)"
+                                onClick={() => {
+                                    setSidebarOpen(true);
+                                    setSidebarTab('search');
+                                }}
+                            >
+                                <Search size={20} strokeWidth={1.5} aria-hidden />
+                            </button>
+                            <button
+                                type="button"
+                                className={activityBtnClass(sidebarOpen && sidebarTab === 'source-control')}
+                                title="Source Control (Ctrl+Shift+G)"
+                                onClick={() => {
+                                    setSidebarOpen(true);
+                                    setSidebarTab('source-control');
+                                }}
+                            >
+                                <GitBranch size={20} strokeWidth={1.5} aria-hidden />
+                            </button>
+                        </>
+                    )}
                     <div className="min-h-2 flex-1" />
                     <button
                         type="button"
@@ -1220,17 +1378,19 @@ export default function Builder() {
                     >
                         <Terminal size={20} strokeWidth={1.5} aria-hidden />
                     </button>
-                    <button
-                        type="button"
-                        className={activityBtnClass(rightPanelOpen)}
-                        title="Toggle AI sidebar (Ctrl+L)"
-                        onClick={() => setRightPanelOpen((s) => !s)}
-                    >
-                        <Bot size={20} strokeWidth={1.5} aria-hidden />
-                    </button>
+                    {showSidePanels && (
+                        <button
+                            type="button"
+                            className={activityBtnClass(rightPanelOpen)}
+                            title="Toggle AI sidebar (Ctrl+L)"
+                            onClick={() => setRightPanelOpen((s) => !s)}
+                        >
+                            <Bot size={20} strokeWidth={1.5} aria-hidden />
+                        </button>
+                    )}
                 </nav>
 
-                {sidebarOpen && (
+                {showSidePanels && sidebarOpen && (
                     <aside
                         className="flex min-h-0 shrink-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]"
                         style={{ width: sidebarWidth }}
@@ -1379,7 +1539,7 @@ export default function Builder() {
                         )}
                     </aside>
                 )}
-                {sidebarOpen && (
+                {showSidePanels && sidebarOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setSidebarWidth((w) => Math.min(520, Math.max(200, w + dx)))}
@@ -1515,12 +1675,19 @@ export default function Builder() {
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        setSidebarOpen(true);
+                                                        unlockBuilderWorkspace();
                                                         setSidebarTab('explorer');
                                                     }}
                                                     className="rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-[#222228] hover:text-text-primary"
                                                 >
                                                     Show explorer
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => unlockBuilderWorkspace()}
+                                                    className="rounded-btn border border-[#3B82F6]/35 bg-[#3B82F6]/10 px-3 py-1.5 text-[12px] font-medium text-[#93C5FD] transition-colors hover:bg-[#3B82F6]/20"
+                                                >
+                                                    Work in this repository
                                                 </button>
                                             </div>
                                         </div>
@@ -1544,14 +1711,25 @@ export default function Builder() {
                                                     className="flex-1 rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2.5 py-2 text-sm text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
                                                     placeholder="Folder name (optional)"
                                                 />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => runGitClone().catch(() => undefined)}
-                                                    disabled={cloneBusy}
-                                                    className="shrink-0 rounded-btn bg-[#3B82F6] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50"
-                                                >
-                                                    {cloneBusy ? 'Cloning…' : 'Clone'}
-                                                </button>
+                                                <div className="flex shrink-0 flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setGithubCloneModalOpen(true)}
+                                                        disabled={cloneBusy}
+                                                        className="inline-flex items-center justify-center gap-1.5 rounded-btn border border-[#2A2A30] bg-[#222228] px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:border-[#3B82F6]/35 hover:text-text-primary disabled:opacity-50"
+                                                    >
+                                                        <Github className="h-3.5 w-3.5" aria-hidden />
+                                                        Clone from GitHub
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => runGitClone().catch(() => undefined)}
+                                                        disabled={cloneBusy}
+                                                        className="rounded-btn bg-[#3B82F6] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50"
+                                                    >
+                                                        {cloneBusy ? 'Cloning…' : 'Clone'}
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="grid gap-2 sm:grid-cols-2">
@@ -1562,7 +1740,9 @@ export default function Builder() {
                                             ? 'Preparing…'
                                             : preview
                                               ? `${preview.team_agent_count} agents for the current objective.`
-                                              : 'Add a build objective in the right panel.'}
+                                              : builderWorkspaceUnlocked
+                                                ? 'Type in the Agent panel to preview a plan.'
+                                                : 'Unlock the workspace (clone, open a file, or use the button above) to use the Agent chat.'}
                                     </p>
                                 </div>
                                 <div className="rounded-card border border-[#2A2A30] bg-[#1A1A1E] p-3">
@@ -1668,158 +1848,338 @@ export default function Builder() {
                 )}
                 </div>
 
-                {rightPanelOpen && (
+                {showSidePanels && rightPanelOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setRightWidth((w) => Math.min(560, Math.max(220, w - dx)))}
                         onCommit={commitRightLayout}
                     />
                 )}
-                {rightPanelOpen && (
+                {showSidePanels && rightPanelOpen && (
                 <aside className="flex shrink-0 flex-col border-l border-[#2A2A30] bg-[#111113]" style={{ width: rightWidth }}>
                     <div className="flex shrink-0 items-center justify-between border-b border-[#2A2A30] px-3 py-2">
                         <div className="min-w-0">
                             <p className="truncate text-[12px] font-semibold text-text-primary">Agent</p>
-                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} agents · {runReviews.length} reviews</p>
+                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} workers · {runReviews.length} reviews</p>
                         </div>
                         <Bot className="h-4 w-4 shrink-0 text-accent/80" aria-hidden />
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <div className="flex shrink-0 flex-col gap-2 border-b border-[#2A2A30] p-3">
-                            <div className="flex gap-2">
-                                <label className="sr-only" htmlFor="builder-agent-target">Agent</label>
-                                <select id="builder-agent-target" value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="min-w-0 flex-1 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]">
-                                    <option value="">Agent</option>
-                                    {agentIds.map((id) => <option key={id} value={id}>{id}</option>)}
-                                </select>
-                                <label className="sr-only" htmlFor="builder-ollama-model">Ollama model</label>
-                                <select
-                                    id="builder-ollama-model"
-                                    value={builderOllamaModel}
-                                    onChange={(e) => {
-                                        const v = e.target.value;
-                                        setBuilderOllamaModel(v);
-                                        try {
-                                            if (v) localStorage.setItem(BUILDER_OLLAMA_MODEL_KEY, v);
-                                            else localStorage.removeItem(BUILDER_OLLAMA_MODEL_KEY);
-                                        } catch {
-                                            /* ignore quota */
-                                        }
-                                    }}
-                                    className="min-w-[120px] max-w-[min(200px,45%)] shrink-0 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]"
-                                >
-                                    <option value="">Default (settings)</option>
-                                    {builderOllamaOptions.map((m) => (
-                                        <option key={m} value={m}>
-                                            {m}
-                                        </option>
-                                    ))}
-                                </select>
+                        <div className="flex shrink-0 flex-col gap-2 border-b border-[#2A2A30] px-3 py-2">
+                            <label className="sr-only" htmlFor="builder-model-choice">Model</label>
+                            <select
+                                id="builder-model-choice"
+                                value={builderModelChoice}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    setBuilderModelChoice(v);
+                                    try {
+                                        localStorage.setItem(BUILDER_MODEL_CHOICE_KEY, v);
+                                    } catch {
+                                        /* ignore */
+                                    }
+                                }}
+                                className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]"
+                            >
+                                <option value="__auto__">Auto (best local model per role)</option>
+                                <option value="">Default (settings)</option>
+                                {builderModelSelectOptions.map((m) => (
+                                    <option key={m} value={m}>
+                                        {m}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                            <div className="space-y-2">
+                                {agentChatMessages.length === 0 && (
+                                    <p className="text-[11px] leading-relaxed text-text-muted">
+                                        Describe what you want changed in this workspace. If a run is already active, messages are sent to it; otherwise a new autonomous run starts.
+                                    </p>
+                                )}
+                                {agentChatMessages.map((line) => (
+                                    <div
+                                        key={line.id}
+                                        className={cn(
+                                            'rounded-lg border px-2.5 py-2 text-[12px] leading-relaxed',
+                                            line.role === 'user'
+                                                ? 'ml-4 border-[#3B82F6]/25 bg-[#3B82F6]/8 text-text-primary'
+                                                : line.role === 'system'
+                                                  ? 'border-[#2A2A30] bg-[#0A0A0B] text-text-muted'
+                                                  : 'border-[#2A2A30] bg-[#1A1A1E] text-text-secondary',
+                                        )}
+                                    >
+                                        {line.content}
+                                    </div>
+                                ))}
                             </div>
+                        </div>
+                        {agentActivityDigest.trim() && (
+                            <div className="shrink-0 border-t border-[#2A2A30] px-3 py-2">
+                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">Recent activity</p>
+                                <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{agentActivityDigest}</pre>
+                            </div>
+                        )}
+                        <div className="flex shrink-0 flex-col gap-2 border-t border-[#2A2A30] p-3">
                             <textarea
-                                rows={6}
+                                rows={4}
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
                                 onKeyDown={(e) => {
                                     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                                         e.preventDefault();
-                                        launchBuild().catch(() => undefined);
+                                        sendAgentChat().catch(() => undefined);
                                     }
                                 }}
-                                className="min-h-[112px] w-full resize-y rounded-md border border-[#2A2A30] bg-[#0F0F12] px-3 py-2 text-[13px] leading-relaxed text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
-                                placeholder="Describe the app to build"
+                                className="min-h-[88px] w-full resize-y rounded-md border border-[#2A2A30] bg-[#0F0F12] px-3 py-2 text-[13px] leading-relaxed text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
+                                placeholder="Message the agent…"
                             />
                             <details className="text-[11px] text-text-secondary">
-                                <summary className="cursor-pointer select-none font-medium text-text-muted hover:text-text-primary">Optional context</summary>
-                                <textarea rows={3} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Constraints, acceptance criteria, links…" />
+                                <summary className="cursor-pointer select-none font-medium text-text-muted hover:text-text-primary">Optional context &amp; routing</summary>
+                                <textarea
+                                    rows={3}
+                                    value={context}
+                                    onChange={(e) => setContext(e.target.value)}
+                                    className="mt-2 w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none placeholder:text-[#55556A]"
+                                    placeholder="Constraints, acceptance criteria, links…"
+                                />
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                    <label className="sr-only" htmlFor="builder-agent-target">Target agent</label>
+                                    <select
+                                        id="builder-agent-target"
+                                        value={agentTo}
+                                        onChange={(e) => setAgentTo(e.target.value)}
+                                        className="min-w-0 flex-1 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none"
+                                    >
+                                        <option value="">All agents</option>
+                                        {agentIds.map((id) => (
+                                            <option key={id} value={id}>
+                                                {id}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        value={agentChannel}
+                                        onChange={(e) => setAgentChannel(e.target.value)}
+                                        className="min-w-[120px] rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none"
+                                    >
+                                        <option value="change-request">change-request</option>
+                                        <option value="handoff">handoff</option>
+                                        <option value="verification">verification</option>
+                                        <option value="general">general</option>
+                                    </select>
+                                </div>
                             </details>
                             {recommendedSkills.length > 0 && (
-                                <div className="flex flex-wrap gap-1">{recommendedSkills.slice(0, 5).map((skill) => <span key={skill.slug} className="rounded border border-[#3B82F6]/25 bg-[#3B82F6]/8 px-1.5 py-0.5 text-[10px] text-[#93C5FD]">{skill.name}</span>)}</div>
+                                <div className="flex flex-wrap gap-1">
+                                    {recommendedSkills.slice(0, 5).map((skill) => (
+                                        <span key={skill.slug} className="rounded border border-[#3B82F6]/25 bg-[#3B82F6]/8 px-1.5 py-0.5 text-[10px] text-[#93C5FD]">
+                                            {skill.name}
+                                        </span>
+                                    ))}
+                                </div>
                             )}
                             {recommendedSkillContext && (
-                                <details className="text-[11px] text-text-secondary">
-                                    <summary className="cursor-pointer font-medium text-text-primary hover:text-accent">Skill context</summary>
-                                    <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2 font-mono text-[10px]">{recommendedSkillContext}</pre>
+                                <details className="text-[10px] text-text-secondary">
+                                    <summary className="cursor-pointer font-medium text-text-muted hover:text-text-primary">Skill context</summary>
+                                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2 font-mono text-[9px] text-text-muted">{recommendedSkillContext}</pre>
                                 </details>
                             )}
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
-                                    aria-label={loadingLaunch ? 'Launching autonomous build' : 'Start autonomous build'}
-                                    onClick={() => launchBuild().catch(() => undefined)}
-                                    disabled={loadingLaunch}
+                                    aria-label={sendingAgentChat || loadingLaunch ? 'Working' : 'Send to agent'}
+                                    onClick={() => sendAgentChat().catch(() => undefined)}
+                                    disabled={sendingAgentChat || loadingLaunch}
                                     className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-[#3B82F6] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50"
                                 >
-                                    <span>{loadingLaunch ? 'Launching...' : 'Start Build'}</span>
+                                    <span>{sendingAgentChat || loadingLaunch ? 'Working…' : 'Send'}</span>
                                     <ArrowUpCircle className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
                                 </button>
-                                <button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="shrink-0 rounded-md border border-[#EF4444]/40 px-2.5 py-2 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10 disabled:opacity-50">{loadingStop ? 'Stopping...' : 'Stop'}</button>
+                                <button
+                                    type="button"
+                                    onClick={() => stopBuild().catch(() => undefined)}
+                                    disabled={!runId || loadingStop}
+                                    className="shrink-0 rounded-md border border-[#EF4444]/40 px-2.5 py-2 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10 disabled:opacity-50"
+                                >
+                                    {loadingStop ? 'Stopping…' : 'Stop'}
+                                </button>
                             </div>
                             {runReviews.length > 0 && (
-                                <button type="button" onClick={focusPrimaryReview} className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-[#3B82F6]/35 hover:text-text-primary">Review</button>
+                                <button
+                                    type="button"
+                                    onClick={focusPrimaryReview}
+                                    className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-[#3B82F6]/35 hover:text-text-primary"
+                                >
+                                    Review
+                                </button>
                             )}
                         </div>
-                        <details className="shrink-0 border-b border-[#2A2A30]">
-                            <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-text-muted hover:text-text-primary">Team, messages &amp; history</summary>
+                        <details className="shrink-0 border-t border-[#2A2A30]">
+                            <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-text-muted hover:text-text-primary">Team, reviews &amp; runs</summary>
                             <div className="max-h-64 space-y-2 overflow-y-auto px-3 pb-3">
                                 <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
                                     <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Current team</p>
-                                    <div className="space-y-1.5">{visualNodes.length === 0 ? <p className="text-xs text-text-muted">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-md border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{node.id}</p><p className="mt-0.5 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-badge border border-[#2A2A30] px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
-                                </div>
-                                <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
-                                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Agent messages</p>
-                                    <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
-                                    <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Tell the active team what to change, prioritize, or verify." />
-                                    <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-md border border-[#3B82F6]/40 px-3 py-2 text-xs font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send agent task'}</button>
+                                    <div className="space-y-1.5">
+                                        {visualNodes.length === 0 ? (
+                                            <p className="text-xs text-text-muted">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p>
+                                        ) : (
+                                            visualNodes.map((node) => (
+                                                <div key={node.id} className={`rounded-md border p-2 ${statusTone(node.status || 'idle')}`}>
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div>
+                                                            <p className="text-xs font-medium text-text-primary">{node.id}</p>
+                                                            <p className="mt-0.5 text-[11px] text-text-secondary">
+                                                                {node.role} · L{node.workerLevel}
+                                                            </p>
+                                                        </div>
+                                                        <span className="rounded-badge border border-[#2A2A30] px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{node.status || 'idle'}</span>
+                                                    </div>
+                                                    {node.dependsOn.length > 0 && (
+                                                        <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>
+                                                    )}
+                                                    {node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
                                     <div className="mb-2 flex items-center justify-between gap-2">
                                         <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Review diffs</p>
                                         {loadingReviews && <span className="text-[11px] text-text-muted">Loading…</span>}
                                     </div>
-                                    <div className="space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-muted">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-md border border-[#2A2A30] bg-[#1A1A1E] p-2.5"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{review.objective}</p><p className="mt-0.5 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="font-mono text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-badge border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-2 flex gap-1.5"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-badge border border-[#3B82F6]/35 px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-badge border border-[#22C55E]/35 px-2 py-0.5 text-[11px] font-medium text-[#22C55E] transition-colors hover:bg-[#22C55E]/10">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-badge border border-[#EF4444]/35 px-2 py-0.5 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10">Undo</button></div></div>)}</div>
+                                    <div className="space-y-2">
+                                        {runReviews.length === 0 ? (
+                                            <p className="text-xs text-text-muted">No review diffs for the selected run yet.</p>
+                                        ) : (
+                                            runReviews.map((review) => (
+                                                <div key={review.id} className="rounded-md border border-[#2A2A30] bg-[#1A1A1E] p-2.5">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div>
+                                                            <p className="text-xs font-medium text-text-primary">{review.objective}</p>
+                                                            <p className="mt-0.5 text-[11px] text-text-secondary">
+                                                                {review.status} · {review.summary?.file_count || review.changes?.length || 0} files
+                                                            </p>
+                                                        </div>
+                                                        <span className="font-mono text-[10px] text-text-muted">{review.id.slice(0, 8)}</span>
+                                                    </div>
+                                                    <div className="mt-2 flex flex-wrap gap-1">
+                                                        {(review.changes || []).slice(0, 4).map((change) => (
+                                                            <button
+                                                                key={`${review.id}:${change.path}`}
+                                                                type="button"
+                                                                onClick={() => openReviewDiff(review, change.path)}
+                                                                className="rounded-badge border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-text-primary"
+                                                            >
+                                                                {change.path.split('/').pop() || change.path}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <div className="mt-2 flex gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)}
+                                                            className="rounded-badge border border-[#3B82F6]/35 px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10"
+                                                        >
+                                                            Approve
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)}
+                                                            className="rounded-badge border border-[#22C55E]/35 px-2 py-0.5 text-[11px] font-medium text-[#22C55E] transition-colors hover:bg-[#22C55E]/10"
+                                                        >
+                                                            Apply
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)}
+                                                            className="rounded-badge border border-[#EF4444]/35 px-2 py-0.5 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10"
+                                                        >
+                                                            Undo
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
                                     <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Recent runs</p>
-                                    <div className="space-y-1.5">{runs.length === 0 ? <p className="text-xs text-text-muted">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-md border p-2 text-left transition-colors', runId === row.id ? 'border-[#3B82F6]/40 bg-[#3B82F6]/8' : 'border-[#2A2A30] hover:border-[#3A3A40] hover:bg-[#1A1A1E]')}><p className="truncate text-xs font-medium text-text-primary">{row.objective}</p><p className="mt-0.5 font-mono text-[10px] text-text-muted">{row.status} · {row.action_count} actions</p></button>)}</div>
+                                    <div className="space-y-1.5">
+                                        {runs.length === 0 ? (
+                                            <p className="text-xs text-text-muted">No runs yet.</p>
+                                        ) : (
+                                            runs.map((row) => (
+                                                <button
+                                                    key={row.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setRunId(row.id);
+                                                        setRunStatus(row.status);
+                                                        setEvents([]);
+                                                    }}
+                                                    className={cn(
+                                                        'w-full rounded-md border p-2 text-left transition-colors',
+                                                        runId === row.id ? 'border-[#3B82F6]/40 bg-[#3B82F6]/8' : 'border-[#2A2A30] hover:border-[#3A3A40] hover:bg-[#1A1A1E]',
+                                                    )}
+                                                >
+                                                    <p className="truncate text-xs font-medium text-text-primary">{row.objective}</p>
+                                                    <p className="mt-0.5 font-mono text-[10px] text-text-muted">
+                                                        {row.status} · {row.action_count} actions
+                                                    </p>
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </details>
-                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[#2A2A30]">
-                            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#2A2A30] px-2 py-1.5">
-                                <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Files</span>
-                                <select value={rightTreeScope} onChange={(e) => setRightTreeScope(e.target.value as 'hidden' | 'workspace' | 'open_file')} className="max-w-[140px] rounded border border-[#2A2A30] bg-[#1A1A1E] px-1.5 py-0.5 text-[10px] text-text-primary outline-none">
-                                    <option value="hidden">Hidden</option>
-                                    <option value="workspace">Workspace root</option>
-                                    <option value="open_file">Open file folder</option>
-                                </select>
+                        <details className="shrink-0 border-t border-[#2A2A30]">
+                            <summary className="cursor-pointer select-none px-3 py-2 text-[10px] font-medium uppercase tracking-wide text-text-muted hover:text-text-primary">Scoped file tree</summary>
+                            <div className="flex max-h-48 min-h-0 flex-col overflow-hidden px-2 pb-2">
+                                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#2A2A30]/80 px-1 py-1">
+                                    <select
+                                        value={rightTreeScope}
+                                        onChange={(e) => setRightTreeScope(e.target.value as 'hidden' | 'workspace' | 'open_file')}
+                                        className="max-w-full rounded border border-[#2A2A30] bg-[#1A1A1E] px-1.5 py-0.5 text-[10px] text-text-primary outline-none"
+                                    >
+                                        <option value="hidden">Hidden</option>
+                                        <option value="workspace">Workspace root</option>
+                                        <option value="open_file">Open file folder</option>
+                                    </select>
+                                </div>
+                                <div className="min-h-0 flex-1 overflow-auto py-1">
+                                    {rightTreeScope === 'hidden' && (
+                                        <p className="px-2 py-2 text-[10px] leading-snug text-text-muted">Expand to browse a secondary tree (main explorer stays on the left).</p>
+                                    )}
+                                    {rightTreeScope === 'open_file' && activeTab?.type !== 'file' && (
+                                        <p className="px-2 py-2 text-[10px] text-text-muted">Open a file in the editor to show its folder.</p>
+                                    )}
+                                    {rightTreeLoading && <p className="px-2 py-2 text-[10px] text-text-muted">Loading tree…</p>}
+                                    {!rightTreeLoading && rightTreeData?.tree && rightTreePathForFetch && (
+                                        <FileTreeNode
+                                            node={rightTreeData.tree}
+                                            depth={0}
+                                            selectedDirectory={selectedDirectory}
+                                            selectedFilePath={activeTab?.type === 'file' ? activeTab.path : ''}
+                                            pendingCreate={null}
+                                            onOpenFile={openFile}
+                                            onSelectDirectory={setSelectedDirectory}
+                                            onRequestCreate={() => { /* read-only */ }}
+                                            onChangePendingValue={() => { /* read-only */ }}
+                                            onCreate={() => { /* read-only */ }}
+                                            onCancelCreate={() => { /* read-only */ }}
+                                            creatingNode={false}
+                                            writeMode={editorWriteMode}
+                                            expandedDirs={rightExpandedDirs}
+                                            onToggleDir={toggleRightDir}
+                                            showCreateActions={false}
+                                        />
+                                    )}
+                                </div>
                             </div>
-                            <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
-                                {rightTreeScope === 'hidden' && <p className="px-2 py-2 text-[11px] leading-snug text-text-muted">No file tree. Choose workspace root or open a file and select &quot;Open file folder&quot; for a Cursor-style tree scoped to that path.</p>}
-                                {rightTreeScope === 'open_file' && activeTab?.type !== 'file' && <p className="px-2 py-2 text-[11px] text-text-muted">Open a file in the editor to show its folder.</p>}
-                                {rightTreeLoading && <p className="px-2 py-2 text-[11px] text-text-muted">Loading tree…</p>}
-                                {!rightTreeLoading && rightTreeData?.tree && rightTreePathForFetch && (
-                                    <FileTreeNode
-                                        node={rightTreeData.tree}
-                                        depth={0}
-                                        selectedDirectory={selectedDirectory}
-                                        selectedFilePath={activeTab?.type === 'file' ? activeTab.path : ''}
-                                        pendingCreate={null}
-                                        onOpenFile={openFile}
-                                        onSelectDirectory={setSelectedDirectory}
-                                        onRequestCreate={() => { /* read-only */ }}
-                                        onChangePendingValue={() => { /* read-only */ }}
-                                        onCreate={() => { /* read-only */ }}
-                                        onCancelCreate={() => { /* read-only */ }}
-                                        creatingNode={false}
-                                        writeMode={editorWriteMode}
-                                        expandedDirs={rightExpandedDirs}
-                                        onToggleDir={toggleRightDir}
-                                        showCreateActions={false}
-                                    />
-                                )}
-                            </div>
-                        </div>
+                        </details>
                     </div>
                 </aside>
                 )}
@@ -1923,6 +2283,11 @@ export default function Builder() {
                 </div>
             )}
             <BuilderCommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={paletteActions} />
+            <BuilderGitHubCloneModal
+                open={githubCloneModalOpen}
+                onClose={() => setGithubCloneModalOpen(false)}
+                onClone={(url, folder) => runGitCloneWith(url, folder)}
+            />
             <GitHubPanel open={showGitHubModal} onClose={() => setShowGitHubModal(false)} onRepositoryChanged={refreshTree} />
         </div>
     );

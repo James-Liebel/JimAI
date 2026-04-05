@@ -34,7 +34,7 @@ function readBool(key: string, fallback: boolean): boolean {
 export function loadBuilderLayout(): { sidebarWidth: number; rightWidth: number; bottomHeight: number } {
     return {
         sidebarWidth: clamp(readNum(K.sidebar, 260), 200, 520),
-        rightWidth: clamp(readNum(K.right, 360), 260, 720),
+        rightWidth: clamp(readNum(K.right, 300), 220, 560),
         bottomHeight: clamp(readNum(K.bottom, 220), 100, 600),
     };
 }

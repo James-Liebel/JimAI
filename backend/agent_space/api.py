@@ -15,7 +15,7 @@ from typing import Any, AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from .rate_limiter import check_run_rate_limit
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -349,6 +349,10 @@ class SelfImproveRunRequest(BaseModel):
     direct_prompt_mode: bool = False
 
 
+class SelfImproveStrengthenRequest(BaseModel):
+    prompt: str = Field(min_length=5, max_length=6000)
+
+
 class N8nStartRequest(BaseModel):
     force: bool = False
 
@@ -598,6 +602,123 @@ async def _generate_self_improve_suggestions(prompt: str, max_suggestions: int) 
         "suggestions": suggestions,
         "autonomous_notes": autonomous_notes,
     }
+
+
+async def _stream_self_improve_suggestions(
+    prompt: str,
+    max_suggestions: int,
+    request: Request,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Stream NDJSON events for suggest: meta, action, chunk, progress, then result (or stopped)."""
+    settings = settings_store.get()
+    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    focus = str(settings.get("self_learning_focus", "general"))
+    fallback = _fallback_self_improve_suggestions(prompt, focus, max_items=max_suggestions)
+    yield {"type": "meta", "model": model, "focus": focus}
+    yield {"type": "action", "stage": "ollama", "label": "Calling local model (streaming)…"}
+
+    llm_prompt = (
+        "You are generating improvement proposals for a local autonomous coding platform.\n"
+        "Propose practical, high-impact self-improvements for the current repository.\n"
+        "Suggestions must be relatively specific: include target component/file/flow and expected outcome.\n"
+        "Return strict JSON object only with keys:\n"
+        "suggestions: array of short strings\n"
+        "autonomous_notes: array of short strings\n"
+        f"Limit suggestions to at most {max_suggestions}.\n\n"
+        f"User self-improvement prompt:\n{prompt.strip()}\n\n"
+        f"Current self-learning focus: {focus}\n"
+    )
+    parts: list[str] = []
+    progress_mark = 0
+    try:
+        async for piece in ollama_client.chat_stream(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "user", "content": llm_prompt},
+            ],
+            temperature=0.2,
+        ):
+            parts.append(piece)
+            yield {"type": "chunk", "text": piece}
+            total_chars = sum(len(p) for p in parts)
+            if total_chars - progress_mark >= 4096:
+                progress_mark = total_chars
+                yield {"type": "progress", "chars": total_chars}
+            if await request.is_disconnected():
+                yield {"type": "stopped", "reason": "client_disconnected", "partial_chars": total_chars}
+                return
+    except asyncio.CancelledError:
+        yield {
+            "type": "stopped",
+            "reason": "cancelled",
+            "partial_chars": sum(len(p) for p in parts),
+        }
+        raise
+
+    yield {"type": "action", "stage": "parse", "label": "Parsing JSON response…"}
+    text = "".join(parts)
+    suggestions = list(fallback)
+    autonomous_notes: list[str] = []
+    try:
+        parsed = _safe_parse_json_object(text) or {}
+        raw_suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else []
+        raw_notes = parsed.get("autonomous_notes") if isinstance(parsed, dict) else []
+        merged: list[str] = []
+        if isinstance(raw_suggestions, list):
+            for item in raw_suggestions:
+                merged.append(str(item or ""))
+        merged.extend(fallback)
+        suggestions = _specificify_suggestions(merged, prompt, max_items=max_suggestions)
+        if isinstance(raw_notes, list):
+            autonomous_notes = _normalize_suggestion_texts([str(item or "") for item in raw_notes], max_items=8)
+    except Exception:
+        suggestions = fallback
+        autonomous_notes = []
+
+    suggestion_rows = [
+        {"id": f"suggestion-{idx + 1}", "text": str(t), "source": "autonomous"}
+        for idx, t in enumerate(suggestions)
+    ]
+    yield {
+        "type": "result",
+        "prompt": prompt,
+        "model": model,
+        "focus": focus,
+        "requires_confirmation": True,
+        "autonomous_notes": autonomous_notes,
+        "suggestions": suggestion_rows,
+    }
+
+
+async def _strengthen_self_improve_prompt(prompt: str) -> dict[str, Any]:
+    """Use the configured local model to rewrite a vague user request into a clearer self-improve instruction."""
+    settings = settings_store.get()
+    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    cleaned = str(prompt or "").strip()
+    llm_user = (
+        "Rewrite the following user request into a single clear instruction for an autonomous coding agent "
+        "improving this repository (jimAI: FastAPI agent orchestration + React frontend). "
+        "Keep the user's goals; add concrete scope, acceptance hints, and file/area targets when reasonable. "
+        'Return strict JSON only with key "strengthened_prompt" (string).\n\n'
+        f"User request:\n{cleaned}"
+    )
+    try:
+        text = await ollama_client.chat_full(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "user", "content": llm_user},
+            ],
+            temperature=0.2,
+        )
+        parsed = _safe_parse_json_object(text) or {}
+        strengthened = str(parsed.get("strengthened_prompt") or "").strip()
+        if not strengthened:
+            strengthened = cleaned
+        return {"strengthened_prompt": strengthened, "model": model}
+    except Exception:
+        return {"strengthened_prompt": cleaned, "model": model}
 
 
 def _fallback_builder_team() -> list[dict[str, Any]]:
@@ -1445,8 +1566,11 @@ async def metrics() -> dict[str, Any]:
 
 
 @router.get("/logs/actions")
-async def action_logs(limit: int = Query(default=200, ge=1, le=2000)) -> list[dict[str, Any]]:
-    return log_store.list_action_logs(limit=limit)
+async def action_logs(
+    limit: int = Query(default=200, ge=1, le=2000),
+    run_id: str | None = Query(default=None, description="When set, return the last N actions for this run only."),
+) -> list[dict[str, Any]]:
+    return log_store.list_action_logs(limit=limit, run_id=run_id)
 
 
 @router.get("/power")
@@ -1941,6 +2065,31 @@ async def proactive_goal_update(goal_id: str, req: ProactiveGoalUpdateRequest) -
 @router.delete("/proactive/goals/{goal_id}")
 async def proactive_goal_delete(goal_id: str) -> dict[str, bool]:
     return {"deleted": proactive_engine.delete_goal(goal_id)}
+
+
+@router.post("/self-improve/strengthen")
+async def self_improve_strengthen(req: SelfImproveStrengthenRequest) -> dict[str, Any]:
+    prompt = req.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required.")
+    return await _strengthen_self_improve_prompt(prompt)
+
+
+@router.post("/self-improve/suggest-stream")
+async def self_improve_suggest_stream(req: SelfImproveSuggestRequest, request: Request) -> StreamingResponse:
+    prompt = req.prompt.strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required.")
+
+    async def ndjson() -> AsyncGenerator[bytes, None]:
+        try:
+            async for row in _stream_self_improve_suggestions(prompt, req.max_suggestions, request):
+                yield (json.dumps(row, ensure_ascii=False) + "\n").encode("utf-8")
+        except asyncio.CancelledError:
+            yield (json.dumps({"type": "stopped", "reason": "server_cancelled"}) + "\n").encode("utf-8")
+            raise
+
+    return StreamingResponse(ndjson(), media_type="application/x-ndjson")
 
 
 @router.post("/self-improve/suggest")

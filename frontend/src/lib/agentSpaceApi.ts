@@ -1,5 +1,8 @@
 import { API_BASE as BASE, apiUrl } from './backendBase';
 
+/** Ollama-backed and other long server jobs often exceed 30s; use for LLM-heavy POSTs. */
+export const LLM_HTTP_TIMEOUT_MS = 600_000;
+
 // ── Timeout-aware fetch ───────────────────────────────────────────────
 
 async function fetchWithTimeout(
@@ -188,6 +191,29 @@ export interface SelfImproveSuggestResponse {
     requires_confirmation: boolean;
     autonomous_notes: string[];
     suggestions: SelfImproveSuggestion[];
+}
+
+/** NDJSON events from POST /self-improve/suggest-stream */
+export type SelfImproveSuggestStreamEvent =
+    | { type: 'meta'; model: string; focus: string }
+    | { type: 'action'; stage: string; label: string }
+    | { type: 'chunk'; text: string }
+    | { type: 'progress'; chars: number }
+    | {
+          type: 'result';
+          prompt?: string;
+          model?: string;
+          focus?: string;
+          requires_confirmation?: boolean;
+          autonomous_notes: string[];
+          suggestions: SelfImproveSuggestion[];
+      }
+    | { type: 'stopped'; reason?: string; partial_chars?: number }
+    | { type: 'error'; detail: string };
+
+export interface SelfImproveStrengthenResponse {
+    strengthened_prompt: string;
+    model: string;
 }
 
 export interface AppInstanceRow {
@@ -1013,8 +1039,19 @@ export async function getMetrics() {
     return resp.json();
 }
 
-export async function getActionLogs(limit = 200) {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/logs/actions?limit=${limit}`);
+export interface ActionLogEntry {
+    ts: number;
+    run_id: string;
+    agent_id: string;
+    action: Record<string, unknown>;
+    result?: Record<string, unknown>;
+}
+
+export async function getActionLogs(limit = 200, runId?: string): Promise<ActionLogEntry[]> {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    if (runId) params.set('run_id', runId);
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/logs/actions?${params.toString()}`);
     if (!resp.ok) throw new Error(`action logs failed: ${resp.status}`);
     return resp.json();
 }
@@ -1511,11 +1548,15 @@ export async function suggestSelfImprove(payload: {
     prompt: string;
     max_suggestions?: number;
 }): Promise<SelfImproveSuggestResponse> {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/self-improve/suggest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/self-improve/suggest`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `suggest self improve failed: ${resp.status}`);
@@ -1523,16 +1564,113 @@ export async function suggestSelfImprove(payload: {
     return resp.json();
 }
 
+export async function suggestSelfImproveStream(
+    payload: { prompt: string; max_suggestions?: number },
+    opts: {
+        signal?: AbortSignal;
+        onEvent: (ev: SelfImproveSuggestStreamEvent) => void;
+    },
+): Promise<void> {
+    const resp = await fetch(`${BASE}/api/agent-space/self-improve/suggest-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-JimAI-CSRF': '1' },
+        body: JSON.stringify(payload),
+        signal: opts.signal,
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        let detail = `suggest stream failed: ${resp.status}`;
+        try {
+            const data = JSON.parse(text) as { detail?: string };
+            if (data.detail) detail = String(data.detail);
+        } catch {
+            if (text) detail = text.slice(0, 240);
+        }
+        throw new Error(detail);
+    }
+    const reader = resp.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        for (;;) {
+            const nl = buffer.indexOf('\n');
+            if (nl < 0) break;
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            try {
+                opts.onEvent(JSON.parse(line) as SelfImproveSuggestStreamEvent);
+            } catch {
+                /* ignore malformed line */
+            }
+        }
+    }
+    const tail = buffer.trim();
+    if (tail) {
+        try {
+            opts.onEvent(JSON.parse(tail) as SelfImproveSuggestStreamEvent);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+export async function strengthenSelfImprovePrompt(payload: {
+    prompt: string;
+    /** When set, aborting this signal cancels the request (still bounded by LLM_HTTP_TIMEOUT_MS). */
+    signal?: AbortSignal;
+}): Promise<SelfImproveStrengthenResponse> {
+    const { signal: userSig, prompt } = payload;
+    const timerController = new AbortController();
+    const tid = setTimeout(() => timerController.abort(), LLM_HTTP_TIMEOUT_MS);
+    const merged = new AbortController();
+    const onAbort = () => merged.abort();
+    timerController.signal.addEventListener('abort', onAbort);
+    if (userSig) userSig.addEventListener('abort', onAbort);
+    try {
+        const resp = await fetch(`${BASE}/api/agent-space/self-improve/strengthen`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-JimAI-CSRF': '1' },
+            body: JSON.stringify({ prompt }),
+            signal: merged.signal,
+        });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.detail || `strengthen self improve prompt failed: ${resp.status}`);
+        }
+        return resp.json();
+    } catch (err) {
+        if (merged.signal.aborted) {
+            const e = new Error('Aborted');
+            e.name = 'AbortError';
+            throw e;
+        }
+        throw err;
+    } finally {
+        clearTimeout(tid);
+        timerController.signal.removeEventListener('abort', onAbort);
+        if (userSig) userSig.removeEventListener('abort', onAbort);
+    }
+}
+
 export async function runSelfImprove(payload: {
     prompt: string;
     confirmed_suggestions: string[];
     direct_prompt_mode?: boolean;
 }) {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/self-improve/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/self-improve/run`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `run self improve failed: ${resp.status}`);
@@ -1623,11 +1761,15 @@ export async function builderClarify(payload: {
     context?: string;
     max_questions?: number;
 }): Promise<BuilderClarifyResponse> {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/builder/clarify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/builder/clarify`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `builder clarify failed: ${resp.status}`);
@@ -1655,11 +1797,15 @@ export async function builderLaunch(payload: {
     force_research?: boolean;
     create_git_checkpoint?: boolean;
 }): Promise<BuilderLaunchResponse> {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/builder/launch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    }, 60000);
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/builder/launch`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `builder launch failed: ${resp.status}`);
@@ -1674,11 +1820,15 @@ export async function builderPreview(payload: {
     auto_agent_packs?: boolean;
     use_saved_teams?: boolean;
 }): Promise<BuilderPreviewResponse> {
-    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/builder/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/builder/preview`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `builder preview failed: ${resp.status}`);

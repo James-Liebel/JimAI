@@ -220,19 +220,19 @@ export default function Agents() {
 
     return (
         <div className="flex flex-col h-full min-h-0 bg-surface-0 text-text-primary">
-            <header className="flex-shrink-0 border-b border-surface-4 px-4 py-3 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-accent" />
-                    <h1 className="text-xl font-semibold tracking-tight text-text-primary">Agents</h1>
-                    <span className="text-sm text-text-muted hidden sm:inline">
-                        Personas, skills, and teams — local Ollama only
+            <header className="flex-shrink-0 border-b border-surface-5 bg-surface-1 px-5 py-3 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2.5">
+                    <Bot className="w-4 h-4 text-accent" />
+                    <h1 className="text-base font-semibold tracking-tight text-text-primary">Agents</h1>
+                    <span className="hidden text-xs text-text-muted sm:inline">
+                        Personas, skills &amp; teams — local Ollama
                     </span>
                 </div>
                 <Link
                     to="/agent-studio"
-                    className="text-xs text-accent hover:underline"
+                    className="rounded-btn border border-surface-4 px-2.5 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-surface-3 hover:bg-surface-3 hover:text-text-secondary"
                 >
-                    Open classic Agent Studio (flow)
+                    Agent Studio (flow)
                 </Link>
             </header>
 
@@ -243,8 +243,8 @@ export default function Agents() {
             ) : (
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-0 border-t border-surface-4">
                     {/* Left roster */}
-                    <aside className="lg:col-span-3 border-r border-surface-4 flex flex-col min-h-0 overflow-hidden bg-surface-1">
-                        <div className="p-3 border-b border-surface-4">
+                    <aside className="lg:col-span-3 border-r border-surface-5 flex flex-col min-h-0 overflow-hidden bg-surface-1">
+                        <div className="p-3 border-b border-surface-5">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -254,86 +254,96 @@ export default function Agents() {
                                         model: models[0] || 'qwen3:8b',
                                     }));
                                 }}
-                                className="w-full flex items-center justify-center gap-2 py-2 rounded-none bg-accent text-white text-sm font-medium hover:bg-accent-hover"
+                                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-btn bg-accent text-white text-xs font-medium transition-colors hover:bg-accent-hover"
                             >
-                                <Plus className="w-4 h-4" /> New Agent
+                                <Plus className="w-3.5 h-3.5" /> New Agent
                             </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                            <p className="text-[10px] uppercase tracking-wide text-text-muted px-2">Agents</p>
+
+                        {/* Agents section */}
+                        <div className="flex-1 overflow-y-auto py-2">
+                            <p className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                                Agents
+                            </p>
                             {agents.length === 0 ? (
-                                <p className="text-sm text-text-muted px-2 py-4">No agents yet. Create one.</p>
+                                <p className="px-3 py-3 text-xs text-text-muted">No agents yet — create one above.</p>
                             ) : (
-                                agents.map((a) => (
-                                    <div
-                                        key={a.id}
-                                        className={cn(
-                                            'relative rounded-none border px-2 py-2 flex items-start gap-2 cursor-pointer transition-colors',
-                                            selectedAgentId === a.id && !selectedTeamId
-                                                ? 'border-accent bg-accent/10'
-                                                : 'border-surface-4 hover:bg-surface-2',
-                                        )}
-                                        onClick={() => selectAgent(a.id)}
-                                    >
-                                        <span className="text-xl">{a.avatar}</span>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="text-sm font-medium truncate">{a.name}</div>
-                                            <div className="text-[11px] text-text-muted truncate">{a.role}</div>
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-text-secondary">
-                                                {a.model}
-                                            </span>
-                                        </div>
-                                        <span
+                                <div className="space-y-px px-1.5">
+                                    {agents.map((a) => (
+                                        <div
+                                            key={a.id}
                                             className={cn(
-                                                'w-2 h-2 rounded-none mt-1 flex-shrink-0',
-                                                a.status === 'running'
-                                                    ? 'bg-amber-400'
-                                                    : a.status === 'error'
-                                                      ? 'bg-red-500'
-                                                      : 'bg-accent-green',
+                                                'group relative rounded-btn border px-2.5 py-2 flex items-center gap-2.5 cursor-pointer transition-colors duration-150',
+                                                selectedAgentId === a.id && !selectedTeamId
+                                                    ? 'border-accent/40 bg-accent/8'
+                                                    : 'border-transparent hover:border-surface-4 hover:bg-surface-2',
                                             )}
-                                        />
-                                        <button
-                                            type="button"
-                                            className="p-1 rounded hover:bg-surface-3"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setMenuOpen(menuOpen === a.id ? null : a.id);
-                                            }}
+                                            onClick={() => selectAgent(a.id)}
                                         >
-                                            <MoreVertical className="w-4 h-4 text-text-muted" />
-                                        </button>
-                                        {menuOpen === a.id && (
-                                            <div
-                                                className="absolute right-1 top-9 z-20 bg-surface-2 border border-surface-4 rounded-none shadow-none text-xs py-1 min-w-[120px]"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
+                                            <span className="text-base leading-none shrink-0">{a.avatar}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-medium text-text-primary truncate leading-tight">{a.name}</div>
+                                                <div className="text-[11px] text-text-muted truncate mt-0.5">{a.role}</div>
+                                                <span className="mt-1 inline-block rounded-badge border border-surface-4 bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+                                                    {a.model}
+                                                </span>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-1.5">
+                                                <span
+                                                    className={cn(
+                                                        'h-1.5 w-1.5 rounded-full',
+                                                        a.status === 'running'
+                                                            ? 'bg-accent-amber'
+                                                            : a.status === 'error'
+                                                              ? 'bg-accent-red'
+                                                              : 'bg-accent-green',
+                                                    )}
+                                                />
                                                 <button
                                                     type="button"
-                                                    className="w-full text-left px-3 py-1.5 hover:bg-surface-3"
-                                                    onClick={async () => {
-                                                        setMenuOpen(null);
-                                                        if (
-                                                            !confirm(`Delete agent "${a.name}"?`)
-                                                        ) return;
-                                                        await api.deleteWorkspaceAgent(a.id);
-                                                        if (selectedAgentId === a.id) {
-                                                            setSelectedAgentId(null);
-                                                            setAgentDetail(null);
-                                                        }
-                                                        void refresh();
+                                                    className="rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-surface-3"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setMenuOpen(menuOpen === a.id ? null : a.id);
                                                     }}
                                                 >
-                                                    Delete
+                                                    <MoreVertical className="w-3.5 h-3.5 text-text-muted" />
                                                 </button>
                                             </div>
-                                        )}
-                                    </div>
-                                ))
+                                            {menuOpen === a.id && (
+                                                <div
+                                                    className="absolute right-1 top-10 z-20 min-w-[130px] rounded-btn border border-surface-4 bg-surface-2 py-1 text-xs shadow-lg"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <button
+                                                        type="button"
+                                                        className="w-full text-left px-3 py-1.5 text-accent-red transition-colors hover:bg-surface-3"
+                                                        onClick={async () => {
+                                                            setMenuOpen(null);
+                                                            if (!confirm(`Delete agent "${a.name}"?`)) return;
+                                                            await api.deleteWorkspaceAgent(a.id);
+                                                            if (selectedAgentId === a.id) {
+                                                                setSelectedAgentId(null);
+                                                                setAgentDetail(null);
+                                                            }
+                                                            void refresh();
+                                                        }}
+                                                    >
+                                                        Delete agent
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
-                        <div className="p-3 border-t border-surface-4 space-y-2">
-                            <p className="text-[10px] uppercase tracking-wide text-text-muted px-1">Teams</p>
+
+                        {/* Teams section */}
+                        <div className="border-t border-surface-5 p-3 space-y-2">
+                            <p className="px-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                                Teams
+                            </p>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -345,9 +355,9 @@ export default function Agents() {
                                         agent_ids: agents[0] ? [agents[0].id] : [],
                                     });
                                 }}
-                                className="w-full flex items-center justify-center gap-2 py-1.5 rounded-none border border-surface-4 text-sm hover:bg-surface-2"
+                                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-btn border border-surface-4 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3"
                             >
-                                <Users className="w-4 h-4" /> New Team
+                                <Users className="w-3.5 h-3.5" /> New Team
                             </button>
                             {teams.map((t) => (
                                 <button
@@ -355,21 +365,21 @@ export default function Agents() {
                                     type="button"
                                     onClick={() => selectTeam(t.id)}
                                     className={cn(
-                                        'w-full text-left rounded-none border px-2 py-2 text-sm',
+                                        'w-full text-left rounded-btn border px-2.5 py-2 text-sm transition-colors',
                                         selectedTeamId === t.id
-                                            ? 'border-accent bg-accent/10'
-                                            : 'border-surface-4 hover:bg-surface-2',
+                                            ? 'border-accent/40 bg-accent/8'
+                                            : 'border-surface-4 hover:bg-surface-3',
                                     )}
                                 >
-                                    <div className="font-medium">{t.name}</div>
-                                    <div className="text-[10px] text-text-muted">{t.workflow}</div>
+                                    <div className="font-medium text-text-primary truncate">{t.name}</div>
+                                    <div className="mt-0.5 text-[10px] uppercase tracking-wide text-text-muted">{t.workflow}</div>
                                 </button>
                             ))}
                         </div>
                     </aside>
 
                     {/* Center */}
-                    <main className="lg:col-span-6 flex flex-col min-h-0 border-r border-surface-4">
+                    <main className="lg:col-span-6 flex flex-col min-h-0 border-r border-surface-5">
                         {selectedTeamId ? (
                             <TeamCenter
                                 team={teams.find((t) => t.id === selectedTeamId)}
@@ -382,65 +392,55 @@ export default function Agents() {
                             />
                         ) : agentDetail ? (
                             <>
-                                <div className="p-4 border-b border-surface-4 space-y-3 max-h-[45vh] overflow-y-auto">
+                                <div className="border-b border-surface-5 p-4 space-y-3 max-h-[45vh] overflow-y-auto">
                                     <input
-                                        className="w-full text-xl font-semibold bg-transparent border-b border-transparent focus:border-accent outline-none"
+                                        className="w-full border-b border-transparent bg-transparent pb-1 text-lg font-semibold text-text-primary outline-none focus:border-accent transition-colors"
                                         value={agentDetail.name}
-                                        onChange={(e) =>
-                                            setAgentDetail({ ...agentDetail, name: e.target.value })
-                                        }
+                                        onChange={(e) => setAgentDetail({ ...agentDetail, name: e.target.value })}
                                         onBlur={() => void saveAgentFields({ name: agentDetail.name })}
                                     />
-                                    <input
-                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
-                                        value={agentDetail.role}
-                                        onChange={(e) =>
-                                            setAgentDetail({ ...agentDetail, role: e.target.value })
-                                        }
-                                        onBlur={() => void saveAgentFields({ role: agentDetail.role })}
-                                    />
-                                    <select
-                                        className="w-full text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
-                                        value={agentDetail.model}
-                                        onChange={(e) => {
-                                            const m = e.target.value;
-                                            setAgentDetail({ ...agentDetail, model: m });
-                                            void saveAgentFields({ model: m });
-                                        }}
-                                    >
-                                        {models.map((m) => (
-                                            <option key={m} value={m}>
-                                                {m}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input
+                                            className="rounded-btn border border-surface-4 bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary"
+                                            value={agentDetail.role}
+                                            onChange={(e) => setAgentDetail({ ...agentDetail, role: e.target.value })}
+                                            onBlur={() => void saveAgentFields({ role: agentDetail.role })}
+                                            placeholder="Role"
+                                        />
+                                        <select
+                                            className="rounded-btn border border-surface-4 bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary"
+                                            value={agentDetail.model}
+                                            onChange={(e) => {
+                                                const m = e.target.value;
+                                                setAgentDetail({ ...agentDetail, model: m });
+                                                void saveAgentFields({ model: m });
+                                            }}
+                                        >
+                                            {models.map((m) => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <textarea
-                                        className="w-full min-h-[120px] text-sm bg-surface-2 rounded p-2 border border-surface-4 font-mono"
-                                        placeholder="System prompt / persona"
+                                        className="w-full min-h-[100px] rounded-btn border border-surface-4 bg-surface-0 p-2.5 font-mono text-xs text-text-primary resize-y"
+                                        placeholder="System prompt / persona…"
                                         value={agentDetail.system_prompt}
-                                        onChange={(e) =>
-                                            setAgentDetail({ ...agentDetail, system_prompt: e.target.value })
-                                        }
-                                        onBlur={() =>
-                                            void saveAgentFields({ system_prompt: agentDetail.system_prompt })
-                                        }
+                                        onChange={(e) => setAgentDetail({ ...agentDetail, system_prompt: e.target.value })}
+                                        onBlur={() => void saveAgentFields({ system_prompt: agentDetail.system_prompt })}
                                     />
-                                    <div className="flex flex-wrap gap-2 text-xs">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs">
                                         <button
                                             type="button"
-                                            className="px-2 py-1 rounded bg-surface-3 hover:bg-surface-4"
+                                            className="rounded-btn border border-surface-4 px-2.5 py-1 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
                                             onClick={() => setChatMessages([])}
                                         >
                                             Clear chat
                                         </button>
                                         <button
                                             type="button"
-                                            className="px-2 py-1 rounded bg-surface-3 hover:bg-surface-4"
+                                            className="rounded-btn border border-surface-4 px-2.5 py-1 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
                                             onClick={() => {
-                                                const blob = new Blob(
-                                                    [JSON.stringify(agentDetail, null, 2)],
-                                                    { type: 'application/json' },
-                                                );
+                                                const blob = new Blob([JSON.stringify(agentDetail, null, 2)], { type: 'application/json' });
                                                 const u = URL.createObjectURL(blob);
                                                 const a = document.createElement('a');
                                                 a.href = u;
@@ -451,7 +451,7 @@ export default function Agents() {
                                         >
                                             Export
                                         </button>
-                                        <label className="flex items-center gap-1 cursor-pointer">
+                                        <label className="flex cursor-pointer items-center gap-1.5 text-text-secondary">
                                             <input
                                                 type="checkbox"
                                                 checked={agentDetail.memory_enabled}
@@ -460,43 +460,46 @@ export default function Agents() {
                                                     setAgentDetail({ ...agentDetail, memory_enabled: v });
                                                     void saveAgentFields({ memory_enabled: v });
                                                 }}
+                                                className="h-3 w-3"
                                             />
                                             Memory
                                         </label>
                                     </div>
                                 </div>
-                                <div className="flex-1 flex flex-col min-h-0 p-4">
-                                    <p className="text-xs text-text-muted mb-2">Test chat (skills injected on server)</p>
-                                    <div className="flex-1 overflow-y-auto space-y-2 mb-2 rounded-none border border-surface-4 p-2 bg-surface-1">
+                                <div className="flex flex-1 flex-col min-h-0 p-4">
+                                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">Test chat</p>
+                                    <div className="flex-1 overflow-y-auto space-y-2 mb-3 rounded-btn border border-surface-4 bg-surface-0 p-2">
                                         {chatMessages.map((msg, i) => (
                                             <div
                                                 key={i}
                                                 className={cn(
-                                                    'text-sm rounded px-2 py-1',
+                                                    'rounded-btn px-3 py-2 text-sm',
                                                     msg.role === 'user'
-                                                        ? 'bg-accent/20 ml-4'
-                                                        : 'bg-surface-2 mr-4',
+                                                        ? 'ml-6 bg-accent/15 text-text-primary'
+                                                        : 'mr-6 bg-surface-2 text-text-primary',
                                                 )}
                                             >
-                                                <span className="text-[10px] text-text-muted">{msg.role}</span>
-                                                <div className="whitespace-pre-wrap">{msg.content}</div>
+                                                <span className="mb-0.5 block font-mono text-[10px] uppercase tracking-wide text-text-muted">
+                                                    {msg.role}
+                                                </span>
+                                                <div className="whitespace-pre-wrap leading-relaxed">{msg.content}</div>
                                             </div>
                                         ))}
                                         {streaming && (
-                                            <div className="text-xs text-text-muted flex items-center gap-1">
+                                            <div className="flex items-center gap-1.5 px-2 text-xs text-text-muted">
                                                 <span className="inline-flex gap-0.5">
-                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse" />
-                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse delay-75" />
-                                                    <span className="w-1 h-1 rounded-none bg-accent animate-pulse delay-150" />
+                                                    <span className="h-1 w-1 rounded-full bg-accent animate-pulse" />
+                                                    <span className="h-1 w-1 rounded-full bg-accent animate-pulse delay-75" />
+                                                    <span className="h-1 w-1 rounded-full bg-accent animate-pulse delay-150" />
                                                 </span>
-                                                Generating
+                                                Generating…
                                             </div>
                                         )}
                                         <div ref={chatEndRef} />
                                     </div>
                                     <div className="flex gap-2">
                                         <textarea
-                                            className="flex-1 min-h-[44px] max-h-32 text-sm bg-surface-2 rounded px-2 py-2 border border-surface-4 resize-y"
+                                            className="flex-1 min-h-[44px] max-h-32 rounded-btn border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary resize-y"
                                             placeholder="Message… (Ctrl+Enter to send)"
                                             value={chatInput}
                                             onChange={(e) => setChatInput(e.target.value)}
@@ -506,7 +509,7 @@ export default function Agents() {
                                             type="button"
                                             disabled={streaming}
                                             onClick={() => void sendChat()}
-                                            className="px-4 rounded-none bg-accent text-white hover:bg-accent-hover disabled:opacity-50"
+                                            className="rounded-btn bg-accent px-4 text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                                         >
                                             <Send className="w-4 h-4" />
                                         </button>
@@ -514,55 +517,70 @@ export default function Agents() {
                                 </div>
                             </>
                         ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center text-text-muted p-8 text-center">
-                                <Bot className="w-12 h-12 mb-4 opacity-40" />
-                                <p className="text-sm">Select an agent or team from the left.</p>
+                            <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-text-muted">
+                                <Bot className="mb-4 h-10 w-10 opacity-25" />
+                                <p className="text-sm font-medium text-text-secondary">Select an agent or team</p>
+                                <p className="mt-1 text-xs text-text-muted">Choose from the left panel to begin</p>
                             </div>
                         )}
                     </main>
 
                     {/* Skills */}
                     <aside className="lg:col-span-3 flex flex-col min-h-0 bg-surface-1">
-                        <div className="p-3 border-b border-surface-4">
-                            <h2 className="text-sm font-semibold mb-2">Skills</h2>
+                        <div className="border-b border-surface-5 p-3">
+                            <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                                Skills
+                            </p>
                             {agentDetail ? (
-                                <>
+                                <div className="space-y-2">
                                     <button
                                         type="button"
                                         onClick={() => {
                                             setGenSkillForm({ name: '', description: '', example: '' });
                                             setModal({ type: 'generateSkill' });
                                         }}
-                                        className="w-full flex items-center justify-center gap-2 py-2 rounded-none border border-accent text-accent text-sm hover:bg-accent/10 mb-2"
+                                        className="w-full flex items-center justify-center gap-1.5 rounded-btn border border-accent/40 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
                                     >
-                                        <Sparkles className="w-4 h-4" /> Generate skill
+                                        <Sparkles className="w-3.5 h-3.5" /> Generate skill
                                     </button>
                                     <input
                                         type="search"
                                         placeholder="Filter skills…"
-                                        className="w-full text-xs bg-surface-2 rounded px-2 py-1 border border-surface-4"
+                                        className="w-full rounded-btn border border-surface-4 bg-surface-2 px-2.5 py-1.5 text-xs text-text-primary"
                                         value={skillFilter}
                                         onChange={(e) => setSkillFilter(e.target.value)}
                                     />
-                                </>
-                            ) : (
-                                <p className="text-xs text-text-muted">Select an agent to manage skills.</p>
-                            )}
+                                </div>
+                            ) : null}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-2 space-y-2">
-                            {agentDetail &&
+                        <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+                            {!agentDetail ? (
+                                <div className="flex flex-col items-center justify-center h-full min-h-[200px] p-6 text-center">
+                                    <Sparkles className="mb-3 h-8 w-8 opacity-20 text-text-muted" />
+                                    <p className="text-sm font-medium text-text-secondary">No agent selected</p>
+                                    <p className="mt-1 text-xs text-text-muted">
+                                        Select an agent from the left to view and manage its skills.
+                                    </p>
+                                </div>
+                            ) : filteredSkills.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-8 text-center">
+                                    <p className="text-xs text-text-muted">
+                                        {skillFilter ? 'No skills match filter.' : 'No skills yet — generate one above.'}
+                                    </p>
+                                </div>
+                            ) : (
                                 filteredSkills.map((s) => (
                                     <div
                                         key={s.slug}
-                                        className="rounded-none border border-surface-4 p-2 text-xs bg-surface-0"
+                                        className="rounded-btn border border-surface-4 bg-surface-0 p-2.5 text-xs"
                                     >
-                                        <div className="font-medium">{s.name}</div>
-                                        <p className="text-text-muted line-clamp-2 mt-1">{s.preview}</p>
-                                        <p className="text-[10px] text-text-muted mt-1">{s.modified_at}</p>
-                                        <div className="flex gap-1 mt-2">
+                                        <div className="font-medium text-text-primary">{s.name}</div>
+                                        <p className="mt-1 line-clamp-2 text-text-muted">{s.preview}</p>
+                                        <p className="mt-1 font-mono text-[10px] text-text-muted">{s.modified_at}</p>
+                                        <div className="mt-2 flex gap-1">
                                             <button
                                                 type="button"
-                                                className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4"
+                                                className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
                                                 onClick={async () => {
                                                     const content = await api.getSkillRaw(agentDetail.id, s.slug);
                                                     setModal({ type: 'editSkill', slug: s.slug, content });
@@ -572,7 +590,7 @@ export default function Agents() {
                                             </button>
                                             <button
                                                 type="button"
-                                                className="px-2 py-0.5 rounded bg-surface-3 hover:bg-surface-4 text-accent-red"
+                                                className="rounded-badge border border-accent-red/30 px-2 py-0.5 text-accent-red transition-colors hover:bg-accent-red/10"
                                                 onClick={async () => {
                                                     if (!confirm(`Delete skill ${s.slug}?`)) return;
                                                     await api.deleteSkillFile(agentDetail.id, s.slug);
@@ -584,9 +602,7 @@ export default function Agents() {
                                             </button>
                                         </div>
                                     </div>
-                                ))}
-                            {agentDetail && filteredSkills.length === 0 && (
-                                <p className="text-xs text-text-muted px-2">No skills match filter.</p>
+                                ))
                             )}
                         </div>
                     </aside>
@@ -596,61 +612,59 @@ export default function Agents() {
             {/* Modals */}
             {modal?.type === 'newAgent' && (
                 <Modal onClose={() => setModal(null)} title="New agent">
-                    <label className="block text-xs text-text-muted mb-1">Name</label>
-                    <input
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
-                        value={newAgentForm.name}
-                        onChange={(e) => setNewAgentForm({ ...newAgentForm, name: e.target.value })}
-                    />
-                    <label className="block text-xs text-text-muted mb-1">Role template</label>
-                    <select
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
-                        value={newAgentForm.role}
-                        onChange={(e) => {
-                            const r = e.target.value;
-                            setNewAgentForm({
-                                ...newAgentForm,
-                                role: r,
-                            });
-                        }}
-                    >
-                        {Object.keys(ROLE_DEFAULTS).map((r) => (
-                            <option key={r} value={r}>
-                                {r}
-                            </option>
-                        ))}
-                    </select>
-                    <label className="block text-xs text-text-muted mb-1">Model</label>
-                    <select
-                        className="w-full mb-2 text-sm bg-surface-2 rounded px-2 py-1 border border-surface-4"
-                        value={newAgentForm.model}
-                        onChange={(e) => setNewAgentForm({ ...newAgentForm, model: e.target.value })}
-                    >
-                        {models.map((m) => (
-                            <option key={m} value={m}>
-                                {m}
-                            </option>
-                        ))}
-                    </select>
-                    <button
-                        type="button"
-                        className="w-full py-2 rounded-none bg-accent text-white text-sm"
-                        onClick={async () => {
-                            const sys = ROLE_DEFAULTS[newAgentForm.role] || '';
-                            const a = await api.createWorkspaceAgent({
-                                name: newAgentForm.name || 'Unnamed',
-                                role: newAgentForm.role,
-                                model: newAgentForm.model,
-                                avatar: newAgentForm.avatar,
-                                system_prompt: sys,
-                            });
-                            setModal(null);
-                            void refresh();
-                            selectAgent(a.id);
-                        }}
-                    >
-                        Create
-                    </button>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-muted">Name</label>
+                            <input
+                                className="w-full rounded-btn border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary"
+                                value={newAgentForm.name}
+                                onChange={(e) => setNewAgentForm({ ...newAgentForm, name: e.target.value })}
+                            />
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-muted">Role template</label>
+                            <select
+                                className="w-full rounded-btn border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary"
+                                value={newAgentForm.role}
+                                onChange={(e) => setNewAgentForm({ ...newAgentForm, role: e.target.value })}
+                            >
+                                {Object.keys(ROLE_DEFAULTS).map((r) => (
+                                    <option key={r} value={r}>{r}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-muted">Model</label>
+                            <select
+                                className="w-full rounded-btn border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary"
+                                value={newAgentForm.model}
+                                onChange={(e) => setNewAgentForm({ ...newAgentForm, model: e.target.value })}
+                            >
+                                {models.map((m) => (
+                                    <option key={m} value={m}>{m}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <button
+                            type="button"
+                            className="w-full rounded-btn bg-accent py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+                            onClick={async () => {
+                                const sys = ROLE_DEFAULTS[newAgentForm.role] || '';
+                                const a = await api.createWorkspaceAgent({
+                                    name: newAgentForm.name || 'Unnamed',
+                                    role: newAgentForm.role,
+                                    model: newAgentForm.model,
+                                    avatar: newAgentForm.avatar,
+                                    system_prompt: sys,
+                                });
+                                setModal(null);
+                                void refresh();
+                                selectAgent(a.id);
+                            }}
+                        >
+                            Create agent
+                        </button>
+                    </div>
                 </Modal>
             )}
             {modal?.type === 'newTeam' && (
@@ -866,15 +880,19 @@ function Modal({
         return () => window.removeEventListener('keydown', h);
     }, [onClose]);
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
             role="dialog"
             aria-modal
         >
-            <div className="bg-surface-1 border border-surface-4 rounded-none max-w-lg w-full max-h-[90vh] overflow-y-auto p-4 shadow-none">
-                <div className="flex justify-between items-center mb-3">
-                    <h3 className="font-semibold">{title}</h3>
-                    <button type="button" onClick={onClose} className="p-1 rounded hover:bg-surface-3">
+            <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-panel border border-surface-4 bg-surface-1 p-5 shadow-2xl">
+                <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="rounded-btn p-1.5 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary"
+                    >
                         <X className="w-4 h-4" />
                     </button>
                 </div>

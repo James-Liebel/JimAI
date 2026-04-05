@@ -4,32 +4,32 @@ export default {
     theme: {
         extend: {
             colors: {
-                /** Flat neutrals: depth mostly from borders, not many gray steps */
                 surface: {
-                    0: '#0a0a0a',
-                    1: '#121212',
-                    2: '#1a1a1a',
-                    3: '#2a2a2a',
-                    4: '#383838',
+                    0: '#0A0A0B',
+                    1: '#111113',
+                    2: '#1A1A1E',
+                    3: '#222228',
+                    4: '#2A2A30',
+                    5: '#1E1E24',
                 },
                 accent: {
-                    DEFAULT: '#f5f5f5',
-                    hover: '#ffffff',
-                    dim: '#c8c8c8',
-                    blue: '#ffffff',
-                    green: '#ededed',
-                    amber: '#d9d9d9',
-                    red: '#f87979',
-                    purple: '#f2f2f2',
+                    DEFAULT: '#3B82F6',
+                    hover: '#2563EB',
+                    dim: 'rgba(59,130,246,0.12)',
+                    blue: '#3B82F6',
+                    green: '#22C55E',
+                    amber: '#F59E0B',
+                    red: '#EF4444',
+                    purple: '#A855F7',
                 },
                 text: {
-                    primary: '#ffffff',
-                    secondary: '#e3e3e3',
-                    muted: '#b7b7b7',
+                    primary: '#F0F0F5',
+                    secondary: '#8888A0',
+                    muted: '#55556A',
                 },
             },
             fontFamily: {
-                sans: ['"Manrope"', '"Sora"', 'sans-serif'],
+                sans: ['"Outfit"', '"Geist"', '"Manrope"', 'sans-serif'],
                 mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
             },
             fontSize: {
@@ -39,16 +39,15 @@ export default {
                 normal: '1.6',
             },
             borderRadius: {
-                card: '0',
-                btn: '0',
-                badge: '0',
+                card: '6px',
+                btn: '6px',
+                badge: '4px',
+                panel: '8px',
             },
             animation: {
                 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                'fade-in': 'fadeIn 0.3s ease-out',
-                'slide-up': 'slideUp 0.3s ease-out',
-                'orb-drift': 'orbDrift 18s ease-in-out infinite',
-                'orb-drift-reverse': 'orbDriftReverse 22s ease-in-out infinite',
+                'fade-in': 'fadeIn 0.2s ease-out',
+                'slide-up': 'slideUp 0.2s ease-out',
                 'pulse-soft': 'pulseSoft 3s ease-in-out infinite',
             },
             keyframes: {
@@ -57,18 +56,8 @@ export default {
                     '100%': { opacity: '1' },
                 },
                 slideUp: {
-                    '0%': { opacity: '0', transform: 'translateY(10px)' },
+                    '0%': { opacity: '0', transform: 'translateY(6px)' },
                     '100%': { opacity: '1', transform: 'translateY(0)' },
-                },
-                orbDrift: {
-                    '0%': { transform: 'translate3d(-2%, -1%, 0) scale(1)' },
-                    '50%': { transform: 'translate3d(8%, 5%, 0) scale(1.08)' },
-                    '100%': { transform: 'translate3d(-2%, -1%, 0) scale(1)' },
-                },
-                orbDriftReverse: {
-                    '0%': { transform: 'translate3d(3%, 2%, 0) scale(1)' },
-                    '50%': { transform: 'translate3d(-7%, -6%, 0) scale(1.1)' },
-                    '100%': { transform: 'translate3d(3%, 2%, 0) scale(1)' },
                 },
                 pulseSoft: {
                     '0%': { opacity: '0.2' },

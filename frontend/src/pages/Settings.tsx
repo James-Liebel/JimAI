@@ -5,7 +5,7 @@ import { PageHeader } from '../components/PageHeader';
 
 export default function Settings() {
     const [settings, setSettings] = useState<Record<string, unknown>>({});
-    const [logs, setLogs] = useState<Array<Record<string, unknown>>>([]);
+    const [logs, setLogs] = useState<agentApi.ActionLogEntry[]>([]);
     const [proactiveStatus, setProactiveStatus] = useState<Record<string, unknown>>({});
     const [freeStackStatus, setFreeStackStatus] = useState<agentApi.FreeStackStatus | null>(null);
     const [proactiveGoals, setProactiveGoals] = useState<agentApi.ProactiveGoal[]>([]);
@@ -682,11 +682,13 @@ export default function Settings() {
                     {logs.map((row, idx) => (
                         <div key={idx} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
                             <p className="text-text-primary">
-                                run {String(row.run_id || '').slice(0, 8)} • {String((row as any).agent_id || '')}
+                                run {String(row.run_id || '').slice(0, 8)} • {String(row.agent_id || '')}
                             </p>
-                            <p className="text-text-secondary mt-1">{String(((row as any).action || {}).type || 'unknown action')}</p>
+                            <p className="text-text-secondary mt-1">
+                                {String((row.action?.type as string | undefined) || 'unknown action')}
+                            </p>
                             <p className="text-text-muted mt-1">
-                                {String((((row as any).result || {}).success) ? 'success' : 'failure')}
+                                {row.result && row.result.success === false ? 'failure' : 'success'}
                             </p>
                         </div>
                     ))}

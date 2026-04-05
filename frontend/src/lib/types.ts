@@ -65,6 +65,11 @@ export interface RoutingDecision {
     auto_web_research_domain_count?: number;
     auto_web_research_query_count?: number;
     auto_web_research_status?: string;
+    /** Per-request model context (this chat only, after windowing) */
+    context_window_messages?: number;
+    context_window_chars?: number;
+    cross_chat_memory_active?: boolean;
+    rolling_summary_active?: boolean;
 }
 
 export interface Message {

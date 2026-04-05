@@ -265,29 +265,31 @@ export default function AppLayout() {
     return (
         <div className={cn(
             'h-full flex flex-col bg-surface-0 overflow-hidden font-sans text-text-primary',
-            isDeep && 'ring-1 ring-accent/30',
+            isDeep && 'ring-1 ring-inset ring-accent-amber/20',
         )}>
             {!isMobile && !builderFullChrome && (
-                <nav className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-surface-4 bg-surface-1 px-4 md:px-5">
-                    <div className="flex shrink-0 items-center gap-3">
-                        <div className="flex h-7 w-7 items-center justify-center border border-surface-4 bg-surface-2 text-[10px] font-bold text-text-primary">
+                <nav className="flex h-12 shrink-0 items-center justify-between border-b border-surface-5 bg-surface-1 px-4 md:px-5">
+                    {/* Logo */}
+                    <div className="flex shrink-0 items-center gap-2.5">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-badge border border-accent/30 bg-accent/10 text-[10px] font-bold tracking-tight text-accent">
                             jA
                         </div>
-                        <span className="text-sm font-semibold tracking-tight text-text-primary">
-                            jimAI
-                        </span>
+                        <span className="text-sm font-semibold tracking-tight text-text-primary">jimAI</span>
                     </div>
-                    <div className="mx-2 flex min-h-[2.25rem] min-w-0 flex-1 items-stretch justify-center overflow-x-auto border border-surface-4 bg-surface-0 sm:max-w-[min(44rem,100%)]">
+
+                    {/* Center underline-style tabs */}
+                    <div className="mx-4 flex h-full min-w-0 flex-1 items-stretch justify-center overflow-x-auto sm:max-w-[min(40rem,100%)]">
                         {NAV_ITEMS.map(({ to, label }) => (
                             <NavLink
                                 key={to}
                                 to={to}
                                 className={({ isActive }) =>
                                     cn(
-                                        'flex items-center px-3 py-2 text-xs transition-colors md:px-4',
+                                        'relative flex items-center px-3.5 text-xs font-medium tracking-wide transition-colors duration-150 md:px-4',
+                                        'after:absolute after:inset-x-1 after:bottom-0 after:h-[2px] after:rounded-t-full after:transition-opacity after:duration-150',
                                         isActive
-                                            ? 'bg-surface-2 font-semibold text-text-primary'
-                                            : 'font-medium text-text-secondary hover:bg-surface-2 hover:text-text-primary',
+                                            ? 'text-text-primary after:bg-accent after:opacity-100'
+                                            : 'text-text-muted hover:text-text-secondary after:bg-accent after:opacity-0',
                                     )
                                 }
                             >
@@ -295,19 +297,21 @@ export default function AppLayout() {
                             </NavLink>
                         ))}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+
+                    {/* Right actions */}
+                    <div className="flex shrink-0 items-center gap-1">
                         <NavLink
                             to="/workflow"
                             className={({ isActive }) =>
                                 cn(
-                                    'flex items-center gap-1.5 border px-3 py-2 text-xs font-medium transition-colors',
+                                    'flex items-center gap-1.5 rounded-btn px-2.5 py-1.5 text-xs font-medium transition-colors duration-150',
                                     isActive
-                                        ? 'border-surface-4 bg-surface-2 text-text-primary'
-                                        : 'border-surface-4 text-text-secondary hover:bg-surface-2 hover:text-text-primary',
+                                        ? 'bg-accent/10 text-accent'
+                                        : 'text-text-muted hover:bg-surface-3 hover:text-text-secondary',
                                 )
                             }
                         >
-                            <GitPullRequest size={14} />
+                            <GitPullRequest size={13} />
                             Review
                         </NavLink>
                         <NavLink
@@ -315,10 +319,10 @@ export default function AppLayout() {
                             title="Settings"
                             className={({ isActive }) =>
                                 cn(
-                                    'border p-2 transition-colors',
+                                    'rounded-btn p-2 transition-colors duration-150',
                                     isActive
-                                        ? 'border-surface-4 bg-surface-2 text-text-primary'
-                                        : 'border-surface-4 text-text-secondary hover:bg-surface-2 hover:text-text-primary',
+                                        ? 'bg-accent/10 text-accent'
+                                        : 'text-text-muted hover:bg-surface-3 hover:text-text-secondary',
                                 )
                             }
                         >
@@ -329,12 +333,12 @@ export default function AppLayout() {
             )}
 
             {deepWarning && (
-                <div className="flex shrink-0 items-center justify-center gap-2 border-b border-accent/25 bg-accent/10 px-4 py-2 text-center text-xs text-accent animate-fade-in">
-                    <span className="min-w-0 flex-1">{deepWarning}</span>
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-accent-amber/20 bg-accent-amber/8 px-4 py-2 text-xs text-accent-amber animate-fade-in">
+                    <span className="min-w-0 flex-1 font-medium">{deepWarning}</span>
                     <button
                         type="button"
                         onClick={() => setDeepWarning('')}
-                        className="shrink-0 px-2 py-1 text-accent hover:text-text-primary"
+                        className="shrink-0 rounded px-2 py-1 text-accent-amber/70 transition-colors hover:text-accent-amber"
                         aria-label="Dismiss warning"
                     >
                         Dismiss
@@ -343,24 +347,23 @@ export default function AppLayout() {
             )}
 
             {ollamaHealth.checked && !ollamaHealth.ok && (
-                <div className="flex-shrink-0 border-b border-accent-red/30 bg-accent-red/10 px-4 py-2 text-xs text-accent-red">
+                <div className="flex shrink-0 items-center gap-2 border-b border-accent-red/20 bg-accent-red/8 px-4 py-2 text-xs text-accent-red">
+                    <span className="shrink-0 font-medium">Offline:</span>
                     {ollamaHealth.backendReachable ? (
-                        <>
-                            Ollama is not reachable at {ollamaHealth.url}. Start it with <span className="font-mono">ollama serve</span> and confirm your Ollama URL in Settings.
-                        </>
+                        <span>
+                            Ollama not reachable at {ollamaHealth.url}. Run{' '}
+                            <code className="font-mono text-accent-red/90">ollama serve</code> or update the URL in Settings.
+                        </span>
                     ) : (
-                        <>
-                            Backend health is not reachable
+                        <span>
+                            Backend unreachable
                             {API_BASE ? (
-                                <> at <span className="font-mono">{API_BASE}</span>.</>
+                                <> at <code className="font-mono">{API_BASE}</code></>
                             ) : (
-                                <>
-                                    {' '}
-                                    (dev server proxies to <span className="font-mono">http://localhost:8000</span>).
-                                </>
+                                <> (expects <code className="font-mono">http://localhost:8000</code>)</>
                             )}{' '}
-                            Start the FastAPI backend on port 8000 first; Ollama may still be running normally.
-                        </>
+                            — start the FastAPI backend first.
+                        </span>
                     )}
                 </div>
             )}
@@ -378,12 +381,12 @@ export default function AppLayout() {
                 <button
                     type="button"
                     onClick={() => navigate('/chat')}
-                    className="fixed right-4 z-50 flex items-center gap-2 border border-surface-4 bg-surface-2 px-4 py-2.5 text-xs font-semibold text-text-primary md:hidden"
+                    className="fixed right-4 z-50 flex items-center gap-2 rounded-btn border border-accent/30 bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-lg md:hidden"
                     style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
                     aria-label="Open chat"
                 >
                     <MessageSquare size={16} />
-                    Text
+                    Chat
                 </button>
             )}
             {isMobile && <MobileNav />}

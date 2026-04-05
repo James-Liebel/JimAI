@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { GitPullRequest, MessageSquare, Settings, Hammer, Wrench, Workflow, Bot } from 'lucide-react';
+import { GitPullRequest, MessageSquare, Settings, Hammer, Wrench, Workflow, Bot, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const TABS = [
@@ -11,7 +11,8 @@ const TABS = [
 ];
 
 const QUICK_ACTIONS = [
-    { to: '/workflow', label: 'Review', icon: GitPullRequest },
+    { to: '/workflow', label: 'JimAI review', icon: GitPullRequest },
+    { to: '/skills', label: 'Skills', icon: Sparkles },
     { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

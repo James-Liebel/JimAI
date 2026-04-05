@@ -11,6 +11,13 @@ from pydantic import BaseModel
 class BrowserOpenRequest(BaseModel):
     url: str = ""
     headless: bool = True
+    viewport_width: int | None = None
+    viewport_height: int | None = None
+    user_agent: str = ""
+    locale: str = ""
+    timezone_id: str = ""
+    ignore_https_errors: bool = False
+    slow_mo_ms: int = 0
 
 
 class BrowserNavigateRequest(BaseModel):
@@ -25,6 +32,7 @@ class BrowserTypeRequest(BaseModel):
     selector: str
     text: str
     press_enter: bool = False
+    clear_first: bool = True
 
 
 class BrowserExtractRequest(BaseModel):
@@ -63,6 +71,34 @@ class BrowserHoverRequest(BaseModel):
     y: float | None = None
 
 
+class BrowserScrollPageRequest(BaseModel):
+    delta_x: float = 0.0
+    delta_y: float = 0.0
+    position: str = ""
+
+
+class BrowserSelectRequest(BaseModel):
+    selector: str
+    value: str = ""
+    label: str = ""
+
+
+class BrowserCheckRequest(BaseModel):
+    selector: str
+    checked: bool = True
+
+
+class BrowserPressKeyRequest(BaseModel):
+    key: str
+    selector: str = ""
+
+
+class BrowserWaitForRequest(BaseModel):
+    selector: str
+    state: str = "visible"
+    timeout_ms: int = 30000
+
+
 def register_browser_routes(
     router: APIRouter,
     *,
@@ -74,7 +110,17 @@ def register_browser_routes(
 
     @router.post("/browser/sessions")
     async def browser_open(req: BrowserOpenRequest) -> dict[str, Any]:
-        return await browser_manager.open_session(url=req.url, headless=req.headless)
+        return await browser_manager.open_session(
+            url=req.url,
+            headless=req.headless,
+            viewport_width=req.viewport_width,
+            viewport_height=req.viewport_height,
+            user_agent=req.user_agent,
+            locale=req.locale,
+            timezone_id=req.timezone_id,
+            ignore_https_errors=req.ignore_https_errors,
+            slow_mo_ms=req.slow_mo_ms,
+        )
 
     @router.post("/browser/sessions/{session_id}/navigate")
     async def browser_navigate(session_id: str, req: BrowserNavigateRequest) -> dict[str, Any]:
@@ -91,6 +137,7 @@ def register_browser_routes(
             selector=req.selector,
             text=req.text,
             press_enter=req.press_enter,
+            clear_first=req.clear_first,
         )
 
     @router.post("/browser/sessions/{session_id}/extract")
@@ -155,6 +202,49 @@ def register_browser_routes(
             x=req.x,
             y=req.y,
         )
+
+    @router.post("/browser/sessions/{session_id}/scroll-page")
+    async def browser_scroll_page(session_id: str, req: BrowserScrollPageRequest) -> dict[str, Any]:
+        return await browser_manager.scroll_page(
+            session_id,
+            delta_x=req.delta_x,
+            delta_y=req.delta_y,
+            position=req.position,
+        )
+
+    @router.post("/browser/sessions/{session_id}/scroll-into-view")
+    async def browser_scroll_into_view(session_id: str, req: BrowserClickRequest) -> dict[str, Any]:
+        return await browser_manager.scroll_into_view(session_id, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/select")
+    async def browser_select(session_id: str, req: BrowserSelectRequest) -> dict[str, Any]:
+        return await browser_manager.select_option(
+            session_id,
+            selector=req.selector,
+            value=req.value,
+            label=req.label,
+        )
+
+    @router.post("/browser/sessions/{session_id}/check")
+    async def browser_check(session_id: str, req: BrowserCheckRequest) -> dict[str, Any]:
+        return await browser_manager.set_checked(session_id, selector=req.selector, checked=req.checked)
+
+    @router.post("/browser/sessions/{session_id}/press-key")
+    async def browser_press_key(session_id: str, req: BrowserPressKeyRequest) -> dict[str, Any]:
+        return await browser_manager.press_key(session_id, key=req.key, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/wait-for")
+    async def browser_wait_for(session_id: str, req: BrowserWaitForRequest) -> dict[str, Any]:
+        return await browser_manager.wait_for(
+            session_id,
+            selector=req.selector,
+            state=req.state,
+            timeout_ms=req.timeout_ms,
+        )
+
+    @router.get("/browser/sessions/{session_id}/interactive")
+    async def browser_interactive(session_id: str, limit: int = Query(default=80, ge=1, le=200)) -> dict[str, Any]:
+        return await browser_manager.list_interactive(session_id, limit=limit)
 
     @router.post("/browser/sessions/{session_id}/close")
     async def browser_close(session_id: str) -> dict[str, Any]:

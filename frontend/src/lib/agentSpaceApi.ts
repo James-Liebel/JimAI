@@ -67,6 +67,8 @@ export interface AgentSpaceRunSummary {
         recovered_actions?: number;
         failed_actions?: number;
     } | null;
+    /** workspace = Builder / project; jimai = self-improvement & platform changes */
+    review_scope?: 'workspace' | 'jimai' | string;
 }
 
 export interface AgentSpaceReview {
@@ -98,6 +100,7 @@ export interface AgentSpaceReview {
     };
     snapshot_id?: string | null;
     rejection_reason?: string | null;
+    metadata?: Record<string, unknown>;
 }
 
 export interface ReviewCommitResult {
@@ -386,7 +389,27 @@ export interface BrowserPageState {
     document: { width: number; height: number };
     links?: BrowserLinkInfo[];
     image_base64?: string;
+    error?: string;
 }
+
+export interface BrowserInteractiveField {
+    tag: string;
+    type: string;
+    selector: string;
+    name: string;
+    id: string;
+    placeholder: string;
+    label: string;
+    aria_label: string;
+    required: boolean;
+    disabled: boolean;
+    visible: boolean;
+}
+
+export type BrowserInteractiveResponse = BrowserPageState & {
+    fields?: BrowserInteractiveField[];
+    count?: number;
+};
 
 export interface RepoTreeNode {
     name: string;
@@ -874,6 +897,7 @@ export async function startRun(payload: {
     create_git_checkpoint?: boolean;
     subagents?: Array<Record<string, unknown>>;
     actions?: Array<Record<string, unknown>>;
+    review_scope?: 'workspace' | 'jimai';
 }) {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/runs/start`, {
         method: 'POST',
@@ -1365,6 +1389,8 @@ export async function upsertSkill(payload: {
     complexity?: number;
     source?: string;
     metadata?: Record<string, unknown>;
+    /** When set, updates this skill folder instead of deriving slug from name only. */
+    slug?: string;
 }): Promise<AgentSkillRecord> {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/skills`, {
         method: 'POST',
@@ -1678,13 +1704,150 @@ export async function runSelfImprove(payload: {
     return resp.json();
 }
 
+/** NDJSON events from POST /api/agent-space/assist/analyze-stream */
+export type AssistStreamEvent =
+    | {
+          type: 'meta';
+          model: string;
+          surface: string;
+          agents: Array<{ id: string; role: string; depends_on: string[]; description: string }>;
+          delegate_objective: string;
+      }
+    | { type: 'action'; stage: string; label: string }
+    | { type: 'chunk'; text: string }
+    | { type: 'done' }
+    | { type: 'stopped'; reason: string }
+    | { type: 'error'; message: string };
+
+export async function planCrossSurfaceAssist(payload: {
+    question: string;
+    surface?: string;
+    context?: string;
+    max_agents?: number;
+}): Promise<{
+    model: string;
+    surface: string;
+    agents: Array<{ id: string; role: string; depends_on: string[]; description: string }>;
+    delegate_objective: string;
+}> {
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/assist/plan`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `assist plan failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export async function streamCrossSurfaceAssist(
+    payload: { question: string; surface?: string; context?: string; max_agents?: number },
+    opts: { signal?: AbortSignal; onEvent: (ev: AssistStreamEvent) => void },
+): Promise<void> {
+    const resp = await fetch(`${BASE}/api/agent-space/assist/analyze-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-JimAI-CSRF': '1' },
+        body: JSON.stringify(payload),
+        signal: opts.signal,
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        let detail = `assist stream failed: ${resp.status}`;
+        try {
+            const data = JSON.parse(text) as { detail?: string };
+            if (data.detail) detail = String(data.detail);
+        } catch {
+            if (text) detail = text.slice(0, 240);
+        }
+        throw new Error(detail);
+    }
+    const reader = resp.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        for (;;) {
+            const nl = buffer.indexOf('\n');
+            if (nl < 0) break;
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            try {
+                opts.onEvent(JSON.parse(line) as AssistStreamEvent);
+            } catch {
+                /* ignore malformed line */
+            }
+        }
+    }
+    const tail = buffer.trim();
+    if (tail) {
+        try {
+            opts.onEvent(JSON.parse(tail) as AssistStreamEvent);
+        } catch {
+            /* ignore */
+        }
+    }
+}
+
+export async function spawnAssistRun(payload: {
+    question: string;
+    surface?: string;
+    context?: string;
+    max_agents?: number;
+    autonomous?: boolean;
+}): Promise<{
+    run: AgentSpaceRunSummary;
+    surface: string;
+    model: string;
+    delegate_objective: string;
+    used_saved_teams: string[];
+    used_agent_packs: string[];
+    complexity: Record<string, unknown>;
+    planned_agent_count: number;
+    team_agent_count: number;
+}> {
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/assist/spawn-run`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        },
+        LLM_HTTP_TIMEOUT_MS,
+    );
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `assist spawn run failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
 export async function listBrowserSessions(): Promise<BrowserSessionSummary[]> {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions`);
     if (!resp.ok) throw new Error(`list browser sessions failed: ${resp.status}`);
     return resp.json();
 }
 
-export async function openBrowserSession(payload: { url?: string; headless?: boolean }) {
+export async function openBrowserSession(payload: {
+    url?: string;
+    headless?: boolean;
+    viewport_width?: number;
+    viewport_height?: number;
+    user_agent?: string;
+    locale?: string;
+    timezone_id?: string;
+    ignore_https_errors?: boolean;
+    slow_mo_ms?: number;
+}) {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1714,11 +1877,17 @@ export async function browserClick(sessionId: string, selector: string) {
     return resp.json();
 }
 
-export async function browserType(sessionId: string, selector: string, text: string, pressEnter = false) {
+export async function browserType(
+    sessionId: string,
+    selector: string,
+    text: string,
+    pressEnter = false,
+    clearFirst = true,
+) {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/type`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selector, text, press_enter: pressEnter }),
+        body: JSON.stringify({ selector, text, press_enter: pressEnter, clear_first: clearFirst }),
     });
     if (!resp.ok) throw new Error(`browser type failed: ${resp.status}`);
     return resp.json();
@@ -1741,6 +1910,90 @@ export async function browserScreenshot(sessionId: string, fullPage = true) {
         body: JSON.stringify({ full_page: fullPage }),
     });
     if (!resp.ok) throw new Error(`browser screenshot failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserScrollPage(
+    sessionId: string,
+    payload: { delta_x?: number; delta_y?: number; position?: string },
+): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/scroll-page`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            delta_x: payload.delta_x ?? 0,
+            delta_y: payload.delta_y ?? 0,
+            position: payload.position ?? '',
+        }),
+    });
+    if (!resp.ok) throw new Error(`browser scroll-page failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserScrollIntoView(sessionId: string, selector: string): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/scroll-into-view`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selector }),
+    });
+    if (!resp.ok) throw new Error(`browser scroll-into-view failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserSelect(
+    sessionId: string,
+    selector: string,
+    opts: { value?: string; label?: string },
+): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/select`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selector, value: opts.value ?? '', label: opts.label ?? '' }),
+    });
+    if (!resp.ok) throw new Error(`browser select failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserCheck(sessionId: string, selector: string, checked = true): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selector, checked }),
+    });
+    if (!resp.ok) throw new Error(`browser check failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserPressKey(sessionId: string, key: string, selector = ''): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/press-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, selector }),
+    });
+    if (!resp.ok) throw new Error(`browser press-key failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function browserWaitFor(
+    sessionId: string,
+    selector: string,
+    state = 'visible',
+    timeoutMs = 30000,
+): Promise<BrowserPageState> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/browser/sessions/${sessionId}/wait-for`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selector, state, timeout_ms: timeoutMs }),
+    });
+    if (!resp.ok) throw new Error(`browser wait-for failed: ${resp.status}`);
+    return resp.json();
+}
+
+export async function getBrowserInteractive(sessionId: string, limit = 80): Promise<BrowserInteractiveResponse> {
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/browser/sessions/${sessionId}/interactive?limit=${limit}`,
+    );
+    if (!resp.ok) throw new Error(`browser interactive failed: ${resp.status}`);
     return resp.json();
 }
 

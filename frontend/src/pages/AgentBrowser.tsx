@@ -12,10 +12,17 @@ export default function AgentBrowser() {
     const [screenshotBase64, setScreenshotBase64] = useState('');
     const [pageState, setPageState] = useState<agentApi.BrowserPageState | null>(null);
     const [links, setLinks] = useState<agentApi.BrowserLinkInfo[]>([]);
+    const [interactiveFields, setInteractiveFields] = useState<agentApi.BrowserInteractiveField[]>([]);
     const [cursorX, setCursorX] = useState(0);
     const [cursorY, setCursorY] = useState(0);
     const [scrollStep, setScrollStep] = useState(600);
     const [imageClickMode, setImageClickMode] = useState<'click' | 'move'>('click');
+    const [headedMode, setHeadedMode] = useState(false);
+    const [liveMirror, setLiveMirror] = useState(false);
+    const [mirrorMs, setMirrorMs] = useState(900);
+    const [selectValue, setSelectValue] = useState('');
+    const [selectLabel, setSelectLabel] = useState('');
+    const [pressKey, setPressKey] = useState('Tab');
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
 
@@ -60,6 +67,27 @@ export default function AgentBrowser() {
         }, 3000);
         return () => window.clearInterval(id);
     }, [sessionId]);
+
+    useEffect(() => {
+        if (!liveMirror || !sessionId) return undefined;
+        let cancelled = false;
+        const tick = async () => {
+            if (cancelled) return;
+            try {
+                const data = await agentApi.browserScreenshot(sessionId, false);
+                if (!cancelled && data?.image_base64) setScreenshotBase64(data.image_base64);
+            } catch {
+                /* ignore transient screenshot errors */
+            }
+        };
+        void tick();
+        const ms = Math.max(250, Math.min(mirrorMs, 5000));
+        const id = window.setInterval(() => void tick(), ms);
+        return () => {
+            cancelled = true;
+            window.clearInterval(id);
+        };
+    }, [liveMirror, sessionId, mirrorMs]);
 
     const run = async (
         fn: () => Promise<any>,
@@ -129,9 +157,38 @@ export default function AgentBrowser() {
         <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
             <PageHeader
                 title="Agent Browser"
-                description="Browser control surface for agents (Clawsbot-style operator workflow)."
+                description="Playwright-powered automation: navigate, scroll, extract, fill forms, and mirror the session in-app (similar to operator UIs). Use only on sites you are allowed to access; respect robots, paywalls, and terms of service. Headed mode opens a real Chromium window on the machine running the backend."
             />
-            <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
+                <label className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                    <input
+                        type="checkbox"
+                        checked={headedMode}
+                        onChange={(e) => setHeadedMode(e.target.checked)}
+                        className="rounded border-surface-4"
+                    />
+                    Visible Chromium window (headed) — backend machine; use headless + live mirror below for in-app view.
+                </label>
+                <label className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                    <input
+                        type="checkbox"
+                        checked={liveMirror}
+                        onChange={(e) => setLiveMirror(e.target.checked)}
+                        className="rounded border-surface-4"
+                    />
+                    Live mirror (Atlas-style): refresh viewport screenshot automatically
+                    <input
+                        type="number"
+                        min={250}
+                        max={5000}
+                        step={50}
+                        value={mirrorMs}
+                        onChange={(e) => setMirrorMs(Number(e.target.value) || 900)}
+                        className="w-24 bg-surface-0 border border-surface-4 rounded-btn px-2 py-1 text-xs text-text-primary"
+                        title="Interval ms"
+                    />
+                    <span className="text-text-muted">ms</span>
+                </label>
                 <div className="flex flex-wrap gap-2">
                     <input
                         value={url}
@@ -143,7 +200,7 @@ export default function AgentBrowser() {
                         onClick={() =>
                             run(
                                 () =>
-                                    agentApi.openBrowserSession({ url, headless: true }).then((data) => {
+                                    agentApi.openBrowserSession({ url, headless: !headedMode }).then((data) => {
                                         if (data?.session_id) setSessionId(data.session_id);
                                         return data;
                                     }),
@@ -425,6 +482,170 @@ export default function AgentBrowser() {
                         </div>
 
                         <div className="flex flex-wrap gap-2 items-center">
+                            <span className="text-xs text-text-secondary">Page scroll (window):</span>
+                            <button
+                                disabled={!sessionId}
+                                onClick={() =>
+                                    run(() => agentApi.browserScrollPage(sessionId, { position: 'top' }), 'Scrolled to top.', {
+                                        refreshState: true,
+                                        refreshShot: true,
+                                        withLinks: false,
+                                    })
+                                }
+                                className="px-3 py-1.5 rounded-btn border border-surface-4 text-text-primary disabled:opacity-40 text-xs"
+                            >
+                                Top
+                            </button>
+                            <button
+                                disabled={!sessionId}
+                                onClick={() =>
+                                    run(() => agentApi.browserScrollPage(sessionId, { position: 'bottom' }), 'Scrolled to bottom.', {
+                                        refreshState: true,
+                                        refreshShot: true,
+                                        withLinks: false,
+                                    })
+                                }
+                                className="px-3 py-1.5 rounded-btn border border-surface-4 text-text-primary disabled:opacity-40 text-xs"
+                            >
+                                Bottom
+                            </button>
+                            <button
+                                disabled={!sessionId}
+                                onClick={() =>
+                                    run(
+                                        () => agentApi.browserScrollPage(sessionId, { delta_y: scrollStep }),
+                                        'Page scroll down.',
+                                        { refreshState: true, refreshShot: true, withLinks: false },
+                                    )
+                                }
+                                className="px-3 py-1.5 rounded-btn border border-surface-4 text-text-primary disabled:opacity-40 text-xs"
+                            >
+                                Page ↓
+                            </button>
+                            <button
+                                disabled={!sessionId}
+                                onClick={() =>
+                                    run(
+                                        () => agentApi.browserScrollIntoView(sessionId, selector),
+                                        'Scrolled selector into view.',
+                                        { refreshState: true, refreshShot: true, withLinks: false },
+                                    )
+                                }
+                                className="px-3 py-1.5 rounded-btn border border-accent-amber/40 text-accent-amber disabled:opacity-40 text-xs"
+                            >
+                                Into view
+                            </button>
+                        </div>
+
+                        <div className="rounded-card border border-surface-4 bg-surface-1 p-3 space-y-2">
+                            <p className="text-xs font-medium text-text-primary">Forms & keys</p>
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <input
+                                    value={selectValue}
+                                    onChange={(e) => setSelectValue(e.target.value)}
+                                    className="w-36 bg-surface-0 border border-surface-4 rounded-btn px-2 py-1 text-xs text-text-primary"
+                                    placeholder="select value"
+                                />
+                                <input
+                                    value={selectLabel}
+                                    onChange={(e) => setSelectLabel(e.target.value)}
+                                    className="w-36 bg-surface-0 border border-surface-4 rounded-btn px-2 py-1 text-xs text-text-primary"
+                                    placeholder="or label"
+                                />
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () => agentApi.browserSelect(sessionId, selector, { value: selectValue, label: selectLabel }),
+                                            'Select option set.',
+                                            { refreshState: true, refreshShot: true, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-surface-4 text-xs disabled:opacity-40"
+                                >
+                                    Select
+                                </button>
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () => agentApi.browserCheck(sessionId, selector, true),
+                                            'Checked.',
+                                            { refreshState: true, refreshShot: true, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-surface-4 text-xs disabled:opacity-40"
+                                >
+                                    Check
+                                </button>
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () => agentApi.browserCheck(sessionId, selector, false),
+                                            'Unchecked.',
+                                            { refreshState: true, refreshShot: true, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-surface-4 text-xs disabled:opacity-40"
+                                >
+                                    Uncheck
+                                </button>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <input
+                                    value={pressKey}
+                                    onChange={(e) => setPressKey(e.target.value)}
+                                    className="w-28 bg-surface-0 border border-surface-4 rounded-btn px-2 py-1 text-xs text-text-primary"
+                                    placeholder="Tab"
+                                />
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () => agentApi.browserPressKey(sessionId, pressKey, selector || ''),
+                                            'Key sent.',
+                                            { refreshState: true, refreshShot: true, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-surface-4 text-xs disabled:opacity-40"
+                                >
+                                    Press key
+                                </button>
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () => agentApi.browserWaitFor(sessionId, selector),
+                                            'Element ready.',
+                                            { refreshState: true, refreshShot: true, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-accent-blue/40 text-accent-blue text-xs disabled:opacity-40"
+                                >
+                                    Wait visible
+                                </button>
+                                <button
+                                    disabled={!sessionId}
+                                    onClick={() =>
+                                        run(
+                                            () =>
+                                                agentApi.getBrowserInteractive(sessionId, 100).then((data) => {
+                                                    setInteractiveFields(Array.isArray(data.fields) ? data.fields : []);
+                                                    return data;
+                                                }),
+                                            'Interactive snapshot loaded.',
+                                            { refreshState: true, refreshShot: false, withLinks: false },
+                                        )
+                                    }
+                                    className="px-2 py-1 rounded-btn border border-accent-green/40 text-accent-green text-xs disabled:opacity-40"
+                                >
+                                    List fields
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 items-center">
                             <span className="text-xs text-text-secondary">Screenshot click mode:</span>
                             <button
                                 onClick={() => setImageClickMode('click')}
@@ -451,7 +672,7 @@ export default function AgentBrowser() {
                                 src={`data:image/png;base64,${screenshotBase64}`}
                                 alt="Browser screenshot"
                                 onClick={onScreenshotClick}
-                                className="max-h-[420px] w-auto block cursor-crosshair"
+                                className={`w-auto block cursor-crosshair ${liveMirror ? 'max-h-[min(72vh,880px)]' : 'max-h-[420px]'}`}
                             />
                             {cursorMarkerStyle && (
                                 <div
@@ -478,6 +699,27 @@ export default function AgentBrowser() {
                                 Viewport: {Math.round(pageState.viewport?.width || 0)} x {Math.round(pageState.viewport?.height || 0)} | Document:{' '}
                                 {Math.round(pageState.document?.width || 0)} x {Math.round(pageState.document?.height || 0)}
                             </p>
+                        </div>
+                    )}
+
+                    {interactiveFields.length > 0 && (
+                        <div className="border border-surface-4 rounded-btn p-3 bg-surface-0 max-h-[220px] overflow-auto">
+                            <h3 className="text-xs font-semibold text-text-primary">Interactive fields</h3>
+                            <p className="text-[10px] text-text-muted mt-1">Click a row to copy selector into the selector field.</p>
+                            <div className="mt-2 space-y-1">
+                                {interactiveFields.map((f, idx) => (
+                                    <button
+                                        key={`${f.selector}-${idx}`}
+                                        type="button"
+                                        onClick={() => setSelector(f.selector)}
+                                        className="w-full text-left rounded-btn border border-surface-4 p-2 text-[10px] hover:bg-surface-2"
+                                    >
+                                        <span className="font-mono text-text-primary">{f.selector}</span>
+                                        <span className="text-text-muted"> · {f.tag}</span>
+                                        {f.label ? <span className="block text-text-secondary truncate">{f.label}</span> : null}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
 

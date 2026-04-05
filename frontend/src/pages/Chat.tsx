@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { Link, useOutletContext } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
 import { useUpload } from '../hooks/useUpload';
@@ -14,6 +14,7 @@ import { detectLikelySystemTask } from '../lib/detectSystemIntent';
 import { consumeSystemTask } from '../lib/systemTaskBridge';
 import { runLocalSystemAgentAuto } from '../lib/localSystemAgentSidecar';
 import { cn } from '../lib/utils';
+import { CHAT_SKILLS_CHANGED, loadChatAutoSkills, loadChatSkillSlugs } from '../lib/chatSkillSelection';
 import type { SpeedMode } from '../lib/types';
 
 interface OutletCtx {
@@ -50,6 +51,8 @@ export default function Chat() {
     const [showSidebar, setShowSidebar] = useState(!isMobile);
     const [showMobileDrawer, setShowMobileDrawer] = useState(false);
     const [showAgentPanel, setShowAgentPanel] = useState(false);
+    const [chatSkillCount, setChatSkillCount] = useState(() => loadChatSkillSlugs().length);
+    const [chatAutoSkills, setChatAutoSkills] = useState(() => loadChatAutoSkills());
     const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant');
     const lastSourceCount = lastAssistantMessage?.sources?.length || 0;
     const lastRouting = lastAssistantMessage?.routing;
@@ -94,6 +97,20 @@ export default function Chat() {
         },
         [runLocalPcFollowUp, sendMessage],
     );
+
+    useEffect(() => {
+        const syncSkills = () => {
+            setChatSkillCount(loadChatSkillSlugs().length);
+            setChatAutoSkills(loadChatAutoSkills());
+        };
+        syncSkills();
+        window.addEventListener(CHAT_SKILLS_CHANGED, syncSkills);
+        window.addEventListener('storage', syncSkills);
+        return () => {
+            window.removeEventListener(CHAT_SKILLS_CHANGED, syncSkills);
+            window.removeEventListener('storage', syncSkills);
+        };
+    }, []);
 
     useEffect(() => {
         const fromChat = consumeQueuedChatPrompt();
@@ -212,6 +229,14 @@ export default function Chat() {
                                 {searchStatus || 'Searching web…'}
                             </span>
                         )}
+                        <span className="text-surface-4">·</span>
+                        <Link to="/skills" className="font-medium text-accent hover:underline">
+                            Skills
+                        </Link>
+                        <span className="text-text-muted">
+                            {' '}
+                            ({chatSkillCount} pinned{chatAutoSkills ? ', auto-match on' : ', auto-match off'})
+                        </span>
                         {lastAssistantMessage && (
                             <>
                                 {lastSourceCount > 0 && (

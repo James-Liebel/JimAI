@@ -66,6 +66,8 @@ export async function streamChat(
     onProgress?: (progress: { searchingWeb?: boolean; searchStatus?: string }) => void,
     modelOverride?: string,
     imageBase64?: string,
+    skillSlugs?: string[],
+    autoSelectSkills?: boolean,
 ): Promise<void> {
     const body: Record<string, unknown> = {
         message,
@@ -77,6 +79,12 @@ export async function streamChat(
     if (imageBase64) {
         body.image = imageBase64;
         body.has_image = true;
+    }
+    if (skillSlugs && skillSlugs.length > 0) {
+        body.skill_slugs = skillSlugs;
+    }
+    if (autoSelectSkills) {
+        body.auto_select_skills = true;
     }
 
     const resp = await fetchWithTimeout(`${BASE}/api/chat`, {

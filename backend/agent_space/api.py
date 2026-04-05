@@ -112,10 +112,24 @@ class RunStartRequest(BaseModel):
     create_git_checkpoint: bool | None = None
     subagents: list[dict[str, Any]] | None = None
     actions: list[dict[str, Any]] | None = None
+    review_scope: str | None = None
 
 
 class StopRunRequest(BaseModel):
     reason: str = ""
+
+
+class AssistBaseRequest(BaseModel):
+    """Cross-surface assist: ephemeral agents planned by the app to analyze or delegate work."""
+
+    question: str = Field(min_length=1, max_length=12000)
+    surface: str = Field(default="general", max_length=64)
+    context: str = Field(default="", max_length=50000)
+    max_agents: int = Field(default=5, ge=2, le=10)
+
+
+class AssistSpawnRunRequest(AssistBaseRequest):
+    autonomous: bool = True
 
 
 class PowerUpdateRequest(BaseModel):
@@ -276,6 +290,7 @@ class SkillUpsertRequest(BaseModel):
     complexity: int = Field(default=3, ge=1, le=5)
     source: str = "custom"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    slug: str | None = Field(default=None, max_length=120)
 
 
 class SkillAutoAddRequest(BaseModel):
@@ -770,6 +785,171 @@ def _fallback_builder_team() -> list[dict[str, Any]]:
             "actions": [{"type": "read_messages", "channel": "handoff"}],
         },
     ]
+
+
+def _fallback_assist_agents(surface: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "context-analyst",
+            "role": "planner",
+            "depends_on": [],
+            "description": f"Interpret the question in the context of UI surface '{surface}' and extract concrete sub-problems.",
+        },
+        {
+            "id": "technical-reviewer",
+            "role": "coder",
+            "depends_on": ["context-analyst"],
+            "description": "Reason about implementation, architecture, risks, and repository-relevant details.",
+        },
+        {
+            "id": "answer-synthesizer",
+            "role": "verifier",
+            "depends_on": ["technical-reviewer"],
+            "description": "Merge findings into a clear, actionable answer for the user.",
+        },
+    ]
+
+
+def _normalize_assist_agent_rows(raw: Any, *, max_agents: int) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in raw[: max(2, max_agents)]:
+        if not isinstance(row, dict):
+            continue
+        agent_id = str(row.get("id") or "").strip()
+        if not agent_id or agent_id in seen:
+            continue
+        role = str(row.get("role") or "coder").strip().lower()
+        if role not in ("planner", "coder", "tester", "verifier"):
+            role = "coder"
+        deps = [str(d).strip() for d in list(row.get("depends_on") or []) if str(d).strip()]
+        desc = str(row.get("description") or "").strip()
+        out.append(
+            {
+                "id": agent_id,
+                "role": role,
+                "depends_on": deps,
+                "description": desc or f"Assist agent {agent_id}",
+            }
+        )
+        seen.add(agent_id)
+    return out
+
+
+async def _generate_assist_team(
+    question: str,
+    surface: str,
+    context: str,
+    model: str,
+    max_agents: int,
+) -> tuple[list[dict[str, Any]], str]:
+    """LLM-planned ephemeral agents + one-line delegate objective; safe fallback."""
+    cap = max(2, min(10, max_agents))
+    plan_prompt = (
+        "You configure ephemeral AI subagents inside jimAI (local FastAPI + React IDE).\n"
+        f'The user is on surface "{surface}" (e.g. chat, builder, self-code, automation, agents).\n'
+        "Return strict JSON only with keys:\n"
+        '  agents: array of { id, role, depends_on, description }\n'
+        '  delegate_objective: one sentence describing what autonomous repo work would accomplish (may be non-code if Q&A only)\n'
+        f"Use between 2 and {cap} agents. Unique ids, acyclic depends_on. "
+        "roles must be one of: planner, coder, tester, verifier.\n\n"
+        f"Question:\n{question}\n\n"
+        f"Optional user/context:\n{context or '(none)'}\n"
+    )
+    delegate = "Clarify and answer the user's question with repository-aware guidance when relevant."
+    try:
+        text = await ollama_client.chat_full(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "user", "content": plan_prompt},
+            ],
+            temperature=0.25,
+        )
+        parsed = _safe_parse_json_object(text) or {}
+        raw_agents = parsed.get("agents") if isinstance(parsed, dict) else None
+        cand = _normalize_assist_agent_rows(raw_agents, max_agents=cap)
+        if len(cand) >= 2:
+            d = str((parsed.get("delegate_objective") if isinstance(parsed, dict) else "") or "").strip()
+            if d:
+                delegate = d
+            return cand, delegate
+    except Exception:
+        logger.warning("assist: failed to plan agents via LLM", exc_info=True)
+    return _fallback_assist_agents(surface), delegate
+
+
+def _assist_specialist_system_preamble(agents: list[dict[str, Any]], surface: str) -> str:
+    lines = [
+        "You are a coordinated panel of specialists answering ONE user question in a single response.",
+        f"Current UI surface: {surface}.",
+        "Specialists (use their perspectives; write as one cohesive answer):",
+    ]
+    for row in agents:
+        aid = str(row.get("id", ""))
+        role = str(row.get("role", ""))
+        desc = str(row.get("description", ""))
+        lines.append(f"- {aid} ({role}): {desc}")
+    lines.append(
+        "Structure: brief per-lens bullets if helpful, then a short merged conclusion. "
+        "Be accurate; if uncertain, say so. Prefer concrete steps for this codebase when relevant."
+    )
+    return "\n".join(lines)
+
+
+async def _stream_assist_analyze(
+    question: str,
+    surface: str,
+    context: str,
+    max_agents: int,
+    request: Request,
+) -> AsyncGenerator[dict[str, Any], None]:
+    settings = settings_store.get()
+    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    agents, delegate_objective = await _generate_assist_team(question, surface, context, model, max_agents)
+    yield {
+        "type": "meta",
+        "model": model,
+        "surface": surface,
+        "agents": [
+            {
+                "id": str(a.get("id", "")),
+                "role": str(a.get("role", "")),
+                "depends_on": list(a.get("depends_on") or []),
+                "description": str(a.get("description", "")),
+            }
+            for a in agents
+        ],
+        "delegate_objective": delegate_objective,
+    }
+    yield {"type": "action", "stage": "answer", "label": "Streaming multi-agent answer…"}
+    user_block = f"Question:\n{question}\n"
+    if context.strip():
+        user_block += f"\nAdditional context:\n{context.strip()}\n"
+    user_block += f"\nIf autonomous coding could help beyond this chat, note: {delegate_objective}"
+    messages = [
+        {"role": "system", "content": _assist_specialist_system_preamble(agents, surface)},
+        {"role": "user", "content": user_block},
+    ]
+    try:
+        async for piece in ollama_client.chat_stream(
+            model=model,
+            messages=messages,
+            temperature=0.35,
+        ):
+            yield {"type": "chunk", "text": piece}
+            if await request.is_disconnected():
+                yield {"type": "stopped", "reason": "client_disconnected"}
+                return
+    except asyncio.CancelledError:
+        yield {"type": "stopped", "reason": "cancelled"}
+        raise
+    except Exception as exc:
+        yield {"type": "error", "message": str(exc)}
+        return
+    yield {"type": "done"}
 
 
 AGENT_PACK_LIBRARY: dict[str, list[dict[str, Any]]] = {
@@ -2146,6 +2326,116 @@ async def self_improve_run(req: SelfImproveRunRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/assist/plan")
+async def assist_plan(req: AssistBaseRequest) -> dict[str, Any]:
+    """Return LLM-planned ephemeral agents for a question (no run started)."""
+    settings = settings_store.get()
+    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    q = req.question.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question is required.")
+    surface = (req.surface or "general").strip() or "general"
+    ctx = (req.context or "").strip()
+    agents, delegate_objective = await _generate_assist_team(q, surface, ctx, model, req.max_agents)
+    return {
+        "model": model,
+        "surface": surface,
+        "agents": agents,
+        "delegate_objective": delegate_objective,
+    }
+
+
+@router.post("/assist/analyze-stream")
+async def assist_analyze_stream(req: AssistBaseRequest, request: Request) -> StreamingResponse:
+    """Stream NDJSON: meta (planned agents), chunks (answer), done."""
+    q = req.question.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question is required.")
+    surface = (req.surface or "general").strip() or "general"
+    ctx = (req.context or "").strip()
+    max_agents = int(req.max_agents)
+
+    async def ndjson() -> AsyncGenerator[bytes, None]:
+        try:
+            async for row in _stream_assist_analyze(q, surface, ctx, max_agents, request):
+                yield (json.dumps(row, ensure_ascii=False) + "\n").encode("utf-8")
+        except asyncio.CancelledError:
+            yield (json.dumps({"type": "stopped", "reason": "server_cancelled"}) + "\n").encode("utf-8")
+            raise
+
+    return StreamingResponse(ndjson(), media_type="application/x-ndjson")
+
+
+@router.post("/assist/spawn-run")
+async def assist_spawn_run(req: AssistSpawnRunRequest, _rl: None = Depends(check_run_rate_limit)) -> dict[str, Any]:
+    """Plan ephemeral agents and start an autonomous Agent Space run (same pipeline as Builder teams)."""
+    settings = settings_store.get()
+    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    q = req.question.strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="question is required.")
+    surface = (req.surface or "general").strip() or "general"
+    ctx = (req.context or "").strip()
+    agents, delegate_objective = await _generate_assist_team(q, surface, ctx, model, req.max_agents)
+    agents_augmented, used_saved_teams, used_agent_packs = _augment_builder_team(
+        agents,
+        prompt=q,
+        context=ctx,
+        use_saved_teams=True,
+        auto_agent_packs=True,
+        max_agents=10,
+    )
+    objective_core = f"[assist:{surface}] {q}"
+    if ctx:
+        objective_core += f"\n\nContext:\n{ctx}"
+    objective_core = objective_core[:8000]
+    team_agents, workflow_meta = orchestrator._normalize_subagents(
+        subagents=agents_augmented,
+        objective=objective_core,
+        required_checks=list(settings.get("required_checks") or []) if isinstance(settings.get("required_checks"), list) else [],
+        payload_actions=[],
+    )
+    full_objective = f"{objective_core}\n\nDelegate: {delegate_objective}"[:10000]
+    ma = int(settings.get("max_actions", 40))
+    ms = int(settings.get("max_seconds", 1200))
+    payload: dict[str, Any] = {
+        "objective": full_objective,
+        "autonomous": bool(req.autonomous),
+        "review_gate": bool(settings.get("review_gate", True)),
+        "allow_shell": bool(settings.get("allow_shell", False)),
+        "command_profile": str(settings.get("command_profile", "safe")),
+        "max_actions": max(12, min(ma, 48)),
+        "max_seconds": max(300, min(ms, 3600)),
+        "team": {
+            "name": f"Assist · {surface}",
+            "description": "Ephemeral team created by cross-surface assist.",
+            "agents": team_agents,
+            "save": False,
+            "metadata": {"source": "assist.spawn-run", "surface": surface, "model": model},
+        },
+        "subagent_retry_attempts": max(0, int(settings.get("subagent_retry_attempts", 2))),
+        "continue_on_subagent_failure": bool(settings.get("continue_on_subagent_failure", True)),
+        "review_scope": "workspace",
+    }
+    if bool(settings.get("run_auto_force_research_enabled", False)):
+        payload["force_research"] = True
+    try:
+        run = await orchestrator.start_run(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "run": run,
+        "surface": surface,
+        "model": model,
+        "delegate_objective": delegate_objective,
+        "used_saved_teams": used_saved_teams,
+        "used_agent_packs": used_agent_packs,
+        "complexity": workflow_meta.get("complexity", {}),
+        "planned_agent_count": len(agents),
+        "team_agent_count": len(team_agents),
+    }
+
+
 @router.post("/builder/clarify")
 async def builder_clarify(req: BuilderClarifyRequest) -> dict[str, Any]:
     settings = settings_store.get()
@@ -2345,6 +2635,7 @@ async def builder_launch(req: BuilderLaunchRequest) -> dict[str, Any]:
         if req.continue_on_subagent_failure is not None
         else settings.get("continue_on_subagent_failure", True)
     )
+    payload["review_scope"] = "workspace"
 
     try:
         run = await orchestrator.start_run(payload)
@@ -2427,6 +2718,7 @@ async def upsert_skill(req: SkillUpsertRequest) -> dict[str, Any]:
         complexity=req.complexity,
         source=req.source,
         metadata=req.metadata,
+        slug=req.slug.strip() if isinstance(req.slug, str) and req.slug.strip() else None,
     )
 
 
@@ -2822,7 +3114,7 @@ async def tools_write(req: ToolWriteRequest) -> dict[str, Any]:
             run_id="manual",
             objective=f"Manual write {rel}",
             changes=[change],
-            metadata={"source": "tools.write"},
+            metadata={"source": "tools.write", "review_scope": "workspace"},
         )
         log_store.increment("reviews_created", 1)
         return {"mode": "review", "review": review}
@@ -2855,7 +3147,7 @@ async def tools_replace(req: ToolReplaceRequest) -> dict[str, Any]:
             run_id="manual",
             objective=f"Manual replace in {rel}",
             changes=[change],
-            metadata={"source": "tools.replace"},
+            metadata={"source": "tools.replace", "review_scope": "workspace"},
         )
         log_store.increment("reviews_created", 1)
         return {"mode": "review", "review": review}

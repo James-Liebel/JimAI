@@ -54,6 +54,9 @@ class ChatRequest(BaseModel):
     model_override: str | None = None
     has_image: bool = False
     image: str | None = None
+    # Agent Space markdown skills (SKILL.md) — injected into system prompt like Claude-style skill packs.
+    skill_slugs: list[str] = []
+    auto_select_skills: bool = False
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -628,6 +631,8 @@ async def _stream_chat(
     model_override: str | None = None,
     has_image: bool = False,
     image_b64: str | None = None,
+    skill_slugs: list[str] | None = None,
+    auto_select_skills: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Core streaming logic — RAG retrieval → prompt build → Ollama stream."""
 
@@ -782,6 +787,39 @@ async def _stream_chat(
     cx_block = cross_chat_memory.get_prompt_block()
     if cx_block:
         system_prompt = f"{system_prompt}\n\n{cx_block}"
+
+    # Markdown skills from Agent Space (manual selection + optional auto-match on user message).
+    try:
+        from agent_space.runtime import skill_store as _agent_skill_store
+
+        skills_for_prompt: list[dict] = []
+        seen_skill_slugs: set[str] = set()
+        for raw in list(skill_slugs or []):
+            sid = str(raw or "").strip()
+            if not sid or sid in seen_skill_slugs:
+                continue
+            loaded = _agent_skill_store.get_skill(sid)
+            if isinstance(loaded, dict) and loaded.get("slug"):
+                skills_for_prompt.append(dict(loaded))
+                seen_skill_slugs.add(str(loaded.get("slug")))
+        if auto_select_skills:
+            for loaded in _agent_skill_store.select_for_objective(message, limit=8):
+                if not isinstance(loaded, dict):
+                    continue
+                sid = str(loaded.get("slug") or "")
+                if sid and sid not in seen_skill_slugs:
+                    skills_for_prompt.append(dict(loaded))
+                    seen_skill_slugs.add(sid)
+        if skills_for_prompt:
+            skill_ctx = _agent_skill_store.build_context(skills_for_prompt, max_chars=10000)
+            if skill_ctx.strip():
+                system_prompt = (
+                    f"{system_prompt}\n\n## Active skills\n"
+                    "Apply these reusable procedures when they improve accuracy or consistency:\n"
+                    f"{skill_ctx}"
+                )
+    except Exception:
+        logger.debug("Chat skill injection skipped", exc_info=True)
 
     # Strong context window: cap messages + characters; avoid duplicating the current user turn
     raw_hist = history if history else session_store.get_history(session_id)
@@ -1073,6 +1111,8 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             model_override=req.model_override,
             has_image=req.has_image,
             image_b64=req.image,
+            skill_slugs=list(req.skill_slugs or []),
+            auto_select_skills=bool(req.auto_select_skills),
         ),
         media_type="text/event-stream",
         headers={

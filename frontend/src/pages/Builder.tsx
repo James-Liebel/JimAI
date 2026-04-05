@@ -6,6 +6,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getGitHubStatus } from '../lib/githubApi';
 import GitHubPanel from '../components/GitHubPanel';
+import { ReviewBoard } from '../components/review/ReviewBoard';
 import { BuilderCommandPalette, type BuilderPaletteAction } from '../components/builder/BuilderCommandPalette';
 import { BuilderStatusBar } from '../components/builder/BuilderStatusBar';
 import { isShortcutFocusInEditorField } from '../components/builder/builderShortcutGate';
@@ -225,18 +226,6 @@ export default function Builder() {
             .catch(() => setStatusBarBranch(''));
     }, []);
 
-    const refreshTree = useCallback(async () => {
-        setLoadingTree(true);
-        try {
-            setTreeData(await agentApi.listRepoTree('.', 12, 30000, false));
-            refreshStatusBranch();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load file tree.');
-        } finally {
-            setLoadingTree(false);
-        }
-    }, [refreshStatusBranch]);
-
     const rightTreePathForFetch = useMemo(() => {
         if (rightTreeScope === 'hidden') return null;
         if (rightTreeScope === 'workspace') return '.';
@@ -258,6 +247,19 @@ export default function Builder() {
             setRightTreeLoading(false);
         }
     }, [rightTreePathForFetch]);
+
+    const refreshTree = useCallback(async () => {
+        setLoadingTree(true);
+        try {
+            setTreeData(await agentApi.listRepoTree('.', 12, 30000, false));
+            refreshStatusBranch();
+            await refreshRightTree();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load file tree.');
+        } finally {
+            setLoadingTree(false);
+        }
+    }, [refreshRightTree, refreshStatusBranch]);
 
     const toggleExplorerDir = useCallback((path: string) => {
         setExplorerExpandedDirs((prev) => {
@@ -1201,7 +1203,7 @@ export default function Builder() {
                                 </div>
                                 <div className="min-h-0 flex-1 overflow-auto p-2">
                                     {treeData ? (
-                                        <FileTreeNode node={treeData.tree} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
+                                        <FileTreeNode node={treeData.tree} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} expandedDirs={explorerExpandedDirs} onToggleDir={toggleExplorerDir} showCreateActions />
                                     ) : (
                                         <p className="px-2 py-3 text-xs text-text-secondary">Loading repository tree…</p>
                                     )}
@@ -1242,7 +1244,7 @@ export default function Builder() {
                                         </div>
                                         <div className="min-h-0 flex-1 overflow-auto p-2">
                                             {treeData && searchFilteredTreeRoot ? (
-                                                <FileTreeNode node={searchFilteredTreeRoot} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} />
+                                                <FileTreeNode node={searchFilteredTreeRoot} depth={0} selectedDirectory={selectedDirectory} selectedFilePath={activeTab?.path || ''} pendingCreate={pendingCreate} onOpenFile={openFile} onSelectDirectory={setSelectedDirectory} onRequestCreate={(parentPath, kind) => setPendingCreate({ parentPath, kind, value: '' })} onChangePendingValue={(value) => setPendingCreate((prev) => prev ? { ...prev, value } : prev)} onCreate={createWorkspaceNode} onCancelCreate={() => setPendingCreate(null)} creatingNode={creatingNode} writeMode={editorWriteMode} expandedDirs={explorerExpandedDirs} onToggleDir={toggleExplorerDir} showCreateActions />
                                             ) : treeData && sidebarSearchQuery.trim() && !searchFilteredTreeRoot ? (
                                                 <p className="px-2 py-3 text-xs text-text-secondary">No matches.</p>
                                             ) : !treeData ? (
@@ -1300,14 +1302,23 @@ export default function Builder() {
                             </div>
                         )}
                         {sidebarTab === 'source-control' && !showGitHubModal && (
-                            <div className="flex min-h-0 flex-1 flex-col">
-                                <GitHubPanel
-                                    open
-                                    variant="embedded"
-                                    onClose={() => setSidebarOpen(false)}
-                                    onRepositoryChanged={refreshTree}
-                                    onExpandToModal={() => setShowGitHubModal(true)}
-                                />
+                            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                                <div className="flex min-h-0 flex-[1_1_52%] flex-col overflow-hidden border-b border-[#2A2A30]">
+                                    <ReviewBoard
+                                        scope="workspace"
+                                        variant="embedded"
+                                        onOpenInEditor={(review, path) => openReviewDiff(review, path)}
+                                    />
+                                </div>
+                                <div className="flex min-h-0 flex-[1_1_48%] flex-col overflow-hidden">
+                                    <GitHubPanel
+                                        open
+                                        variant="embedded"
+                                        onClose={() => setSidebarOpen(false)}
+                                        onRepositoryChanged={refreshTree}
+                                        onExpandToModal={() => setShowGitHubModal(true)}
+                                    />
+                                </div>
                             </div>
                         )}
                     </aside>
@@ -1610,57 +1621,130 @@ export default function Builder() {
                 )}
                 {rightPanelOpen && (
                 <aside className="flex shrink-0 flex-col border-l border-[#2A2A30] bg-[#111113]" style={{ width: rightWidth }}>
-                    <div className="border-b border-[#2A2A30] px-3 py-2.5">
-                        <p className="text-[13px] font-semibold text-text-primary">Build &amp; Agents</p>
-                        <p className="mt-0.5 text-[11px] text-text-muted">Objective, team, and reviews</p>
+                    <div className="flex shrink-0 items-center justify-between border-b border-[#2A2A30] px-3 py-2">
+                        <div className="min-w-0">
+                            <p className="truncate text-[12px] font-semibold text-text-primary">Agent</p>
+                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} agents · {runReviews.length} reviews</p>
+                        </div>
+                        <Bot className="h-4 w-4 shrink-0 text-accent/80" aria-hidden />
                     </div>
-                    <div className="flex gap-1.5 border-b border-[#2A2A30] px-3 py-2">
-                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Agents</p>
-                            <p className="truncate text-sm font-semibold text-text-primary">{visualNodes.length || previewNodes.length || 0}</p>
-                        </div>
-                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Run</p>
-                            <p className="truncate text-sm font-semibold text-text-primary">{runStatus || 'idle'}</p>
-                        </div>
-                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Reviews</p>
-                            <p className="truncate text-sm font-semibold text-text-primary">{runReviews.length}</p>
-                        </div>
-                    </div>
-                    <div className="min-h-0 flex-1 space-y-2.5 overflow-auto p-3">
-                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
-                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Task</p>
-                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-2 text-sm text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]" placeholder="Describe the app to build" />
-                            <textarea rows={3} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]" placeholder="Optional context, constraints, or acceptance criteria" />
-                            <div className="mt-2.5 flex gap-2">
-                                <button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-btn bg-[#3B82F6] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50">{loadingLaunch ? 'Launching…' : 'Start Build'}</button>
-                                <button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-btn border border-[#EF4444]/40 px-3 py-2 text-xs font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10 disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button>
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <div className="flex shrink-0 flex-col gap-2 border-b border-[#2A2A30] p-3">
+                            <div className="flex gap-2">
+                                <label className="sr-only" htmlFor="builder-agent-target">Agent</label>
+                                <select id="builder-agent-target" value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="min-w-0 flex-1 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]">
+                                    <option value="">Agent</option>
+                                    {agentIds.map((id) => <option key={id} value={id}>{id}</option>)}
+                                </select>
+                                <label className="sr-only" htmlFor="builder-composer-slot">Composer</label>
+                                <select id="builder-composer-slot" value={builderComposerSlot} onChange={(e) => setBuilderComposerSlot(e.target.value === '2' ? '2' : '1')} className="w-[104px] shrink-0 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]">
+                                    <option value="1">Composer 1</option>
+                                    <option value="2">Composer 2</option>
+                                </select>
                             </div>
-                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-badge border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2 py-0.5 text-[11px] text-[#3B82F6]">{skill.name}</span>)}</div>}
-                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer font-medium text-text-primary hover:text-accent">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-2 font-mono text-[10px]">{recommendedSkillContext}</pre></details>}
-                        </div>
-                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
-                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Current Team</p>
-                            <div className="space-y-1.5">{visualNodes.length === 0 ? <p className="text-xs text-text-muted">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-btn border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{node.id}</p><p className="mt-0.5 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-badge border border-[#2A2A30] px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
-                        </div>
-                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
-                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Agent Messages</p>
-                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
-                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
-                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Tell the active team what to change, prioritize, or verify." />
-                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-btn border border-[#3B82F6]/40 px-3 py-2 text-xs font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
-                        </div>
-                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Review Diffs</p>
-                                {loadingReviews && <span className="text-[11px] text-text-muted">Loading…</span>}
+                            <textarea
+                                rows={6}
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        launchBuild().catch(() => undefined);
+                                    }
+                                }}
+                                className="min-h-[112px] w-full resize-y rounded-md border border-[#2A2A30] bg-[#0F0F12] px-3 py-2 text-[13px] leading-relaxed text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
+                                placeholder="Describe the app to build"
+                            />
+                            <details className="text-[11px] text-text-secondary">
+                                <summary className="cursor-pointer select-none font-medium text-text-muted hover:text-text-primary">Optional context</summary>
+                                <textarea rows={3} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Constraints, acceptance criteria, links…" />
+                            </details>
+                            {recommendedSkills.length > 0 && (
+                                <div className="flex flex-wrap gap-1">{recommendedSkills.slice(0, 5).map((skill) => <span key={skill.slug} className="rounded border border-[#3B82F6]/25 bg-[#3B82F6]/8 px-1.5 py-0.5 text-[10px] text-[#93C5FD]">{skill.name}</span>)}</div>
+                            )}
+                            {recommendedSkillContext && (
+                                <details className="text-[11px] text-text-secondary">
+                                    <summary className="cursor-pointer font-medium text-text-primary hover:text-accent">Skill context</summary>
+                                    <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2 font-mono text-[10px]">{recommendedSkillContext}</pre>
+                                </details>
+                            )}
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    aria-label={loadingLaunch ? 'Launching autonomous build' : 'Start autonomous build'}
+                                    onClick={() => launchBuild().catch(() => undefined)}
+                                    disabled={loadingLaunch}
+                                    className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-[#3B82F6] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50"
+                                >
+                                    <span>{loadingLaunch ? 'Launching...' : 'Start Build'}</span>
+                                    <ArrowUpCircle className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
+                                </button>
+                                <button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="shrink-0 rounded-md border border-[#EF4444]/40 px-2.5 py-2 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10 disabled:opacity-50">{loadingStop ? 'Stopping...' : 'Stop'}</button>
                             </div>
-                            <div className="space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-muted">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-btn border border-[#2A2A30] bg-[#1A1A1E] p-2.5"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{review.objective}</p><p className="mt-0.5 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="font-mono text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-badge border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-2 flex gap-1.5"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-badge border border-[#3B82F6]/35 px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-badge border border-[#22C55E]/35 px-2 py-0.5 text-[11px] font-medium text-[#22C55E] transition-colors hover:bg-[#22C55E]/10">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-badge border border-[#EF4444]/35 px-2 py-0.5 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10">Undo</button></div></div>)}</div>
+                            {runReviews.length > 0 && (
+                                <button type="button" onClick={focusPrimaryReview} className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-[#3B82F6]/35 hover:text-text-primary">Review</button>
+                            )}
                         </div>
-                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
-                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Recent Runs</p>
-                            <div className="space-y-1.5">{runs.length === 0 ? <p className="text-xs text-text-muted">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-btn border p-2 text-left transition-colors', runId === row.id ? 'border-[#3B82F6]/40 bg-[#3B82F6]/8' : 'border-[#2A2A30] hover:border-[#3A3A40] hover:bg-[#1A1A1E]')}><p className="truncate text-xs font-medium text-text-primary">{row.objective}</p><p className="mt-0.5 font-mono text-[10px] text-text-muted">{row.status} · {row.action_count} actions</p></button>)}</div>
+                        <details className="shrink-0 border-b border-[#2A2A30]">
+                            <summary className="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-text-muted hover:text-text-primary">Team, messages &amp; history</summary>
+                            <div className="max-h-64 space-y-2 overflow-y-auto px-3 pb-3">
+                                <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
+                                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Current team</p>
+                                    <div className="space-y-1.5">{visualNodes.length === 0 ? <p className="text-xs text-text-muted">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-md border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{node.id}</p><p className="mt-0.5 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-badge border border-[#2A2A30] px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
+                                </div>
+                                <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
+                                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Agent messages</p>
+                                    <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
+                                    <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Tell the active team what to change, prioritize, or verify." />
+                                    <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-md border border-[#3B82F6]/40 px-3 py-2 text-xs font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send agent task'}</button>
+                                </div>
+                                <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Review diffs</p>
+                                        {loadingReviews && <span className="text-[11px] text-text-muted">Loading…</span>}
+                                    </div>
+                                    <div className="space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-muted">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-md border border-[#2A2A30] bg-[#1A1A1E] p-2.5"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{review.objective}</p><p className="mt-0.5 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="font-mono text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-badge border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-2 flex gap-1.5"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-badge border border-[#3B82F6]/35 px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-badge border border-[#22C55E]/35 px-2 py-0.5 text-[11px] font-medium text-[#22C55E] transition-colors hover:bg-[#22C55E]/10">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-badge border border-[#EF4444]/35 px-2 py-0.5 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10">Undo</button></div></div>)}</div>
+                                </div>
+                                <div className="rounded-md border border-[#2A2A30] bg-[#0A0A0B] p-2.5">
+                                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">Recent runs</p>
+                                    <div className="space-y-1.5">{runs.length === 0 ? <p className="text-xs text-text-muted">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-md border p-2 text-left transition-colors', runId === row.id ? 'border-[#3B82F6]/40 bg-[#3B82F6]/8' : 'border-[#2A2A30] hover:border-[#3A3A40] hover:bg-[#1A1A1E]')}><p className="truncate text-xs font-medium text-text-primary">{row.objective}</p><p className="mt-0.5 font-mono text-[10px] text-text-muted">{row.status} · {row.action_count} actions</p></button>)}</div>
+                                </div>
+                            </div>
+                        </details>
+                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-[#2A2A30]">
+                            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#2A2A30] px-2 py-1.5">
+                                <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Files</span>
+                                <select value={rightTreeScope} onChange={(e) => setRightTreeScope(e.target.value as 'hidden' | 'workspace' | 'open_file')} className="max-w-[140px] rounded border border-[#2A2A30] bg-[#1A1A1E] px-1.5 py-0.5 text-[10px] text-text-primary outline-none">
+                                    <option value="hidden">Hidden</option>
+                                    <option value="workspace">Workspace root</option>
+                                    <option value="open_file">Open file folder</option>
+                                </select>
+                            </div>
+                            <div className="min-h-0 flex-1 overflow-auto px-1 py-1">
+                                {rightTreeScope === 'hidden' && <p className="px-2 py-2 text-[11px] leading-snug text-text-muted">No file tree. Choose workspace root or open a file and select &quot;Open file folder&quot; for a Cursor-style tree scoped to that path.</p>}
+                                {rightTreeScope === 'open_file' && activeTab?.type !== 'file' && <p className="px-2 py-2 text-[11px] text-text-muted">Open a file in the editor to show its folder.</p>}
+                                {rightTreeLoading && <p className="px-2 py-2 text-[11px] text-text-muted">Loading tree…</p>}
+                                {!rightTreeLoading && rightTreeData?.tree && rightTreePathForFetch && (
+                                    <FileTreeNode
+                                        node={rightTreeData.tree}
+                                        depth={0}
+                                        selectedDirectory={selectedDirectory}
+                                        selectedFilePath={activeTab?.type === 'file' ? activeTab.path : ''}
+                                        pendingCreate={null}
+                                        onOpenFile={openFile}
+                                        onSelectDirectory={setSelectedDirectory}
+                                        onRequestCreate={() => { /* read-only */ }}
+                                        onChangePendingValue={() => { /* read-only */ }}
+                                        onCreate={() => { /* read-only */ }}
+                                        onCancelCreate={() => { /* read-only */ }}
+                                        creatingNode={false}
+                                        writeMode={editorWriteMode}
+                                        expandedDirs={rightExpandedDirs}
+                                        onToggleDir={toggleRightDir}
+                                        showCreateActions={false}
+                                    />
+                                )}
+                            </div>
                         </div>
                     </div>
                 </aside>
@@ -1770,19 +1854,230 @@ export default function Builder() {
     );
 }
 
-function FileTreeNode({ node, depth, selectedDirectory, selectedFilePath, pendingCreate, onOpenFile, onSelectDirectory, onRequestCreate, onChangePendingValue, onCreate, onCancelCreate, creatingNode, writeMode }: { node: agentApi.RepoTreeNode; depth: number; selectedDirectory: string; selectedFilePath: string; pendingCreate: PendingCreate | null; onOpenFile: (path: string) => void; onSelectDirectory: (path: string) => void; onRequestCreate: (parentPath: string, kind: 'file' | 'folder') => void; onChangePendingValue: (value: string) => void; onCreate: () => void | Promise<void>; onCancelCreate: () => void; creatingNode: boolean; writeMode: 'direct' | 'review'; }) {
+type FileTreeNodeProps = {
+    node: agentApi.RepoTreeNode;
+    depth: number;
+    selectedDirectory: string;
+    selectedFilePath: string;
+    pendingCreate: PendingCreate | null;
+    onOpenFile: (path: string) => void;
+    onSelectDirectory: (path: string) => void;
+    onRequestCreate: (parentPath: string, kind: 'file' | 'folder') => void;
+    onChangePendingValue: (value: string) => void;
+    onCreate: () => void | Promise<void>;
+    onCancelCreate: () => void;
+    creatingNode: boolean;
+    writeMode: 'direct' | 'review';
+    expandedDirs?: Set<string>;
+    onToggleDir?: (path: string) => void;
+    showCreateActions?: boolean;
+};
+
+function FileTreeNode({
+    node,
+    depth,
+    selectedDirectory,
+    selectedFilePath,
+    pendingCreate,
+    onOpenFile,
+    onSelectDirectory,
+    onRequestCreate,
+    onChangePendingValue,
+    onCreate,
+    onCancelCreate,
+    creatingNode,
+    writeMode,
+    expandedDirs,
+    onToggleDir,
+    showCreateActions = true,
+}: FileTreeNodeProps) {
     if (node.type === 'file') {
-        return <button type="button" onClick={() => onOpenFile(node.path)} className={cn('flex w-full items-center rounded-none px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 10}px` }}><span className="truncate">{node.name}</span></button>;
+        return (
+            <button
+                type="button"
+                onClick={() => onOpenFile(node.path)}
+                className={cn('flex w-full items-center rounded-none px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')}
+                style={{ paddingLeft: `${depth * 14 + 10}px` }}
+            >
+                <span className="truncate">{node.name}</span>
+            </button>
+        );
     }
     const children = Array.isArray(node.children) ? node.children : [];
     const isSelected = selectedDirectory === node.path;
     const showInlineCreate = pendingCreate?.parentPath === node.path;
+    const controlled = expandedDirs != null && onToggleDir != null;
+    const isOpen = controlled
+        ? expandedDirs.has(node.path)
+        : depth < 1 || selectedDirectory.startsWith(node.path === '.' ? '' : `${node.path}/`) || isSelected;
+
+    const rowPad = `${depth * 14 + 8}px`;
+    const createRow = showInlineCreate && (
+        <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}>
+            <div className="rounded-none border border-surface-4 bg-surface-0 p-2">
+                <p className="text-[10px] text-text-secondary">
+                    New {pendingCreate!.kind} in {pendingCreate!.parentPath} · {writeMode === 'review' && pendingCreate!.kind === 'file' ? 'submit to review' : 'write directly'}
+                </p>
+                <input
+                    value={pendingCreate!.value}
+                    onChange={(e) => onChangePendingValue(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') onCreate();
+                        if (e.key === 'Escape') onCancelCreate();
+                    }}
+                    className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none"
+                    placeholder={`Enter ${pendingCreate!.kind} name`}
+                />
+                <div className="mt-2 flex gap-2">
+                    <button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-none border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">
+                        {creatingNode ? (writeMode === 'review' && pendingCreate!.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate!.kind === 'file' ? 'Submit Review' : 'Create'}
+                    </button>
+                    <button type="button" onClick={onCancelCreate} className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    if (controlled) {
+        return (
+            <div className="mb-0.5">
+                <div className={cn('flex items-center gap-0.5 rounded-none py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary')} style={{ paddingLeft: rowPad }}>
+                    <button
+                        type="button"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-3 hover:text-text-primary"
+                        aria-expanded={isOpen}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleDir(node.path);
+                        }}
+                    >
+                        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', isOpen && 'rotate-90')} aria-hidden />
+                    </button>
+                    <button type="button" onClick={() => onSelectDirectory(node.path)} className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left hover:bg-surface-2/80">
+                        {node.name}
+                    </button>
+                    {showCreateActions && (
+                        <span className="flex shrink-0 items-center gap-0.5 pr-1">
+                            <button
+                                type="button"
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onSelectDirectory(node.path);
+                                    onRequestCreate(node.path, 'file');
+                                }}
+                                className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
+                                title="New file"
+                            >
+                                +F
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onSelectDirectory(node.path);
+                                    onRequestCreate(node.path, 'folder');
+                                }}
+                                className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
+                                title="New folder"
+                            >
+                                +D
+                            </button>
+                        </span>
+                    )}
+                </div>
+                {isOpen && (
+                    <div className="mt-0.5">
+                        {createRow}
+                        {children.map((child) => (
+                            <FileTreeNode
+                                key={`${child.path}-${child.name}`}
+                                node={child}
+                                depth={depth + 1}
+                                selectedDirectory={selectedDirectory}
+                                selectedFilePath={selectedFilePath}
+                                pendingCreate={pendingCreate}
+                                onOpenFile={onOpenFile}
+                                onSelectDirectory={onSelectDirectory}
+                                onRequestCreate={onRequestCreate}
+                                onChangePendingValue={onChangePendingValue}
+                                onCreate={onCreate}
+                                onCancelCreate={onCancelCreate}
+                                creatingNode={creatingNode}
+                                writeMode={writeMode}
+                                expandedDirs={expandedDirs}
+                                onToggleDir={onToggleDir}
+                                showCreateActions={showCreateActions}
+                            />
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
-        <details open={depth < 1 || selectedDirectory.startsWith(node.path === '.' ? '' : `${node.path}/`) || isSelected} className="mb-0.5">
-            <summary className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-none px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')} style={{ paddingLeft: `${depth * 14 + 8}px` }} onClick={() => onSelectDirectory(node.path)}><span className="truncate">{node.name}</span><span className="flex shrink-0 items-center gap-1"><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'file'); }} className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New file">+F</button><button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); onSelectDirectory(node.path); onRequestCreate(node.path, 'folder'); }} className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary" title="New folder">+D</button></span></summary>
+        <details open={isOpen} className="mb-0.5">
+            <summary
+                className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-none px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')}
+                style={{ paddingLeft: rowPad }}
+                onClick={() => onSelectDirectory(node.path)}
+            >
+                <span className="truncate">{node.name}</span>
+                {showCreateActions && (
+                    <span className="flex shrink-0 items-center gap-1">
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onSelectDirectory(node.path);
+                                onRequestCreate(node.path, 'file');
+                            }}
+                            className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
+                            title="New file"
+                        >
+                            +F
+                        </button>
+                        <button
+                            type="button"
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onSelectDirectory(node.path);
+                                onRequestCreate(node.path, 'folder');
+                            }}
+                            className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
+                            title="New folder"
+                        >
+                            +D
+                        </button>
+                    </span>
+                )}
+            </summary>
             <div className="mt-0.5">
-                {showInlineCreate && <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}><div className="rounded-none border border-surface-4 bg-surface-0 p-2"><p className="text-[10px] text-text-secondary">New {pendingCreate.kind} in {pendingCreate.parentPath} · {writeMode === 'review' && pendingCreate.kind === 'file' ? 'submit to review' : 'write directly'}</p><input value={pendingCreate.value} onChange={(e) => onChangePendingValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') onCreate(); if (e.key === 'Escape') onCancelCreate(); }} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none" placeholder={`Enter ${pendingCreate.kind} name`} /><div className="mt-2 flex gap-2"><button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-none border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">{creatingNode ? (writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate.kind === 'file' ? 'Submit Review' : 'Create'}</button><button type="button" onClick={onCancelCreate} className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">Cancel</button></div></div></div>}
-                {children.map((child) => <FileTreeNode key={`${child.path}-${child.name}`} node={child} depth={depth + 1} selectedDirectory={selectedDirectory} selectedFilePath={selectedFilePath} pendingCreate={pendingCreate} onOpenFile={onOpenFile} onSelectDirectory={onSelectDirectory} onRequestCreate={onRequestCreate} onChangePendingValue={onChangePendingValue} onCreate={onCreate} onCancelCreate={onCancelCreate} creatingNode={creatingNode} writeMode={writeMode} />)}
+                {createRow}
+                {children.map((child) => (
+                    <FileTreeNode
+                        key={`${child.path}-${child.name}`}
+                        node={child}
+                        depth={depth + 1}
+                        selectedDirectory={selectedDirectory}
+                        selectedFilePath={selectedFilePath}
+                        pendingCreate={pendingCreate}
+                        onOpenFile={onOpenFile}
+                        onSelectDirectory={onSelectDirectory}
+                        onRequestCreate={onRequestCreate}
+                        onChangePendingValue={onChangePendingValue}
+                        onCreate={onCreate}
+                        onCancelCreate={onCancelCreate}
+                        creatingNode={creatingNode}
+                        writeMode={writeMode}
+                    />
+                ))}
             </div>
         </details>
     );

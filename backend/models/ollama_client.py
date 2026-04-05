@@ -106,13 +106,20 @@ def _build_chat_messages(
     system: str = "",
     images: list[str] | None = None,
     max_history_turns: int = 20,
+    max_total_chars: int | None = None,
 ) -> list[dict]:
     """Build messages for /api/chat: system + capped history + current user message."""
     messages: list[dict] = []
     if system:
         messages.append({"role": "system", "content": system})
     # Use last N messages so the model sees recent context without overflowing
-    capped = history[-max_history_turns:] if len(history) > max_history_turns else history
+    capped = history[-max_history_turns:] if len(history) > max_history_turns else list(history)
+    if max_total_chars is not None and max_total_chars > 0:
+        while len(capped) > 2:
+            total = sum(len(str(m.get("content") or "")) for m in capped)
+            if total <= max_total_chars:
+                break
+            capped = capped[1:]
     for m in capped:
         role = m.get("role")
         content = m.get("content") or ""

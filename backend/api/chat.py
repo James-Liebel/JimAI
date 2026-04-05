@@ -25,6 +25,7 @@ from config.settings import (
     JUDGE_MODEL_ROLE,
     OLLAMA_NPU_BASE_URL,
 )
+from memory import chat_context, chat_memory_jobs, cross_chat_memory
 from memory import vectordb, session as session_store
 from memory import chat_store
 from models import ollama_client
@@ -33,6 +34,15 @@ from models.router import get_model_config, get_current_model, set_current_model
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+def _schedule_memory_update(session_id: str, user_msg: str, assistant_msg: str) -> None:
+    try:
+        snap = chat_memory_jobs.normalize_snapshot(session_store.get_history(session_id))
+        chat_memory_jobs.schedule_after_turn(session_id, user_msg, assistant_msg, snap)
+    except Exception:
+        logger.debug("memory schedule skipped", exc_info=True)
+
 
 # ── Request / Response Schemas ─────────────────────────────────────────
 
@@ -764,8 +774,20 @@ async def _stream_chat(
     # Store user message in this chat's session only (history is per-chat; other chats stay saved but unused here)
     session_store.add_message(session_id, "user", message, mode)
 
-    # Use history for this chat only: request history if provided, else server-side session for this session_id
-    history_for_chat = history if history else session_store.get_history(session_id)
+    # Per-chat rolling summary + cross-chat bullets (file-backed) in system prompt
+    sess = session_store.get_session(session_id)
+    roll = str(sess.get("rolling_summary") or "").strip()
+    if roll:
+        system_prompt = f"{system_prompt}{chat_context.build_system_context_extension(roll)}"
+    cx_block = cross_chat_memory.get_prompt_block()
+    if cx_block:
+        system_prompt = f"{system_prompt}\n\n{cx_block}"
+
+    # Strong context window: cap messages + characters; avoid duplicating the current user turn
+    raw_hist = history if history else session_store.get_history(session_id)
+    norm = chat_context.normalize_history_messages(raw_hist)
+    norm = chat_context.strip_trailing_user_matching_message(norm, message)
+    history_for_model = chat_context.apply_context_window(norm)
 
     routing_info = {
         "primary_model": routing.primary_model,
@@ -786,6 +808,10 @@ async def _stream_chat(
         "auto_web_research_fetched_pages": int(auto_research_meta.get("fetched_pages", 0)),
         "auto_web_research_domain_count": int(auto_research_meta.get("domain_count", 0)),
         "auto_web_research_query_count": len(list(auto_research_meta.get("queries") or [])),
+        "context_window_messages": len(history_for_model),
+        "context_window_chars": sum(len(m["content"]) for m in history_for_model),
+        "cross_chat_memory_active": bool(cx_block),
+        "rolling_summary_active": bool(roll),
     }
 
     # ── Hybrid pipeline execution ──────────────────────────────────────
@@ -864,6 +890,7 @@ async def _stream_chat(
             stale_response_corrected = True
             yield f"data: {json.dumps({'text': '\\n\\n[Live-source correction]\\n' + hybrid_response, 'done': False, 'model': synth_config.model})}\n\n"
         session_store.add_message(session_id, "assistant", hybrid_response, mode)
+        _schedule_memory_update(session_id, message, hybrid_response)
         routing_info["stale_response_corrected"] = stale_response_corrected
         yield f"data: {json.dumps({'text': '', 'done': True, 'sources': sources, 'routing': routing_info})}\n\n"
         return
@@ -879,7 +906,12 @@ async def _stream_chat(
         judge_config = get_model_config(judge_role)
         images = [image_b64] if image_b64 and mode == "vision" else None
         chat_messages_compare = ollama_client._build_chat_messages(
-            history_for_chat, augmented_prompt, system=system_prompt, images=images, max_history_turns=20
+            history_for_model,
+            augmented_prompt,
+            system=system_prompt,
+            images=images,
+            max_history_turns=chat_context.CHAT_MAX_HISTORY_MESSAGES,
+            max_total_chars=chat_context.CHAT_MAX_HISTORY_CHARS,
         )
         # Run model A (GPU) and B (NPU if OLLAMA_NPU_BASE_URL set, else GPU)
         response_a = await ollama_client.chat_full(
@@ -922,6 +954,7 @@ async def _stream_chat(
             stale_response_corrected = True
             yield f"data: {json.dumps({'text': '\\n\\n[Live-source correction]\\n' + full_response_str, 'done': False, 'model': judge_config.model})}\n\n"
         session_store.add_message(session_id, "assistant", full_response_str, mode)
+        _schedule_memory_update(session_id, message, full_response_str)
         routing_info["compare_models"] = [cfg_a.model, cfg_b.model]
         routing_info["compare_pipeline_roles"] = [role_a, role_b, judge_role]
         routing_info["judge_model"] = judge_config.model
@@ -941,11 +974,12 @@ async def _stream_chat(
     params = get_inference_params(mode, speed_mode)
     images = [image_b64] if image_b64 and mode == "vision" else None
     chat_messages = ollama_client._build_chat_messages(
-        history_for_chat,
+        history_for_model,
         augmented_prompt,
         system=system_prompt,
         images=images,
-        max_history_turns=20,
+        max_history_turns=chat_context.CHAT_MAX_HISTORY_MESSAGES,
+        max_total_chars=chat_context.CHAT_MAX_HISTORY_CHARS,
     )
 
     consistency_meta: dict = {}
@@ -1017,6 +1051,7 @@ async def _stream_chat(
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
 
     session_store.add_message(session_id, "assistant", full_response_str, mode)
+    _schedule_memory_update(session_id, message, full_response_str)
     routing_info["stale_response_corrected"] = stale_response_corrected
 
     if OLLAMA_NPU_BASE_URL and LAYERED_REVIEW_ENABLED and review_text:

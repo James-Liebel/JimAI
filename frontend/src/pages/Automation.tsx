@@ -24,12 +24,12 @@ type FlowNodeData = {
 };
 
 const FLOW_NODE_LIBRARY: Record<FlowKind, { title: string; nodeType: string; color: string; description: string }> = {
-    trigger: { title: 'Trigger', nodeType: 'jimai.trigger.manual', color: '#6f6f6f', description: 'Entry point.' },
-    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#9f9f9f', description: 'Transform payload.' },
-    logic: { title: 'Logic', nodeType: 'jimai.logic.condition', color: '#bfbfbf', description: 'Conditional gate.' },
-    ai: { title: 'Local AI', nodeType: 'jimai.ai.ollama', color: '#dfdfdf', description: 'Local Ollama node.' },
-    integration: { title: 'Integration', nodeType: 'jimai.integration.http', color: '#f0f0f0', description: 'HTTP integration.' },
-    research: { title: 'Research', nodeType: 'jimai.research.search', color: '#cfcfcf', description: 'Web research node.' },
+    trigger: { title: 'Trigger', nodeType: 'jimai.trigger.manual', color: '#3B82F6', description: 'Entry point.' },
+    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#8888A0', description: 'Transform payload.' },
+    logic: { title: 'Logic', nodeType: 'jimai.logic.condition', color: '#F59E0B', description: 'Conditional gate.' },
+    ai: { title: 'Local AI', nodeType: 'jimai.ai.ollama', color: '#22C55E', description: 'Local Ollama node.' },
+    integration: { title: 'Integration', nodeType: 'jimai.integration.http', color: '#A855F7', description: 'HTTP integration.' },
+    research: { title: 'Research', nodeType: 'jimai.research.search', color: '#00D4FF', description: 'Web research node.' },
 };
 
 const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
@@ -56,16 +56,21 @@ const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
 ];
 
 const INITIAL_FLOW_EDGES: Edge[] = [
-    { id: 'edge-1', source: 'trigger-1', target: 'ai-1', type: 'smoothstep', animated: true, style: { stroke: '#d9d9d9' } },
+    { id: 'edge-1', source: 'trigger-1', target: 'ai-1', type: 'smoothstep', animated: true, style: { stroke: '#3B82F6', strokeWidth: 1.5, opacity: 0.7 } },
 ];
 
 function nodeStyle(kind: FlowKind): Record<string, string | number> {
+    const color = FLOW_NODE_LIBRARY[kind].color;
     return {
-        border: `1px solid ${FLOW_NODE_LIBRARY[kind].color}`,
-        borderRadius: 10,
-        padding: 8,
-        color: '#f5f5f5',
-        background: '#0f0f0f',
+        border: `1px solid ${color}40`,
+        borderRadius: 8,
+        padding: '10px 14px',
+        color: '#F0F0F5',
+        background: '#1A1A1E',
+        boxShadow: `0 0 0 1px ${color}18, 0 2px 8px rgba(0,0,0,0.4)`,
+        fontSize: '12px',
+        fontFamily: '"Outfit", sans-serif',
+        minWidth: 140,
     };
 }
 
@@ -187,7 +192,7 @@ export default function Automation() {
     const onConnect = useCallback(
         (params: Connection) =>
             setEdges((current) =>
-                addEdge({ ...params, type: 'smoothstep', animated: true, style: { stroke: '#d9d9d9' } }, current),
+                addEdge({ ...params, type: 'smoothstep', animated: true, style: { stroke: '#3B82F6', strokeWidth: 1.5, opacity: 0.7 } }, current),
             ),
         [setEdges],
     );
@@ -288,24 +293,41 @@ export default function Automation() {
     }, [graph, refresh, runInput, selectedWorkflowId, status?.public_sources, workflowDescription, workflowName, workflowTags]);
 
     return (
-        <div className="h-full overflow-auto p-6 md:p-10">
-            <div className="mx-auto w-full max-w-[min(120rem,calc(100%-2rem))] space-y-6">
+        <div className="h-full overflow-auto p-6 md:p-8">
+            <div className="mx-auto w-full max-w-[min(120rem,calc(100%-2rem))] space-y-5">
                 <PageHeader
-                    title="Automation (Open Workflow Studio)"
-                    description="Open-source native workflows, not connected to n8n runtime."
+                    title="Workflow Studio"
+                    description="Open-source native workflows — local jimAI runtime, not n8n."
                     meta={
-                        <>
-                            Engine: {status?.engine || 'jimai-open-workflow'} | workflows: {status?.workflow_count ?? 0}
-                        </>
+                        <span className="font-mono text-[11px]">
+                            engine: {status?.engine || 'jimai-open-workflow'} &nbsp;·&nbsp; workflows: {status?.workflow_count ?? 0}
+                        </span>
                     }
                 />
-                <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <input value={workflowName} onChange={(e) => setWorkflowName(e.target.value)} placeholder="Workflow name" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none" />
-                        <input value={workflowDescription} onChange={(e) => setWorkflowDescription(e.target.value)} placeholder="Description" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none" />
-                        <input value={workflowTags} onChange={(e) => setWorkflowTags(e.target.value)} placeholder="tags: automation, open-source" className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none md:col-span-2" />
+
+                {/* Workflow config */}
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-5">
+                    <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                        <input
+                            value={workflowName}
+                            onChange={(e) => setWorkflowName(e.target.value)}
+                            placeholder="Workflow name"
+                            className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary"
+                        />
+                        <input
+                            value={workflowDescription}
+                            onChange={(e) => setWorkflowDescription(e.target.value)}
+                            placeholder="Description"
+                            className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary"
+                        />
+                        <input
+                            value={workflowTags}
+                            onChange={(e) => setWorkflowTags(e.target.value)}
+                            placeholder="Tags: automation, open-source"
+                            className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary md:col-span-2"
+                        />
                     </div>
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2">
+                    <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
                         <select
                             value={selectedWorkflowId}
                             onChange={(e) => {
@@ -313,42 +335,94 @@ export default function Automation() {
                                 setSelectedWorkflowId(id);
                                 if (id) loadWorkflow(id).catch(() => {});
                             }}
-                            className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary outline-none"
+                            className="rounded-btn border border-surface-4 bg-surface-0 px-3 py-2 text-sm text-text-primary"
                         >
-                            <option value="">Select saved workflow</option>
+                            <option value="">Select saved workflow…</option>
                             {workflows.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
                         </select>
-                        <button type="button" onClick={() => saveWorkflow().catch(() => {})} disabled={working} className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary disabled:opacity-40">Save</button>
-                        <button type="button" onClick={() => runWorkflow().catch(() => {})} disabled={working} className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary disabled:opacity-40">Run</button>
-                        <button type="button" onClick={() => navigator.clipboard.writeText(graphJson).catch(() => {})} className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary">Copy JSON</button>
+                        <button
+                            type="button"
+                            onClick={() => saveWorkflow().catch(() => {})}
+                            disabled={working}
+                            className="rounded-btn border border-surface-4 px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary disabled:opacity-40"
+                        >
+                            Save
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => runWorkflow().catch(() => {})}
+                            disabled={working}
+                            className="rounded-btn bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+                        >
+                            Run
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(graphJson).catch(() => {})}
+                            className="rounded-btn border border-surface-4 px-4 py-2 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
+                        >
+                            Copy JSON
+                        </button>
                     </div>
-                    {message && <p className="text-sm text-accent-green mt-2">{message}</p>}
-                    {error && <p className="text-sm text-accent-red mt-2">{error}</p>}
-                    {loading && <p className="text-xs text-text-secondary mt-2">Loading...</p>}
+                    {message && <p className="mt-2 text-xs font-medium text-accent-green">{message}</p>}
+                    {error && <p className="mt-2 text-xs text-accent-red">{error}</p>}
+                    {loading && <p className="mt-2 text-xs text-text-muted">Loading…</p>}
                 </section>
 
+                {/* Canvas + Node config */}
                 <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
-                    <div className="flex flex-wrap gap-2 mb-3">
+                    {/* Node library */}
+                    <div className="mb-3 flex flex-wrap gap-1.5">
                         {(['trigger', 'action', 'logic', 'ai', 'integration', 'research'] as FlowKind[]).map((kind) => (
-                            <button key={kind} type="button" onClick={() => addNode(kind)} className="px-3 py-1.5 rounded-btn border text-xs text-text-primary" style={{ borderColor: FLOW_NODE_LIBRARY[kind].color }}>
+                            <button
+                                key={kind}
+                                type="button"
+                                onClick={() => addNode(kind)}
+                                className="rounded-badge border px-3 py-1 text-xs font-medium transition-colors hover:opacity-80"
+                                style={{ borderColor: `${FLOW_NODE_LIBRARY[kind].color}50`, color: FLOW_NODE_LIBRARY[kind].color, background: `${FLOW_NODE_LIBRARY[kind].color}12` }}
+                            >
                                 + {FLOW_NODE_LIBRARY[kind].title}
                             </button>
                         ))}
                     </div>
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3">
-                        <div className="rounded-btn border border-surface-4 bg-surface-0 overflow-hidden"><div className="h-[520px]">
-                            <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, n) => setSelectedNodeId(n.id)} fitView>
-                                <MiniMap nodeColor={(n) => FLOW_NODE_LIBRARY[((n.data as FlowNodeData)?.kind || 'action') as FlowKind].color} pannable zoomable />
-                                <Controls />
-                                <Background gap={20} color="#1d1d1d" />
-                            </ReactFlow>
-                        </div></div>
+
+                    <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+                        {/* Canvas */}
+                        <div className="overflow-hidden rounded-btn border border-surface-4 bg-surface-0">
+                            <div className="h-[520px]">
+                                <ReactFlow
+                                    nodes={nodes}
+                                    edges={edges}
+                                    onNodesChange={onNodesChange}
+                                    onEdgesChange={onEdgesChange}
+                                    onConnect={onConnect}
+                                    onNodeClick={(_, n) => setSelectedNodeId(n.id)}
+                                    fitView
+                                >
+                                    <MiniMap
+                                        nodeColor={(n) => FLOW_NODE_LIBRARY[((n.data as FlowNodeData)?.kind || 'action') as FlowKind].color}
+                                        pannable
+                                        zoomable
+                                    />
+                                    <Controls />
+                                    <Background gap={24} color="#2A2A30" variant={'dots' as never} />
+                                </ReactFlow>
+                            </div>
+                        </div>
+
+                        {/* Right panel: node config + run input */}
                         <div className="space-y-3">
                             <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
-                                <p className="text-[11px] text-text-secondary uppercase">Selected Node</p>
-                                {selectedNode && (
-                                    <div className="mt-2 space-y-2">
-                                        <input value={selectedNode.data.label} onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, label: e.target.value } } : r)))} className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2 py-1.5 text-xs text-text-primary outline-none" />
+                                <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                                    Selected Node
+                                </p>
+                                {selectedNode ? (
+                                    <div className="space-y-2">
+                                        <input
+                                            value={selectedNode.data.label}
+                                            onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, label: e.target.value } } : r)))}
+                                            className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2.5 py-1.5 text-xs text-text-primary"
+                                        />
                                         <select
                                             value={selectedNode.data.kind}
                                             onChange={(e) => {
@@ -362,62 +436,105 @@ export default function Automation() {
                                                     ),
                                                 );
                                             }}
-                                            className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2 py-1.5 text-xs text-text-primary outline-none"
+                                            className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2.5 py-1.5 text-xs text-text-primary"
                                         >
                                             {(['trigger', 'action', 'logic', 'ai', 'integration', 'research'] as FlowKind[]).map((kind) => (
-                                                <option key={kind} value={kind}>
-                                                    {FLOW_NODE_LIBRARY[kind].title}
-                                                </option>
+                                                <option key={kind} value={kind}>{FLOW_NODE_LIBRARY[kind].title}</option>
                                             ))}
                                         </select>
-                                        <input value={selectedNode.data.nodeType} onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, nodeType: e.target.value } } : r)))} className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2 py-1.5 text-xs text-text-primary outline-none" />
-                                        <textarea value={selectedNode.data.description} onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, description: e.target.value } } : r)))} rows={3} className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2 py-1.5 text-xs text-text-primary outline-none resize-y" />
+                                        <input
+                                            value={selectedNode.data.nodeType}
+                                            onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, nodeType: e.target.value } } : r)))}
+                                            className="w-full rounded-btn border border-surface-4 bg-surface-1 px-2.5 py-1.5 font-mono text-[11px] text-text-muted"
+                                            placeholder="node type"
+                                        />
+                                        <textarea
+                                            value={selectedNode.data.description}
+                                            onChange={(e) => setNodes((rows) => rows.map((r) => (r.id === selectedNode.id ? { ...r, data: { ...r.data, description: e.target.value } } : r)))}
+                                            rows={3}
+                                            className="w-full resize-y rounded-btn border border-surface-4 bg-surface-1 px-2.5 py-1.5 text-xs text-text-primary"
+                                        />
                                     </div>
+                                ) : (
+                                    <p className="text-xs text-text-muted">Click a node on the canvas to inspect.</p>
                                 )}
                             </div>
-                            <textarea value={runInput} onChange={(e) => setRunInput(e.target.value)} rows={6} className="w-full rounded-btn border border-surface-4 bg-surface-0 px-2 py-1.5 text-[11px] text-text-primary font-mono outline-none resize-y" />
+
+                            <div>
+                                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Run Input (JSON)</p>
+                                <textarea
+                                    value={runInput}
+                                    onChange={(e) => setRunInput(e.target.value)}
+                                    rows={7}
+                                    className="w-full resize-y rounded-btn border border-surface-4 bg-surface-0 px-2.5 py-2 font-mono text-[11px] text-text-primary"
+                                />
+                            </div>
                         </div>
                     </div>
                 </section>
 
+                {/* Run output */}
                 <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
-                    <h2 className="text-sm font-semibold text-text-primary">Run Output</h2>
-                    <textarea value={runOutput} readOnly rows={12} className="mt-2 w-full rounded-btn border border-surface-4 bg-surface-0 px-2 py-1.5 text-[11px] text-text-primary font-mono outline-none resize-y" />
+                    <h2 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Run Output</h2>
+                    <textarea
+                        value={runOutput}
+                        readOnly
+                        rows={10}
+                        className="w-full resize-y rounded-btn border border-surface-4 bg-surface-0 px-2.5 py-2 font-mono text-[11px] text-text-primary"
+                    />
                 </section>
 
-                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
-                    <h2 className="text-sm font-semibold text-text-primary">Templates</h2>
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {templates.map((template) => (
-                            <div key={template.name} className="rounded-btn border border-surface-4 bg-surface-0 p-3 space-y-2">
-                                <p className="text-sm text-text-primary">{template.name}</p>
-                                <p className="text-xs text-text-secondary">{template.description}</p>
-                                <button type="button" onClick={() => {
-                                    const next = fromGraph(template.graph || {});
-                                    setNodes(next.nodes);
-                                    setEdges(next.edges);
-                                    setWorkflowName(template.name);
-                                    setWorkflowDescription(template.description || '');
-                                    setSelectedWorkflowId('');
-                                }} className="px-3 py-1.5 rounded-btn border border-surface-4 text-xs text-text-primary">Load Template</button>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+                {/* Templates */}
+                {templates.length > 0 && (
+                    <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
+                        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Templates</h2>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            {templates.map((template) => (
+                                <div key={template.name} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
+                                    <p className="text-sm font-medium text-text-primary">{template.name}</p>
+                                    <p className="mt-1 text-xs text-text-secondary">{template.description}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const next = fromGraph(template.graph || {});
+                                            setNodes(next.nodes);
+                                            setEdges(next.edges);
+                                            setWorkflowName(template.name);
+                                            setWorkflowDescription(template.description || '');
+                                            setSelectedWorkflowId('');
+                                        }}
+                                        className="mt-3 rounded-btn border border-surface-4 px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
+                                    >
+                                        Load template
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
 
-                <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
-                    <h2 className="text-sm font-semibold text-text-primary">Open-Source References</h2>
-                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {(status?.public_sources || []).map((source) => (
-                            <div key={source.url} className="rounded-btn border border-surface-4 bg-surface-0 p-3 space-y-2">
-                                <p className="text-sm text-text-primary">{source.name}</p>
-                                <p className="text-[11px] text-text-muted">{source.license || ''}</p>
-                                <p className="text-xs text-text-secondary">{source.why || ''}</p>
-                                <button type="button" onClick={() => window.open(source.url, '_blank', 'noopener,noreferrer')} className="px-3 py-1.5 rounded-btn border border-surface-4 text-xs text-text-primary">Open Repo</button>
-                            </div>
-                        ))}
-                    </div>
-                </section>
+                {/* Open-source references */}
+                {(status?.public_sources || []).length > 0 && (
+                    <section className="rounded-card border border-surface-4 bg-surface-1 p-4">
+                        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Open-Source References</h2>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            {(status?.public_sources || []).map((source) => (
+                                <div key={source.url} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
+                                    <p className="text-sm font-medium text-text-primary">{source.name}</p>
+                                    <p className="mt-0.5 font-mono text-[10px] text-text-muted">{source.license || ''}</p>
+                                    <p className="mt-1 text-xs text-text-secondary">{source.why || ''}</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => window.open(source.url, '_blank', 'noopener,noreferrer')}
+                                        className="mt-3 rounded-btn border border-surface-4 px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
+                                    >
+                                        Open repo ↗
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                )}
             </div>
         </div>
     );

@@ -130,7 +130,7 @@ class LogStore:
             logger.warning("Failed to read metrics file; falling back to in-memory values", exc_info=True)
         return dict(self._metrics_override)
 
-    def list_action_logs(self, limit: int = 200) -> list[dict[str, Any]]:
+    def list_action_logs(self, limit: int = 200, run_id: str | None = None) -> list[dict[str, Any]]:
         lines: list[str] = []
         if ACTIONS_LOG_FILE.exists():
             try:
@@ -138,11 +138,18 @@ class LogStore:
             except Exception:
                 lines = []
         rows: list[dict[str, Any]] = []
-        for line in lines[-max(1, limit):]:
+        source_lines = lines if run_id else lines[-max(1, limit) :]
+        for line in source_lines:
             try:
                 rows.append(json.loads(line))
             except Exception:
                 continue
-        if self._action_buffer:
-            rows.extend(self._action_buffer[-max(1, limit):])
-        return rows[-max(1, limit):]
+        buf = list(self._action_buffer)
+        if not run_id:
+            buf = buf[-max(1, limit) :]
+        rows.extend(buf)
+        if run_id:
+            rid = str(run_id).strip()
+            rows = [r for r in rows if str(r.get("run_id", "")).strip() == rid]
+        rows.sort(key=lambda r: float(r.get("ts", 0) or 0))
+        return rows[-max(1, limit) :]

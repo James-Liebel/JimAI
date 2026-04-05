@@ -17,7 +17,8 @@ const QUICK_ACTIONS = [
 
 export default function MobileNav() {
     return (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around bg-surface-1 border-t border-surface-4 md:hidden"
+        <nav
+            className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-surface-5 bg-surface-1 md:hidden"
             style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
             {TABS.map(({ to, label, icon: Icon }) => (
@@ -26,30 +27,28 @@ export default function MobileNav() {
                     to={to}
                     className={({ isActive }) =>
                         cn(
-                            'flex flex-col items-center gap-0.5 py-2 px-3 text-[11px] font-medium transition-colors min-h-[56px] justify-center flex-1',
-                            isActive
-                                ? 'text-accent'
-                                : 'text-text-secondary',
+                            'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
+                            isActive ? 'text-accent' : 'text-text-muted hover:text-text-secondary',
                         )
                     }
                 >
-                    <Icon size={20} />
+                    <Icon size={19} />
                     <span>{label}</span>
                 </NavLink>
             ))}
-            <div className="w-px self-stretch bg-surface-3 my-2" />
+            <div className="my-2 w-px self-stretch bg-surface-4" />
             {QUICK_ACTIONS.map(({ to, label, icon: Icon }) => (
                 <NavLink
                     key={to}
                     to={to}
                     className={({ isActive }) =>
                         cn(
-                            'flex flex-col items-center gap-0.5 py-2 px-2 text-[11px] font-medium transition-colors min-h-[56px] justify-center',
-                            isActive ? 'text-accent' : 'text-text-secondary',
+                            'flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
+                            isActive ? 'text-accent' : 'text-text-muted hover:text-text-secondary',
                         )
                     }
                 >
-                    <Icon size={18} />
+                    <Icon size={17} />
                     <span>{label}</span>
                 </NavLink>
             ))}

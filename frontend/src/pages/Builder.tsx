@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { Bot, Files, GitBranch, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
+import { ArrowUpCircle, Bot, ChevronRight, Files, GitBranch, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getGitHubStatus } from '../lib/githubApi';
@@ -56,6 +56,26 @@ const parentDirectory = (path: string) => {
     parts.pop();
     return parts.filter(Boolean).join('/') || '.';
 };
+
+/** Directory paths from repo root down to the parent of `filePath` (inclusive of `.`). */
+function dirsAlongPath(filePath: string): string[] {
+    const norm = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const parts = norm.split('/').filter(Boolean);
+    if (parts.length <= 1) return ['.'];
+    const out: string[] = ['.'];
+    let acc = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+        acc = acc ? `${acc}/${parts[i]}` : parts[i];
+        out.push(acc);
+    }
+    return out;
+}
+
+function dirsAlongPathWithinRoot(workspaceRoot: string, filePath: string): string[] {
+    const w = workspaceRoot === '.' ? '' : workspaceRoot.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!w) return dirsAlongPath(filePath);
+    return dirsAlongPath(filePath).filter((p) => p === w || p.startsWith(`${w}/`));
+}
 
 function filterRepoTree(node: agentApi.RepoTreeNode, q: string): agentApi.RepoTreeNode | null {
     const needle = q.trim().toLowerCase();
@@ -182,6 +202,12 @@ export default function Builder() {
     const [agentChannel, setAgentChannel] = useState('change-request');
     const [agentMessage, setAgentMessage] = useState('');
     const [sendingAgentMessage, setSendingAgentMessage] = useState(false);
+    const [explorerExpandedDirs, setExplorerExpandedDirs] = useState<Set<string>>(() => new Set(['.']));
+    const [builderComposerSlot, setBuilderComposerSlot] = useState<'1' | '2'>('1');
+    const [rightTreeScope, setRightTreeScope] = useState<'hidden' | 'workspace' | 'open_file'>('hidden');
+    const [rightTreeData, setRightTreeData] = useState<agentApi.RepoTreeResponse | null>(null);
+    const [rightTreeLoading, setRightTreeLoading] = useState(false);
+    const [rightExpandedDirs, setRightExpandedDirs] = useState<Set<string>>(() => new Set(['.']));
 
     const currentRun = useMemo(() => runs.find((row) => row.id === runId) || null, [runId, runs]);
     const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
@@ -210,6 +236,71 @@ export default function Builder() {
             setLoadingTree(false);
         }
     }, [refreshStatusBranch]);
+
+    const rightTreePathForFetch = useMemo(() => {
+        if (rightTreeScope === 'hidden') return null;
+        if (rightTreeScope === 'workspace') return '.';
+        if (activeTab?.type === 'file') return parentDirectory(activeTab.path);
+        return null;
+    }, [activeTab, rightTreeScope]);
+
+    const refreshRightTree = useCallback(async () => {
+        if (!rightTreePathForFetch) {
+            setRightTreeData(null);
+            return;
+        }
+        setRightTreeLoading(true);
+        try {
+            setRightTreeData(await agentApi.listRepoTree(rightTreePathForFetch, 10, 20000, false));
+        } catch {
+            setRightTreeData(null);
+        } finally {
+            setRightTreeLoading(false);
+        }
+    }, [rightTreePathForFetch]);
+
+    const toggleExplorerDir = useCallback((path: string) => {
+        setExplorerExpandedDirs((prev) => {
+            const next = new Set(prev);
+            if (next.has(path)) next.delete(path);
+            else next.add(path);
+            return next;
+        });
+    }, []);
+
+    const toggleRightDir = useCallback((path: string) => {
+        setRightExpandedDirs((prev) => {
+            const next = new Set(prev);
+            if (next.has(path)) next.delete(path);
+            else next.add(path);
+            return next;
+        });
+    }, []);
+
+    useEffect(() => {
+        refreshRightTree().catch(() => undefined);
+    }, [refreshRightTree]);
+
+    useEffect(() => {
+        if (!rightTreeData?.tree?.path) return;
+        const root = rightTreeData.tree.path;
+        setRightExpandedDirs((prev) => {
+            const next = new Set(prev);
+            next.add(root);
+            return next;
+        });
+    }, [rightTreeData?.tree?.path]);
+
+    useEffect(() => {
+        if (rightTreeScope !== 'open_file' || activeTab?.type !== 'file' || !rightTreeData?.tree?.path) return;
+        const root = rightTreeData.tree.path;
+        const toExpand = dirsAlongPathWithinRoot(root, activeTab.path);
+        setRightExpandedDirs((prev) => {
+            const next = new Set(prev);
+            toExpand.forEach((d) => next.add(d));
+            return next;
+        });
+    }, [activeTab?.path, activeTab?.type, rightTreeData?.tree?.path, rightTreeScope]);
 
     useEffect(() => {
         const shared = readSharedWorkspaceDraft();
@@ -368,6 +459,11 @@ export default function Builder() {
                 language: detectLanguage(row.path),
             }, true);
             setSelectedDirectory(parentDirectory(row.path));
+            setExplorerExpandedDirs((prev) => {
+                const next = new Set(prev);
+                dirsAlongPath(row.path).forEach((d) => next.add(d));
+                return next;
+            });
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to open file.');
         } finally {
@@ -443,6 +539,14 @@ export default function Builder() {
         const tab = buildDiffTab(review, path);
         if (tab) upsertTab(tab, true);
     }, [upsertTab]);
+
+    const focusPrimaryReview = useCallback(() => {
+        setBottomPanelOpen(true);
+        setBottomLogTab('all');
+        const first = runReviews[0];
+        const change = first?.changes?.[0];
+        if (first && change?.path) openReviewDiff(first, change.path);
+    }, [openReviewDiff, runReviews]);
 
     const updateActiveTabContent = useCallback((content: string) => {
         setTabs((prev) => prev.map((tab) => tab.id === activeTabId && tab.type === 'file' ? { ...tab, content, dirty: true } : tab));
@@ -959,14 +1063,14 @@ export default function Builder() {
 
     const activityBtnClass = (active: boolean) =>
         cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center transition-colors',
-            active ? 'border-l-2 border-l-accent/80 bg-white/[0.06] text-text-primary' : 'text-text-muted hover:bg-white/[0.04] hover:text-text-primary',
+            'flex h-11 w-11 shrink-0 items-center justify-center transition-colors duration-150',
+            active ? 'border-l-2 border-l-[#3B82F6] bg-[#3B82F6]/8 text-text-primary' : 'text-text-muted hover:bg-[#222228] hover:text-text-secondary',
         );
 
     return (
-        <div className="h-full min-h-0 flex flex-col bg-[#1e1e1e] text-text-primary">
+        <div className="h-full min-h-0 flex flex-col bg-[#1e1e1e] text-text-primary font-sans">
             {!minimalChrome && (
-            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#252526] px-2.5 text-[11px] text-text-secondary">
+            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[#2A2A30] bg-[#1A1A1E] px-2.5 text-[11px] text-text-secondary">
                 <span className="shrink-0 text-sm font-medium text-text-primary">Builder</span>
                 <span className="hidden min-w-0 flex-1 items-center gap-2 truncate sm:flex">
                     <span className="text-text-muted">·</span>
@@ -1022,7 +1126,7 @@ export default function Builder() {
 
             <div className="flex min-h-0 flex-1">
                 <nav
-                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-white/[0.06] bg-[#252526] py-1"
+                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-[#2A2A30] bg-[#1A1A1E] py-1"
                     aria-label="Activity bar"
                 >
                     <button
@@ -1070,15 +1174,15 @@ export default function Builder() {
 
                 {sidebarOpen && (
                     <aside
-                        className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-[#252526]"
+                        className="flex min-h-0 shrink-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]"
                         style={{ width: sidebarWidth }}
                     >
                         {sidebarTab === 'explorer' && (
                             <div className="flex min-h-0 flex-1 flex-col">
-                                <div className="border-b border-white/[0.06] px-3 py-2">
+                                <div className="border-b border-[#2A2A30] px-3 py-2">
                                     <div className="flex items-center justify-between gap-2">
-                                        <p className="text-[11px] font-medium text-text-secondary">Explorer</p>
-                                        <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-none border border-surface-4 px-2 py-0.5 text-[10px] text-text-secondary hover:bg-surface-2">
+                                        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Explorer</p>
+                                        <button type="button" onClick={() => refreshTree().catch(() => undefined)} className="rounded-btn border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:bg-[#222228] hover:text-text-secondary">
                                             {loadingTree ? '…' : 'Refresh'}
                                         </button>
                                     </div>
@@ -1091,8 +1195,8 @@ export default function Builder() {
                                         .
                                     </p>
                                     <div className="mt-2 flex gap-1.5">
-                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ File</button>
-                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-primary hover:bg-surface-2">+ Folder</button>
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'file', value: '' })} className="flex-1 rounded-btn border border-[#2A2A30] px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-[#222228] hover:text-text-primary">+ File</button>
+                                        <button type="button" onClick={() => setPendingCreate({ parentPath: selectedDirectory || '.', kind: 'folder', value: '' })} className="flex-1 rounded-btn border border-[#2A2A30] px-2 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:bg-[#222228] hover:text-text-primary">+ Folder</button>
                                     </div>
                                 </div>
                                 <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -1106,19 +1210,19 @@ export default function Builder() {
                         )}
                         {sidebarTab === 'search' && (
                             <div className="flex min-h-0 flex-1 flex-col">
-                                <div className="border-b border-white/[0.06] px-2 py-2">
-                                    <p className="px-1 text-[11px] font-medium text-text-secondary">Search</p>
-                                    <div className="mt-2 flex rounded-none border border-surface-4 bg-surface-0 p-0.5 text-[10px]">
+                                <div className="border-b border-[#2A2A30] px-2 py-2">
+                                    <p className="px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Search</p>
+                                    <div className="mt-2 flex overflow-hidden rounded-btn border border-[#2A2A30] bg-[#0A0A0B] text-[10px]">
                                         <button
                                             type="button"
-                                            className={cn('flex-1 px-2 py-1', searchSubTab === 'filter' ? 'bg-surface-2 text-text-primary' : 'text-text-muted hover:text-text-primary')}
+                                            className={cn('flex-1 px-2 py-1.5 transition-colors', searchSubTab === 'filter' ? 'bg-[#1A1A1E] text-text-primary' : 'text-text-muted hover:text-text-secondary')}
                                             onClick={() => setSearchSubTab('filter')}
                                         >
                                             Find files
                                         </button>
                                         <button
                                             type="button"
-                                            className={cn('flex-1 px-2 py-1', searchSubTab === 'text' ? 'bg-surface-2 text-text-primary' : 'text-text-muted hover:text-text-primary')}
+                                            className={cn('flex-1 px-2 py-1.5 transition-colors', searchSubTab === 'text' ? 'bg-[#1A1A1E] text-text-primary' : 'text-text-muted hover:text-text-secondary')}
                                             onClick={() => setSearchSubTab('text')}
                                         >
                                             Text
@@ -1127,11 +1231,11 @@ export default function Builder() {
                                 </div>
                                 {searchSubTab === 'filter' && (
                                     <>
-                                        <div className="border-b border-white/[0.06] px-3 py-2">
+                                        <div className="border-b border-[#2A2A30] px-3 py-2">
                                             <input
                                                 value={sidebarSearchQuery}
                                                 onChange={(e) => setSidebarSearchQuery(e.target.value)}
-                                                className="w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
+                                                className="w-full rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
                                                 placeholder="Filter by file name or path…"
                                             />
                                             <p className="mt-1 text-[10px] text-text-muted">Narrows the tree below (not full-text search).</p>
@@ -1157,7 +1261,7 @@ export default function Builder() {
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter') runWorkspaceTextSearch().catch(() => undefined);
                                             }}
-                                            className="w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"
+                                            className="w-full rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2.5 py-1.5 text-xs text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
                                             placeholder="Search text in workspace…"
                                         />
                                         <button
@@ -1218,8 +1322,8 @@ export default function Builder() {
 
                 <div className="flex min-w-0 min-h-0 flex-1 flex-col">
                 <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <div className="border-b border-white/[0.06] bg-[#252526]">
-                        <div className="flex gap-0.5 overflow-x-auto px-2 py-1">
+                    <div className="border-b border-[#2A2A30] bg-[#1A1A1E]">
+                        <div className="flex gap-0 overflow-x-auto px-2 py-1">
                             {tabs.length === 0 && (
                                 <span className="px-2 py-1 text-[11px] text-text-muted">No open editors</span>
                             )}
@@ -1229,10 +1333,10 @@ export default function Builder() {
                                     type="button"
                                     onClick={() => setActiveTabId(tab.id)}
                                     className={cn(
-                                        'group flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-none border border-b-0 px-2.5 py-1.5 text-[11px]',
+                                        'group flex max-w-[200px] shrink-0 items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-[11px] transition-colors',
                                         activeTabId === tab.id
-                                            ? 'border-white/[0.08] bg-[#1e1e1e] text-text-primary'
-                                            : 'border-transparent bg-transparent text-text-muted hover:bg-white/[0.04] hover:text-text-secondary',
+                                            ? 'border-b-accent bg-[#1e1e1e] text-text-primary'
+                                            : 'border-b-transparent bg-transparent text-text-muted hover:bg-white/[0.04] hover:text-text-secondary',
                                     )}
                                 >
                                     <span className="truncate">
@@ -1254,20 +1358,20 @@ export default function Builder() {
                             ))}
                         </div>
                         {activeTab && (
-                            <div className="flex items-center justify-between gap-2 border-t border-white/[0.06] bg-[#1e1e1e] px-2.5 py-1.5">
+                            <div className="flex items-center justify-between gap-2 border-t border-[#2A2A30] bg-[#1e1e1e] px-2.5 py-1.5">
                                 <div className="min-w-0 flex-1">
-                                    <p className="truncate font-mono text-[11px] text-text-secondary" title={activeTab.path}>
+                                    <p className="truncate font-mono text-[11px] text-text-muted" title={activeTab.path}>
                                         {activeTab.path}
                                     </p>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-2">
-                                    <div className="flex items-center border border-white/[0.08] bg-[#252526] p-0.5 text-[11px]">
+                                    <div className="flex overflow-hidden rounded-btn border border-[#2A2A30] bg-[#1A1A1E] p-0.5 text-[11px]">
                                         <button
                                             type="button"
                                             onClick={() => setEditorWriteMode('review')}
                                             className={cn(
-                                                'px-2 py-0.5',
-                                                editorWriteMode === 'review' ? 'bg-accent/15 text-accent' : 'text-text-muted hover:bg-white/[0.06]',
+                                                'rounded-[3px] px-2 py-0.5 transition-colors',
+                                                editorWriteMode === 'review' ? 'bg-accent/15 text-accent' : 'text-text-muted hover:text-text-secondary',
                                             )}
                                         >
                                             Review
@@ -1276,8 +1380,8 @@ export default function Builder() {
                                             type="button"
                                             onClick={() => setEditorWriteMode('direct')}
                                             className={cn(
-                                                'px-2 py-0.5',
-                                                editorWriteMode === 'direct' ? 'bg-accent-green/15 text-accent-green' : 'text-text-muted hover:bg-white/[0.06]',
+                                                'rounded-[3px] px-2 py-0.5 transition-colors',
+                                                editorWriteMode === 'direct' ? 'bg-accent-green/15 text-accent-green' : 'text-text-muted hover:text-text-secondary',
                                             )}
                                         >
                                             Direct
@@ -1288,7 +1392,7 @@ export default function Builder() {
                                             type="button"
                                             onClick={() => saveActiveFile().catch(() => undefined)}
                                             disabled={savingFile || !activeTab.dirty}
-                                            className="border border-accent/35 px-2.5 py-1 text-[11px] text-accent disabled:opacity-50"
+                                            className="rounded-btn border border-accent/35 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
                                         >
                                             {savingFile
                                                 ? editorWriteMode === 'review'
@@ -1326,7 +1430,7 @@ export default function Builder() {
                                 <div className="flex min-h-0 flex-1 justify-center overflow-auto px-4 py-8">
                                     <div className="w-full max-w-3xl space-y-6">
                                         <div>
-                                            <h2 className="text-base font-medium text-text-primary">Open or clone a project</h2>
+                                            <h2 className="text-base font-semibold text-text-primary">Open or clone a project</h2>
                                             <p className="mt-1 text-[12px] leading-relaxed text-text-muted">
                                                 Workspace:{' '}
                                                 <span className="font-mono text-text-secondary">
@@ -1337,7 +1441,7 @@ export default function Builder() {
                                                 <button
                                                     type="button"
                                                     onClick={() => welcomeFileInputRef.current?.click()}
-                                                    className="border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[12px] text-text-primary hover:bg-white/[0.07]"
+                                                    className="rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-[#222228] hover:text-text-primary"
                                                 >
                                                     Open local file
                                                 </button>
@@ -1347,13 +1451,13 @@ export default function Builder() {
                                                         setSidebarOpen(true);
                                                         setSidebarTab('explorer');
                                                     }}
-                                                    className="border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[12px] text-text-primary hover:bg-white/[0.07]"
+                                                    className="rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-[#222228] hover:text-text-primary"
                                                 >
                                                     Show explorer
                                                 </button>
                                             </div>
                                         </div>
-                                        <div className="space-y-2 rounded-none border border-white/[0.06] bg-[#252526] p-4">
+                                        <div className="space-y-2 rounded-card border border-[#2A2A30] bg-[#1A1A1E] p-4">
                                             <p className="text-[12px] text-text-muted">
                                                 Clone runs <code className="bg-black/30 px-1 font-mono text-[11px]">git clone</code> in this workspace (shell must be allowed in Settings). Folder name: letters, numbers,{' '}
                                                 <code className="bg-black/30 px-0.5 font-mono text-[11px]">.</code>{' '}
@@ -1363,50 +1467,50 @@ export default function Builder() {
                                             <input
                                                 value={cloneRepoUrl}
                                                 onChange={(e) => setCloneRepoUrl(e.target.value)}
-                                                className="w-full border border-white/[0.1] bg-white px-2.5 py-2 text-sm text-black outline-none"
+                                                className="w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2.5 py-2 text-sm text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
                                                 placeholder="https://github.com/owner/repo.git"
                                             />
                                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                                 <input
                                                     value={cloneFolderName}
                                                     onChange={(e) => setCloneFolderName(e.target.value)}
-                                                    className="flex-1 border border-white/[0.1] bg-white px-2.5 py-2 text-sm text-black outline-none"
+                                                    className="flex-1 rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2.5 py-2 text-sm text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]"
                                                     placeholder="Folder name (optional)"
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => runGitClone().catch(() => undefined)}
                                                     disabled={cloneBusy}
-                                                    className="shrink-0 border border-accent/35 px-3 py-2 text-[12px] text-accent disabled:opacity-50"
+                                                    className="shrink-0 rounded-btn bg-[#3B82F6] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50"
                                                 >
                                                     {cloneBusy ? 'Cloning…' : 'Clone'}
                                                 </button>
                                             </div>
                                         </div>
                                         <div className="grid gap-2 sm:grid-cols-2">
-                                            <div className="rounded-none border border-white/[0.06] bg-[#252526] p-3">
-                                                <p className="text-[12px] font-medium text-text-primary">Objective preview</p>
-                                                <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
-                                                    {loadingPreview
-                                                        ? 'Preparing…'
-                                                        : preview
-                                                          ? `${preview.team_agent_count} agents for the current objective.`
-                                                          : 'Add a build objective in the right panel.'}
-                                                </p>
-                                            </div>
-                                            <div className="rounded-none border border-white/[0.06] bg-[#252526] p-3">
-                                                <p className="text-[12px] font-medium text-text-primary">Suggested skills</p>
-                                                <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
-                                                    {loadingRecommendedSkills
-                                                        ? 'Selecting…'
-                                                        : recommendedSkills.length > 0
-                                                          ? recommendedSkills
-                                                                .slice(0, 4)
-                                                                .map((skill) => skill.name)
-                                                                .join(', ')
-                                                          : 'Skills appear when the objective is clear enough.'}
-                                                </p>
-                                            </div>
+                                        <div className="rounded-card border border-[#2A2A30] bg-[#1A1A1E] p-3">
+                                    <p className="text-[12px] font-medium text-text-primary">Objective preview</p>
+                                    <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+                                        {loadingPreview
+                                            ? 'Preparing…'
+                                            : preview
+                                              ? `${preview.team_agent_count} agents for the current objective.`
+                                              : 'Add a build objective in the right panel.'}
+                                    </p>
+                                </div>
+                                <div className="rounded-card border border-[#2A2A30] bg-[#1A1A1E] p-3">
+                                    <p className="text-[12px] font-medium text-text-primary">Suggested skills</p>
+                                    <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+                                        {loadingRecommendedSkills
+                                            ? 'Selecting…'
+                                            : recommendedSkills.length > 0
+                                              ? recommendedSkills
+                                                    .slice(0, 4)
+                                                    .map((skill) => skill.name)
+                                                    .join(', ')
+                                              : 'Skills appear when the objective is clear enough.'}
+                                    </p>
+                                </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1422,30 +1526,30 @@ export default function Builder() {
                             onDelta={(dy) => setBottomPanelHeight((h) => Math.min(600, Math.max(100, h - dy)))}
                             onCommit={commitBottomLayout}
                         />
-                        <section className="shrink-0 border-t border-white/[0.06] bg-[#1a1d21]">
-                            <div className="flex flex-col gap-2 border-b border-white/[0.06] px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="flex flex-wrap items-center gap-1">
+                        <section className="shrink-0 border-t border-[#2A2A30] bg-[#111113]">
+                            <div className="flex flex-col gap-2 border-b border-[#2A2A30] px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-0.5">
                                     {(['all', 'terminal', 'agent'] as const).map((key) => (
                                         <button
                                             key={key}
                                             type="button"
                                             onClick={() => setBottomLogTab(key)}
                                             className={cn(
-                                                'px-2 py-1 text-[11px]',
+                                                'rounded-badge px-2.5 py-1 text-[11px] font-medium transition-colors',
                                                 bottomLogTab === key
-                                                    ? 'bg-white/[0.08] text-text-primary'
-                                                    : 'text-text-muted hover:bg-white/[0.05] hover:text-text-secondary',
+                                                    ? 'bg-[#1A1A1E] text-text-primary'
+                                                    : 'text-text-muted hover:text-text-secondary',
                                             )}
                                         >
                                             {key === 'all' ? 'All' : key === 'terminal' ? 'Terminal' : 'Log'}
                                         </button>
                                     ))}
                                 </div>
-                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:justify-end">
+                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:justify-end">
                                     <input
                                         value={terminalCwd}
                                         onChange={(e) => setTerminalCwd(e.target.value)}
-                                        className="w-28 border border-white/[0.08] bg-[#252526] px-2 py-1 text-[11px] text-text-primary outline-none"
+                                        className="w-28 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1 font-mono text-[11px] text-text-primary outline-none focus:border-[#3B82F6]"
                                         placeholder="cwd"
                                     />
                                     <input
@@ -1454,14 +1558,14 @@ export default function Builder() {
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') runTerminalCommand().catch(() => undefined);
                                         }}
-                                        className="min-w-[8rem] flex-1 border border-white/[0.08] bg-[#252526] px-2 py-1 text-[11px] text-text-primary outline-none sm:max-w-xs"
-                                        placeholder="Command"
+                                        className="min-w-[8rem] flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1 font-mono text-[11px] text-text-primary outline-none focus:border-[#3B82F6] sm:max-w-xs"
+                                        placeholder="Command…"
                                     />
                                     <button
                                         type="button"
                                         onClick={() => runTerminalCommand().catch(() => undefined)}
                                         disabled={runningTerminal}
-                                        className="shrink-0 border border-accent/35 px-2.5 py-1 text-[11px] text-accent disabled:opacity-50"
+                                        className="shrink-0 rounded-btn border border-[#3B82F6]/35 px-2.5 py-1 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50"
                                     >
                                         {runningTerminal ? 'Running…' : 'Run'}
                                     </button>
@@ -1469,7 +1573,7 @@ export default function Builder() {
                             </div>
                             <div
                                 style={{ height: bottomPanelHeight }}
-                                className="overflow-auto px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary"
+                                className="overflow-auto px-3 py-2 font-mono text-[11px] leading-5 text-text-secondary"
                             >
                                 {filteredActivityRows.length === 0 ? (
                                     <p className="text-[11px] text-text-muted">
@@ -1479,13 +1583,13 @@ export default function Builder() {
                                     </p>
                                 ) : (
                                     filteredActivityRows.map((row) => (
-                                        <div key={row.id} className="border-b border-white/[0.04] py-2 last:border-b-0">
+                                        <div key={row.id} className="border-b border-[#2A2A30]/50 py-1.5 last:border-b-0">
                                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
                                                 <span>{formatTime(row.timestamp)}</span>
                                                 <span className="capitalize">{row.prefix}</span>
                                                 <span className="text-text-secondary">{row.title}</span>
                                             </div>
-                                            <pre className={cn('mt-1 whitespace-pre-wrap break-words', row.tone)}>
+                                            <pre className={cn('mt-0.5 whitespace-pre-wrap break-words', row.tone)}>
                                                 {row.body || '(no output)'}
                                             </pre>
                                         </div>
@@ -1500,60 +1604,63 @@ export default function Builder() {
                 {rightPanelOpen && (
                     <ResizeHandle
                         axis="horizontal"
-                        onDelta={(dx) => setRightWidth((w) => Math.min(720, Math.max(260, w - dx)))}
+                        onDelta={(dx) => setRightWidth((w) => Math.min(560, Math.max(220, w - dx)))}
                         onCommit={commitRightLayout}
                     />
                 )}
                 {rightPanelOpen && (
-                <aside className="flex shrink-0 flex-col border-l border-white/[0.06] bg-[#252526]" style={{ width: rightWidth }}>
-                    <div className="border-b border-white/[0.06] px-3 py-2.5">
-                        <p className="text-[13px] font-medium text-text-primary">Build & agents</p>
+                <aside className="flex shrink-0 flex-col border-l border-[#2A2A30] bg-[#111113]" style={{ width: rightWidth }}>
+                    <div className="border-b border-[#2A2A30] px-3 py-2.5">
+                        <p className="text-[13px] font-semibold text-text-primary">Build &amp; Agents</p>
                         <p className="mt-0.5 text-[11px] text-text-muted">Objective, team, and reviews</p>
                     </div>
-                    <div className="flex gap-2 border-b border-white/[0.06] px-3 py-2 text-[11px]">
-                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
-                            <p className="text-[10px] text-text-muted">Agents</p>
-                            <p className="truncate font-medium text-text-primary">{visualNodes.length || previewNodes.length || 0}</p>
+                    <div className="flex gap-1.5 border-b border-[#2A2A30] px-3 py-2">
+                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Agents</p>
+                            <p className="truncate text-sm font-semibold text-text-primary">{visualNodes.length || previewNodes.length || 0}</p>
                         </div>
-                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
-                            <p className="text-[10px] text-text-muted">Run</p>
-                            <p className="truncate font-medium text-text-primary">{runStatus || 'idle'}</p>
+                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Run</p>
+                            <p className="truncate text-sm font-semibold text-text-primary">{runStatus || 'idle'}</p>
                         </div>
-                        <div className="min-w-0 flex-1 border border-white/[0.06] bg-[#1e1e1e] px-2 py-1.5">
-                            <p className="text-[10px] text-text-muted">Reviews</p>
-                            <p className="truncate font-medium text-text-primary">{runReviews.length}</p>
+                        <div className="min-w-0 flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1.5">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-text-muted">Reviews</p>
+                            <p className="truncate text-sm font-semibold text-text-primary">{runReviews.length}</p>
                         </div>
                     </div>
-                    <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
-                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
-                            <p className="text-[11px] font-medium text-text-secondary">Task</p>
-                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none" placeholder="Describe the app to build" />
-                            <textarea rows={4} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-3 py-2 text-xs text-black outline-none" placeholder="Optional repo context, constraints, or acceptance criteria" />
-                            <div className="mt-3 flex gap-2"><button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-none border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{loadingLaunch ? 'Launching...' : 'Start Autonomous Build'}</button><button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-none border border-accent-red/40 px-3 py-2 text-xs text-accent-red disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button></div>
-                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">{skill.name}</span>)}</div>}
-                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer text-text-primary">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-none border border-surface-4 bg-surface-1 p-2 text-[10px]">{recommendedSkillContext}</pre></details>}
+                    <div className="min-h-0 flex-1 space-y-2.5 overflow-auto p-3">
+                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
+                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Task</p>
+                            <textarea rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} className="w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-2 text-sm text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]" placeholder="Describe the app to build" />
+                            <textarea rows={3} value={context} onChange={(e) => setContext(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-3 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A] focus:border-[#3B82F6]" placeholder="Optional context, constraints, or acceptance criteria" />
+                            <div className="mt-2.5 flex gap-2">
+                                <button type="button" onClick={() => launchBuild().catch(() => undefined)} disabled={loadingLaunch} className="flex-1 rounded-btn bg-[#3B82F6] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#2563EB] disabled:opacity-50">{loadingLaunch ? 'Launching…' : 'Start Build'}</button>
+                                <button type="button" onClick={() => stopBuild().catch(() => undefined)} disabled={!runId || loadingStop} className="rounded-btn border border-[#EF4444]/40 px-3 py-2 text-xs font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10 disabled:opacity-50">{loadingStop ? 'Stopping…' : 'Stop'}</button>
+                            </div>
+                            {recommendedSkills.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{recommendedSkills.slice(0, 6).map((skill) => <span key={skill.slug} className="rounded-badge border border-[#3B82F6]/30 bg-[#3B82F6]/10 px-2 py-0.5 text-[11px] text-[#3B82F6]">{skill.name}</span>)}</div>}
+                            {recommendedSkillContext && <details className="mt-3 text-[11px] text-text-secondary"><summary className="cursor-pointer font-medium text-text-primary hover:text-accent">Skill context preview</summary><pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-2 font-mono text-[10px]">{recommendedSkillContext}</pre></details>}
                         </div>
-                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
-                            <p className="text-[11px] font-medium text-text-secondary">Current team</p>
-                            <div className="mt-3 space-y-2">{visualNodes.length === 0 ? <p className="text-xs text-text-secondary">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-none border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{node.id}</p><p className="mt-1 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
+                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
+                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Current Team</p>
+                            <div className="space-y-1.5">{visualNodes.length === 0 ? <p className="text-xs text-text-muted">{loadingPreview ? 'Previewing agent plan…' : 'No active plan yet.'}</p> : visualNodes.map((node) => <div key={node.id} className={`rounded-btn border p-2 ${statusTone(node.status || 'idle')}`}><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{node.id}</p><p className="mt-0.5 text-[11px] text-text-secondary">{node.role} · L{node.workerLevel}</p></div><span className="rounded-badge border border-[#2A2A30] px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{node.status || 'idle'}</span></div>{node.dependsOn.length > 0 && <p className="mt-1 text-[11px] text-text-muted">depends on {node.dependsOn.join(', ')}</p>}{node.description && <p className="mt-1 text-[11px] text-text-secondary">{node.description}</p>}</div>)}</div>
                         </div>
-                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
-                            <p className="text-[11px] font-medium text-text-secondary">Agent messages</p>
-                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
-                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1.5 text-xs text-black outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
-                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-2 text-xs text-black outline-none" placeholder="Tell the active team what to change, prioritize, or verify." />
-                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-none border border-accent/40 px-3 py-2 text-xs text-accent disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
+                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
+                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Agent Messages</p>
+                            <select value={agentTo} onChange={(e) => setAgentTo(e.target.value)} className="w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="">All / Planner</option>{agentIds.map((id) => <option key={id} value={id}>{id}</option>)}</select>
+                            <select value={agentChannel} onChange={(e) => setAgentChannel(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-xs text-text-primary outline-none"><option value="change-request">change-request</option><option value="handoff">handoff</option><option value="verification">verification</option><option value="general">general</option></select>
+                            <textarea rows={3} value={agentMessage} onChange={(e) => setAgentMessage(e.target.value)} className="mt-2 w-full rounded-btn border border-[#2A2A30] bg-[#1A1A1E] px-2 py-2 text-xs text-text-primary outline-none placeholder:text-[#55556A]" placeholder="Tell the active team what to change, prioritize, or verify." />
+                            <button type="button" onClick={() => sendAgentControl().catch(() => undefined)} disabled={!runId || sendingAgentMessage} className="mt-2 w-full rounded-btn border border-[#3B82F6]/40 px-3 py-2 text-xs font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50">{sendingAgentMessage ? 'Sending…' : 'Send Agent Task'}</button>
                         </div>
-                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <p className="text-[11px] font-medium text-text-secondary">Review diffs</p>
+                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Review Diffs</p>
                                 {loadingReviews && <span className="text-[11px] text-text-muted">Loading…</span>}
                             </div>
-                            <div className="mt-3 space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-secondary">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-none border border-surface-4 bg-surface-1 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-xs text-text-primary">{review.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1.5">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-none border border-surface-4 bg-surface-0 px-2 py-1 text-[10px] text-text-secondary hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-none border border-accent/40 px-2 py-1 text-[11px] text-accent">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-none border border-accent-green/40 px-2 py-1 text-[11px] text-accent-green">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-none border border-accent-red/40 px-2 py-1 text-[11px] text-accent-red">Undo</button></div></div>)}</div>
+                            <div className="space-y-2">{runReviews.length === 0 ? <p className="text-xs text-text-muted">No review diffs for the selected run yet.</p> : runReviews.map((review) => <div key={review.id} className="rounded-btn border border-[#2A2A30] bg-[#1A1A1E] p-2.5"><div className="flex items-start justify-between gap-2"><div><p className="text-xs font-medium text-text-primary">{review.objective}</p><p className="mt-0.5 text-[11px] text-text-secondary">{review.status} · {review.summary?.file_count || review.changes?.length || 0} files</p></div><span className="font-mono text-[10px] text-text-muted">{review.id.slice(0, 8)}</span></div><div className="mt-2 flex flex-wrap gap-1">{(review.changes || []).slice(0, 4).map((change) => <button key={`${review.id}:${change.path}`} type="button" onClick={() => openReviewDiff(review, change.path)} className="rounded-badge border border-[#2A2A30] px-2 py-0.5 text-[10px] text-text-muted transition-colors hover:text-text-primary">{change.path.split('/').pop() || change.path}</button>)}</div><div className="mt-2 flex gap-1.5"><button type="button" onClick={() => handleReviewAction(review.id, 'approve').catch(() => undefined)} className="rounded-badge border border-[#3B82F6]/35 px-2 py-0.5 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10">Approve</button><button type="button" onClick={() => handleReviewAction(review.id, 'apply').catch(() => undefined)} className="rounded-badge border border-[#22C55E]/35 px-2 py-0.5 text-[11px] font-medium text-[#22C55E] transition-colors hover:bg-[#22C55E]/10">Apply</button><button type="button" onClick={() => handleReviewAction(review.id, 'undo').catch(() => undefined)} className="rounded-badge border border-[#EF4444]/35 px-2 py-0.5 text-[11px] font-medium text-[#EF4444] transition-colors hover:bg-[#EF4444]/10">Undo</button></div></div>)}</div>
                         </div>
-                        <div className="rounded-none border border-white/[0.06] bg-[#1e1e1e] p-3">
-                            <p className="text-[11px] font-medium text-text-secondary">Recent runs</p>
-                            <div className="mt-3 space-y-2">{runs.length === 0 ? <p className="text-xs text-text-secondary">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-none border p-2 text-left', runId === row.id ? 'border-accent/40 bg-surface-1' : 'border-surface-4 bg-surface-0')}><p className="truncate text-xs text-text-primary">{row.objective}</p><p className="mt-1 text-[11px] text-text-secondary">{row.status} · {row.action_count} actions</p></button>)}</div>
+                        <div className="rounded-btn border border-[#2A2A30] bg-[#0A0A0B] p-3">
+                            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Recent Runs</p>
+                            <div className="space-y-1.5">{runs.length === 0 ? <p className="text-xs text-text-muted">No runs yet.</p> : runs.map((row) => <button key={row.id} type="button" onClick={() => { setRunId(row.id); setRunStatus(row.status); setEvents([]); }} className={cn('w-full rounded-btn border p-2 text-left transition-colors', runId === row.id ? 'border-[#3B82F6]/40 bg-[#3B82F6]/8' : 'border-[#2A2A30] hover:border-[#3A3A40] hover:bg-[#1A1A1E]')}><p className="truncate text-xs font-medium text-text-primary">{row.objective}</p><p className="mt-0.5 font-mono text-[10px] text-text-muted">{row.status} · {row.action_count} actions</p></button>)}</div>
                         </div>
                     </div>
                 </aside>

@@ -4,13 +4,15 @@ History is scoped to each chat window: only the active chat's history is used wh
 generating replies. Other chats stay saved (see chat_store) until the user deletes them.
 """
 
+import os
 import time
 from typing import Any
 
 # session_id (chat id) → session data
 _sessions: dict[str, dict[str, Any]] = {}
 
-MAX_HISTORY = 20
+# Server-side cap (client still holds full thread in saved JSON); raise for long context + rolling summary
+MAX_HISTORY = max(20, int(os.getenv("CHAT_SESSION_MAX_MESSAGES", "160")))
 
 
 def get_session(session_id: str) -> dict[str, Any]:
@@ -20,6 +22,7 @@ def get_session(session_id: str) -> dict[str, Any]:
             "messages": [],
             "sources": [],
             "created_at": time.time(),
+            "rolling_summary": "",
         }
     return _sessions[session_id]
 

@@ -192,19 +192,12 @@ export async function getHealth(): Promise<{
     ollama_url?: string;
     version?: string;
 }> {
-    const primary = `${BASE}/health`;
-    let resp: Response;
-    try {
-        resp = await fetchWithTimeout(primary);
-        if (!resp.ok) throw new Error(`health ${resp.status}`);
-    } catch {
-        // Dev: Vite proxy uses localhost → can miss IPv4-only uvicorn on Windows; bypass proxy.
-        if (import.meta.env.DEV && !BASE) {
-            resp = await fetchWithTimeout('http://127.0.0.1:8000/health');
-        } else {
-            throw new Error('health fetch failed');
-        }
-    }
+    // Dev: call FastAPI directly so Vite does not proxy /health (avoids noisy "http proxy error: /health"
+    // ECONNREFUSED logs when the backend is down; /api/* can still use the proxy).
+    const envBase = String(import.meta.env.VITE_API_BASE || '').trim();
+    const url =
+        import.meta.env.DEV && !envBase ? 'http://127.0.0.1:8000/health' : apiUrl('/health');
+    const resp = await fetchWithTimeout(url);
     if (!resp.ok) throw new Error(`health ${resp.status}`);
     return resp.json();
 }

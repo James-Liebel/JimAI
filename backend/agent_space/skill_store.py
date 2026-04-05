@@ -38,6 +38,28 @@ def _slugify(text: str) -> str:
     return raw or "skill"
 
 
+def _coerce_complexity(value: Any, *, default: int = 1) -> int:
+    """Frontmatter/meta may use non-numeric strings; never raise."""
+    if value is None or value == "":
+        return max(1, min(int(default), 5))
+    try:
+        if isinstance(value, bool):
+            return max(1, min(int(default), 5))
+        n = int(float(str(value).strip()))
+        return max(1, min(n, 5))
+    except Exception:
+        return max(1, min(int(default), 5))
+
+
+def _coerce_timestamp(value: Any, *, fallback: float) -> float:
+    if value is None or value == "":
+        return float(fallback)
+    try:
+        return float(value)
+    except Exception:
+        return float(fallback)
+
+
 def _tokenize(text: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]+", str(text or "").lower()) if len(token) > 2}
 
@@ -481,10 +503,10 @@ class SkillStore:
             "name": str(skill.get("name", "")),
             "description": str(skill.get("description", "")),
             "tags": list(skill.get("tags") or []),
-            "complexity": int(skill.get("complexity") or 1),
+            "complexity": _coerce_complexity(skill.get("complexity"), default=1),
             "source": str(skill.get("source", "custom")),
-            "created_at": float(skill.get("created_at") or 0.0),
-            "updated_at": float(skill.get("updated_at") or 0.0),
+            "created_at": _coerce_timestamp(skill.get("created_at"), fallback=0.0),
+            "updated_at": _coerce_timestamp(skill.get("updated_at"), fallback=0.0),
         }
 
     def _read_skill(self, slug: str) -> dict[str, Any] | None:
@@ -514,10 +536,14 @@ class SkillStore:
             "name": str(frontmatter.get("name") or meta.get("name") or slug),
             "description": str(frontmatter.get("description") or meta.get("description") or ""),
             "tags": tags,
-            "complexity": int(frontmatter.get("complexity") or meta.get("complexity") or 1),
+            "complexity": _coerce_complexity(
+                (frontmatter.get("complexity") if str(frontmatter.get("complexity") or "").strip() else None)
+                or meta.get("complexity"),
+                default=1,
+            ),
             "source": str(frontmatter.get("source") or meta.get("source") or "custom"),
-            "created_at": float(meta.get("created_at") or md_path.stat().st_ctime),
-            "updated_at": float(meta.get("updated_at") or md_path.stat().st_mtime),
+            "created_at": _coerce_timestamp(meta.get("created_at"), fallback=md_path.stat().st_ctime),
+            "updated_at": _coerce_timestamp(meta.get("updated_at"), fallback=md_path.stat().st_mtime),
             "metadata": dict(meta.get("metadata") or {}),
             "content": body.strip(),
             "raw_markdown": raw_md,
@@ -542,14 +568,23 @@ class SkillStore:
 
     def list_skills(self, *, limit: int = 200) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for skill_dir in SKILLS_DIR.glob("*"):
+        try:
+            candidates = sorted(SKILLS_DIR.glob("*"), key=lambda p: p.name.lower())
+        except Exception:
+            logger.exception("Failed to list skill directories under %s", SKILLS_DIR)
+            return []
+        for skill_dir in candidates:
             if not skill_dir.is_dir():
                 continue
             slug = str(skill_dir.name)
-            loaded = self._read_skill(slug)
-            if loaded is None:
+            try:
+                loaded = self._read_skill(slug)
+                if loaded is None:
+                    continue
+                rows.append(self._summary(loaded))
+            except Exception:
+                logger.warning("Skipping malformed skill directory %s", skill_dir, exc_info=True)
                 continue
-            rows.append(self._summary(loaded))
         rows.sort(key=lambda row: float(row.get("updated_at") or 0.0), reverse=True)
         return rows[: max(1, int(limit))]
 

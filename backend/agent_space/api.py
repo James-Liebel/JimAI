@@ -437,6 +437,7 @@ class BuilderLaunchRequest(BaseModel):
     continue_on_subagent_failure: bool | None = None
     force_research: bool | None = None
     create_git_checkpoint: bool | None = None
+    ollama_model: str | None = None
 
 
 class BuilderPreviewRequest(BaseModel):
@@ -445,6 +446,7 @@ class BuilderPreviewRequest(BaseModel):
     team_name: str = "Auto Build Team"
     auto_agent_packs: bool = True
     use_saved_teams: bool = True
+    ollama_model: str | None = None
 
 
 def _safe_parse_json_object(text: str) -> dict[str, Any] | None:
@@ -2494,10 +2496,21 @@ async def builder_clarify(req: BuilderClarifyRequest) -> dict[str, Any]:
     }
 
 
+def _apply_builder_ollama_override(team_agents: list[dict[str, Any]], ollama_model: str) -> None:
+    m = str(ollama_model or "").strip()
+    if not m:
+        return
+    for row in team_agents:
+        if isinstance(row, dict):
+            row["model"] = m
+
+
 @router.post("/builder/launch")
 async def builder_launch(req: BuilderLaunchRequest) -> dict[str, Any]:
     settings = settings_store.get()
-    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    default_model = str(settings.get("model", "qwen2.5-coder:14b"))
+    override = str(req.ollama_model or "").strip()
+    model = override if override else default_model
     objective = _build_launch_objective(req.prompt, req.context, req.answers)
     open_source_refs: list[dict[str, Any]] = []
     if bool(settings.get("builder_open_source_lookup_enabled", True)):
@@ -2582,6 +2595,8 @@ async def builder_launch(req: BuilderLaunchRequest) -> dict[str, Any]:
         auto_agent_packs=bool(req.auto_agent_packs),
         max_agents=12,
     )
+    if override:
+        _apply_builder_ollama_override(team_agents, override)
     team_agents, workflow_meta = orchestrator._normalize_subagents(
         subagents=team_agents,
         objective=objective,
@@ -2656,7 +2671,8 @@ async def builder_launch(req: BuilderLaunchRequest) -> dict[str, Any]:
 @router.post("/builder/preview")
 async def builder_preview(req: BuilderPreviewRequest) -> dict[str, Any]:
     settings = settings_store.get()
-    model = str(settings.get("model", "qwen2.5-coder:14b"))
+    override = str(req.ollama_model or "").strip()
+    model = override if override else str(settings.get("model", "qwen2.5-coder:14b"))
     base_agents = _fallback_builder_team()
     team_agents, used_saved_teams, used_agent_packs = _augment_builder_team(
         base_agents,
@@ -2666,6 +2682,8 @@ async def builder_preview(req: BuilderPreviewRequest) -> dict[str, Any]:
         auto_agent_packs=bool(req.auto_agent_packs),
         max_agents=12,
     )
+    if override:
+        _apply_builder_ollama_override(team_agents, override)
     preview_objective = _build_launch_objective(req.prompt, req.context, {})
     team_agents, workflow_meta = orchestrator._normalize_subagents(
         subagents=team_agents,

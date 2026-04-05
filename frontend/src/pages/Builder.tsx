@@ -18,6 +18,9 @@ import {
 } from '../components/builder/builderStorage';
 import { ResizeHandle } from '../components/builder/ResizeHandle';
 import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
+import { listOllamaModels } from '../lib/workspaceAgentsApi';
+
+const BUILDER_OLLAMA_MODEL_KEY = 'jimai-builder-ollama-model';
 
 type NodeStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
 type PendingCreate = { parentPath: string; kind: 'file' | 'folder'; value: string };
@@ -204,7 +207,8 @@ export default function Builder() {
     const [agentMessage, setAgentMessage] = useState('');
     const [sendingAgentMessage, setSendingAgentMessage] = useState(false);
     const [explorerExpandedDirs, setExplorerExpandedDirs] = useState<Set<string>>(() => new Set(['.']));
-    const [builderComposerSlot, setBuilderComposerSlot] = useState<'1' | '2'>('1');
+    const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+    const [builderOllamaModel, setBuilderOllamaModel] = useState('');
     const [rightTreeScope, setRightTreeScope] = useState<'hidden' | 'workspace' | 'open_file'>('hidden');
     const [rightTreeData, setRightTreeData] = useState<agentApi.RepoTreeResponse | null>(null);
     const [rightTreeLoading, setRightTreeLoading] = useState(false);
@@ -212,6 +216,13 @@ export default function Builder() {
 
     const currentRun = useMemo(() => runs.find((row) => row.id === runId) || null, [runId, runs]);
     const activeTab = useMemo(() => tabs.find((tab) => tab.id === activeTabId) || null, [activeTabId, tabs]);
+    const builderOllamaOptions = useMemo(() => {
+        const out = [...ollamaModels];
+        if (builderOllamaModel && !out.includes(builderOllamaModel)) {
+            out.push(builderOllamaModel);
+        }
+        return out;
+    }, [builderOllamaModel, ollamaModels]);
 
     const refreshRuns = useCallback(async () => {
         const rows = await agentApi.listRuns(50);
@@ -337,6 +348,36 @@ export default function Builder() {
     }, [refreshRuns, refreshTree]);
 
     useEffect(() => {
+        let active = true;
+        listOllamaModels()
+            .then((models) => {
+                if (!active) return;
+                setOllamaModels(models);
+                const saved = (() => {
+                    try {
+                        return localStorage.getItem(BUILDER_OLLAMA_MODEL_KEY) || '';
+                    } catch {
+                        return '';
+                    }
+                })();
+                const next = saved && models.includes(saved) ? saved : models[0] || '';
+                setBuilderOllamaModel(next);
+            })
+            .catch(() => {
+                if (!active) return;
+                setOllamaModels([]);
+                try {
+                    setBuilderOllamaModel(localStorage.getItem(BUILDER_OLLAMA_MODEL_KEY) || '');
+                } catch {
+                    setBuilderOllamaModel('');
+                }
+            });
+        return () => {
+            active = false;
+        };
+    }, []);
+
+    useEffect(() => {
         refreshStatusBranch();
         const id = window.setInterval(() => refreshStatusBranch(), 120_000);
         return () => window.clearInterval(id);
@@ -379,13 +420,14 @@ export default function Builder() {
                 team_name: sharedSavedTeamName || sharedTeamName || 'Auto Build Team',
                 auto_agent_packs: true,
                 use_saved_teams: true,
+                ...(builderOllamaModel.trim() ? { ollama_model: builderOllamaModel.trim() } : {}),
             }).then((data) => active && setPreview(data)).catch(() => active && setPreview(null)).finally(() => active && setLoadingPreview(false));
         }, 400);
         return () => {
             active = false;
             window.clearTimeout(timer);
         };
-    }, [context, prompt, sharedSavedTeamName, sharedTeamName]);
+    }, [builderOllamaModel, context, prompt, sharedSavedTeamName, sharedTeamName]);
 
     useEffect(() => {
         const objective = [prompt.trim(), context.trim()].filter(Boolean).join('\n\n');
@@ -681,6 +723,7 @@ export default function Builder() {
                 required_checks: [],
                 autonomous: true,
                 continue_on_subagent_failure: Boolean(settings.continue_on_subagent_failure ?? true),
+                ...(builderOllamaModel.trim() ? { ollama_model: builderOllamaModel.trim() } : {}),
             });
             setRunId(response.run.id);
             setRunStatus(response.run.status);
@@ -704,7 +747,20 @@ export default function Builder() {
         } finally {
             setLoadingLaunch(false);
         }
-    }, [context, prompt, refreshRuns, settings.allow_shell, settings.command_profile, settings.continue_on_subagent_failure, settings.review_gate, sharedSavedTeamId, sharedSavedTeamName, sharedSelectedSkills, sharedTeamName]);
+    }, [
+        builderOllamaModel,
+        context,
+        prompt,
+        refreshRuns,
+        settings.allow_shell,
+        settings.command_profile,
+        settings.continue_on_subagent_failure,
+        settings.review_gate,
+        sharedSavedTeamId,
+        sharedSavedTeamName,
+        sharedSelectedSkills,
+        sharedTeamName,
+    ]);
 
     const stopBuild = useCallback(async () => {
         if (!runId) return;
@@ -1636,10 +1692,28 @@ export default function Builder() {
                                     <option value="">Agent</option>
                                     {agentIds.map((id) => <option key={id} value={id}>{id}</option>)}
                                 </select>
-                                <label className="sr-only" htmlFor="builder-composer-slot">Composer</label>
-                                <select id="builder-composer-slot" value={builderComposerSlot} onChange={(e) => setBuilderComposerSlot(e.target.value === '2' ? '2' : '1')} className="w-[104px] shrink-0 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]">
-                                    <option value="1">Composer 1</option>
-                                    <option value="2">Composer 2</option>
+                                <label className="sr-only" htmlFor="builder-ollama-model">Ollama model</label>
+                                <select
+                                    id="builder-ollama-model"
+                                    value={builderOllamaModel}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setBuilderOllamaModel(v);
+                                        try {
+                                            if (v) localStorage.setItem(BUILDER_OLLAMA_MODEL_KEY, v);
+                                            else localStorage.removeItem(BUILDER_OLLAMA_MODEL_KEY);
+                                        } catch {
+                                            /* ignore quota */
+                                        }
+                                    }}
+                                    className="min-w-[120px] max-w-[min(200px,45%)] shrink-0 rounded-md border border-[#2A2A30] bg-[#1A1A1E] px-2 py-1.5 text-[11px] text-text-primary outline-none focus:border-[#3B82F6]"
+                                >
+                                    <option value="">Default (settings)</option>
+                                    {builderOllamaOptions.map((m) => (
+                                        <option key={m} value={m}>
+                                            {m}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                             <textarea

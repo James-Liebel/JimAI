@@ -122,6 +122,7 @@ def _select_actions_for_worker(
         "browser_extract",
         "browser_state",
         "browser_links",
+        "browser_interactive",
     }
     l2_types = {
         "write_file",
@@ -134,6 +135,13 @@ def _select_actions_for_worker(
         "browser_cursor_hover",
         "browser_scroll",
         "browser_cursor_scroll",
+        "browser_scroll_page",
+        "browser_scroll_into_view",
+        "browser_select",
+        "browser_check",
+        "browser_press_key",
+        "browser_wait_for",
+        "browser_interactive",
     }
     l3_types = heavy.union({"send_message", "communicate"})
     bucket = l1_types if level <= 1 else (l2_types if level == 2 else l3_types)

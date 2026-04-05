@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'reac
 import { cn } from '../lib/utils';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import MobileNav from './MobileNav';
+import { AppAssistDock } from './AppAssistDock';
 import type { SpeedMode } from '../lib/types';
 import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
@@ -11,6 +12,7 @@ import { API_BASE, apiUrl } from '../lib/backendBase';
 
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
+    { to: '/skills', label: 'Skills' },
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/automation', label: 'Automation' },
@@ -312,7 +314,7 @@ export default function AppLayout() {
                             }
                         >
                             <GitPullRequest size={13} />
-                            Review
+                            JimAI review
                         </NavLink>
                         <NavLink
                             to="/settings"
@@ -390,6 +392,7 @@ export default function AppLayout() {
                 </button>
             )}
             {isMobile && <MobileNav />}
+            <AppAssistDock hidden={builderFullChrome} />
         </div>
     );
 }

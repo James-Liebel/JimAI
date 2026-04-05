@@ -55,6 +55,7 @@ def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
         "skills": list(run.get("skills") or []),
         "message_count": len(run.get("messages", [])),
         "completion_summary": run.get("completion_summary"),
+        "review_scope": str(run.get("review_scope") or "workspace"),
     }
 
 
@@ -202,6 +203,8 @@ class AgentSpaceOrchestrator:
             except Exception:
                 logger.warning("Failed to auto-add/select skills for run objective", exc_info=True)
         allowed_paths = self._normalize_allowed_paths(payload.get("allowed_paths", []))
+        _raw_scope = str(payload.get("review_scope") or "workspace").strip().lower()
+        review_scope = _raw_scope if _raw_scope in ("workspace", "jimai") else "workspace"
         requested_team_id = str(payload.get("team_id") or "").strip() or None
         requested_team_name = ""
         if isinstance(payload.get("team"), dict):
@@ -233,6 +236,7 @@ class AgentSpaceOrchestrator:
             "messages": [],
             "allowed_paths": allowed_paths,
             "completion_summary": None,
+            "review_scope": review_scope,
         }
         self.runs[run_id] = run
         self.logs.increment("runs_started", 1)
@@ -1274,7 +1278,10 @@ class AgentSpaceOrchestrator:
                     run_id=run_id,
                     objective=objective,
                     changes=list(proposed_changes.values()),
-                    metadata={"subagents": list(completed)},
+                    metadata={
+                        "subagents": list(completed),
+                        "review_scope": str(run.get("review_scope") or "workspace"),
+                    },
                 )
                 run["review_ids"].append(review["id"])
                 self.logs.increment("reviews_created", 1)
@@ -1780,7 +1787,9 @@ class AgentSpaceOrchestrator:
             "Allowed action types: read_file, write_file, replace_in_file, run_shell, "
             "index_search, web_search, web_fetch, export, send_message, read_messages, "
             "browser_open, browser_navigate, browser_click, browser_type, browser_extract, browser_screenshot, "
-            "browser_cursor_move, browser_cursor_click, browser_cursor_hover, browser_scroll, browser_state, browser_links. "
+            "browser_cursor_move, browser_cursor_click, browser_cursor_hover, browser_scroll, browser_scroll_page, "
+            "browser_scroll_into_view, browser_select, browser_check, browser_press_key, browser_wait_for, "
+            "browser_interactive, browser_state, browser_links. "
             "Use send_message/read_messages so subagents can coordinate when helpful. "
             "Prioritize proactive planning, implementation, and self-improving updates when safe. "
             "If no action is needed, return an empty list.\n\n"
@@ -1950,6 +1959,13 @@ class AgentSpaceOrchestrator:
             "browser_cursor_hover",
             "browser_scroll",
             "browser_cursor_scroll",
+            "browser_scroll_page",
+            "browser_scroll_into_view",
+            "browser_select",
+            "browser_check",
+            "browser_press_key",
+            "browser_wait_for",
+            "browser_interactive",
             "browser_close",
             "browser_close_all",
         }:
@@ -2626,7 +2642,19 @@ class AgentSpaceOrchestrator:
             elif action_type == "browser_open":
                 url = str(action.get("url", "")).strip()
                 headless = bool(action.get("headless", True))
-                opened = await self.browser_manager.open_session(url=url, headless=headless)
+                vw = action.get("viewport_width")
+                vh = action.get("viewport_height")
+                opened = await self.browser_manager.open_session(
+                    url=url,
+                    headless=headless,
+                    viewport_width=int(vw) if vw is not None else None,
+                    viewport_height=int(vh) if vh is not None else None,
+                    user_agent=str(action.get("user_agent") or "").strip(),
+                    locale=str(action.get("locale") or "").strip(),
+                    timezone_id=str(action.get("timezone_id") or "").strip(),
+                    ignore_https_errors=bool(action.get("ignore_https_errors", False)),
+                    slow_mo_ms=int(action.get("slow_mo_ms", 0) or 0),
+                )
                 if opened.get("success"):
                     context.setdefault("agent_browser_sessions", {})[agent_id] = opened["session_id"]
                 result = opened
@@ -2655,11 +2683,13 @@ class AgentSpaceOrchestrator:
                 selector = str(action.get("selector", "")).strip()
                 text = str(action.get("text", ""))
                 press_enter = bool(action.get("press_enter", False))
+                clear_first = bool(action.get("clear_first", True))
                 result = await self.browser_manager.type_text(
                     session_id,
                     selector=selector,
                     text=text,
                     press_enter=press_enter,
+                    clear_first=clear_first,
                 )
             elif action_type == "browser_extract":
                 session_id = self._resolve_browser_session(
@@ -2733,6 +2763,82 @@ class AgentSpaceOrchestrator:
                     x=float(x) if x is not None else None,
                     y=float(y) if y is not None else None,
                 )
+            elif action_type == "browser_scroll_page":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                result = await self.browser_manager.scroll_page(
+                    session_id,
+                    delta_x=float(action.get("delta_x", 0.0)),
+                    delta_y=float(action.get("delta_y", 0.0)),
+                    position=str(action.get("position", "")),
+                )
+            elif action_type == "browser_scroll_into_view":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                selector = str(action.get("selector", "")).strip()
+                result = await self.browser_manager.scroll_into_view(session_id, selector=selector)
+            elif action_type == "browser_select":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                selector = str(action.get("selector", "")).strip()
+                result = await self.browser_manager.select_option(
+                    session_id,
+                    selector=selector,
+                    value=str(action.get("value", "")),
+                    label=str(action.get("label", "")),
+                )
+            elif action_type == "browser_check":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                selector = str(action.get("selector", "")).strip()
+                result = await self.browser_manager.set_checked(
+                    session_id,
+                    selector=selector,
+                    checked=bool(action.get("checked", True)),
+                )
+            elif action_type == "browser_press_key":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                result = await self.browser_manager.press_key(
+                    session_id,
+                    key=str(action.get("key", "")),
+                    selector=str(action.get("selector", "")),
+                )
+            elif action_type == "browser_wait_for":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                result = await self.browser_manager.wait_for(
+                    session_id,
+                    selector=str(action.get("selector", "")),
+                    state=str(action.get("state", "visible")),
+                    timeout_ms=int(action.get("timeout_ms", 30000)),
+                )
+            elif action_type == "browser_interactive":
+                session_id = self._resolve_browser_session(
+                    context=context,
+                    agent_id=agent_id,
+                    action=action,
+                )
+                limit = int(action.get("limit", 80))
+                result = await self.browser_manager.list_interactive(session_id, limit=limit)
             elif action_type == "browser_cursor_hover":
                 session_id = self._resolve_browser_session(
                     context=context,

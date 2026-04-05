@@ -304,7 +304,7 @@ export default function SelfCode() {
                             to="/workflow"
                             className="rounded-btn border border-surface-4 px-3 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
                         >
-                            Open review
+                            JimAI review
                         </Link>
                     }
                 />

@@ -322,6 +322,7 @@ class ProactiveEngine:
             "objective": "\n".join(objective_lines).strip(),
             "autonomous": False,
             "review_gate": True,
+            "review_scope": "jimai",
             "subagent_retry_attempts": retry_attempts,
             "self_improve_prompt": cleaned_prompt,
             "confirmed_suggestions": suggestions,

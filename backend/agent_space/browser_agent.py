@@ -155,7 +155,19 @@ class BrowserAgentManager:
         rows.sort(key=lambda row: row.get("created_at", 0), reverse=True)
         return rows
 
-    async def open_session(self, *, url: str = "", headless: bool = True) -> dict[str, Any]:
+    async def open_session(
+        self,
+        *,
+        url: str = "",
+        headless: bool = True,
+        viewport_width: int | None = None,
+        viewport_height: int | None = None,
+        user_agent: str = "",
+        locale: str = "",
+        timezone_id: str = "",
+        ignore_https_errors: bool = False,
+        slow_mo_ms: int = 0,
+    ) -> dict[str, Any]:
         can_spawn, spawn_error = await self._can_spawn_subprocess()
         if not can_spawn:
             return {"success": False, "error": f"Browser launch unavailable: {spawn_error}"}
@@ -173,8 +185,28 @@ class BrowserAgentManager:
         page = None
         try:
             playwright = await async_playwright().start()
-            browser = await playwright.chromium.launch(headless=headless)
-            context = await browser.new_context()
+            launch_kw: dict[str, Any] = {"headless": headless}
+            sm = max(0, min(int(slow_mo_ms or 0), 2000))
+            if sm > 0:
+                launch_kw["slow_mo"] = sm
+            browser = await playwright.chromium.launch(**launch_kw)
+            ctx_kw: dict[str, Any] = {}
+            vw = int(viewport_width) if viewport_width is not None else None
+            vh = int(viewport_height) if viewport_height is not None else None
+            if vw is not None and vh is not None:
+                ctx_kw["viewport"] = {"width": max(320, min(vw, 3840)), "height": max(240, min(vh, 2160))}
+            ua = str(user_agent or "").strip()
+            if ua:
+                ctx_kw["user_agent"] = ua
+            loc = str(locale or "").strip()
+            if loc:
+                ctx_kw["locale"] = loc
+            tz = str(timezone_id or "").strip()
+            if tz:
+                ctx_kw["timezone_id"] = tz
+            if ignore_https_errors:
+                ctx_kw["ignore_https_errors"] = True
+            context = await browser.new_context(**ctx_kw)
             page = await context.new_page()
             if url:
                 await page.goto(url, wait_until="domcontentloaded", timeout=25000)
@@ -257,7 +289,15 @@ class BrowserAgentManager:
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-    async def type_text(self, session_id: str, *, selector: str, text: str, press_enter: bool = False) -> dict[str, Any]:
+    async def type_text(
+        self,
+        session_id: str,
+        *,
+        selector: str,
+        text: str,
+        press_enter: bool = False,
+        clear_first: bool = True,
+    ) -> dict[str, Any]:
         session = self._sessions.get(session_id)
         if session is None:
             return {"success": False, "error": f"Unknown session_id '{session_id}'."}
@@ -265,9 +305,13 @@ class BrowserAgentManager:
             return {"success": False, "error": "selector is required."}
         try:
             page = session["page"]
-            await page.fill(selector, text, timeout=10000)
+            loc = page.locator(selector).first
+            if clear_first:
+                await loc.fill(text, timeout=10000)
+            else:
+                await loc.press_sequentially(text, delay=15, timeout=15000)
             if press_enter:
-                await page.press(selector, "Enter")
+                await loc.press("Enter")
             try:
                 box = await page.locator(selector).first.bounding_box()
                 if box:
@@ -463,6 +507,208 @@ class BrowserAgentManager:
             await asyncio.sleep(0.05)
             payload = await self._capture_state(session_id, session)
             return {"success": True, "dx": float(dx), "dy": float(dy), **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def scroll_page(
+        self,
+        session_id: str,
+        *,
+        delta_x: float = 0.0,
+        delta_y: float = 0.0,
+        position: str = "",
+    ) -> dict[str, Any]:
+        """Programmatic window scroll (complements mouse-wheel browser_scroll)."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        try:
+            page = session["page"]
+            pos = str(position or "").strip().lower()
+            if pos in {"top", "start"}:
+                await page.evaluate("() => window.scrollTo(0, 0)")
+            elif pos in {"bottom", "end"}:
+                await page.evaluate(
+                    """() => window.scrollTo(0, Math.max(0, document.documentElement.scrollHeight - window.innerHeight))"""
+                )
+            elif delta_x != 0.0 or delta_y != 0.0:
+                await page.evaluate(
+                    """([dx, dy]) => window.scrollBy(dx, dy)""",
+                    [float(delta_x), float(delta_y)],
+                )
+            else:
+                return {"success": False, "error": "Provide delta_x/delta_y or position top|bottom."}
+            await asyncio.sleep(0.05)
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "delta_x": float(delta_x), "delta_y": float(delta_y), "position": pos, **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def scroll_into_view(self, session_id: str, *, selector: str) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        if not str(selector or "").strip():
+            return {"success": False, "error": "selector is required."}
+        try:
+            page = session["page"]
+            await page.locator(selector).first.scroll_into_view_if_needed(timeout=15000)
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "selector": selector, **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def select_option(
+        self,
+        session_id: str,
+        *,
+        selector: str,
+        value: str = "",
+        label: str = "",
+    ) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        if not selector:
+            return {"success": False, "error": "selector is required."}
+        val = str(value or "").strip()
+        lab = str(label or "").strip()
+        if not val and not lab:
+            return {"success": False, "error": "value or label is required."}
+        try:
+            page = session["page"]
+            loc = page.locator(selector).first
+            if val:
+                await loc.select_option(value=val, timeout=10000)
+            else:
+                await loc.select_option(label=lab, timeout=10000)
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "selector": selector, **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def set_checked(
+        self,
+        session_id: str,
+        *,
+        selector: str,
+        checked: bool = True,
+    ) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        if not selector:
+            return {"success": False, "error": "selector is required."}
+        try:
+            page = session["page"]
+            await page.locator(selector).first.set_checked(bool(checked), timeout=10000)
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "selector": selector, "checked": bool(checked), **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def press_key(
+        self,
+        session_id: str,
+        *,
+        key: str,
+        selector: str = "",
+    ) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        k = str(key or "").strip()
+        if not k:
+            return {"success": False, "error": "key is required (Playwright name e.g. Tab, Enter, Escape)."}
+        try:
+            page = session["page"]
+            sel = str(selector or "").strip()
+            if sel:
+                await page.locator(sel).first.focus(timeout=10000)
+            await page.keyboard.press(k)
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "key": k, **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def wait_for(
+        self,
+        session_id: str,
+        *,
+        selector: str,
+        state: str = "visible",
+        timeout_ms: int = 30000,
+    ) -> dict[str, Any]:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        if not selector:
+            return {"success": False, "error": "selector is required."}
+        st = str(state or "visible").strip().lower()
+        if st not in {"attached", "detached", "visible", "hidden"}:
+            st = "visible"
+        try:
+            page = session["page"]
+            await page.wait_for_selector(selector, state=st, timeout=max(1000, min(int(timeout_ms), 120000)))
+            payload = await self._capture_state(session_id, session)
+            return {"success": True, "selector": selector, "state": st, **payload}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    async def list_interactive(self, session_id: str, *, limit: int = 80) -> dict[str, Any]:
+        """Snapshot inputs/buttons for form-filling agents (selectors prefer #id or [name=])."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return {"success": False, "error": f"Unknown session_id '{session_id}'."}
+        lim = max(1, min(int(limit), 200))
+        try:
+            page = session["page"]
+            rows = await page.evaluate(
+                """(limit) => {
+                    const out = [];
+                    const selectorFor = (el) => {
+                        if (el.id) {
+                            return '#' + (window.CSS && CSS.escape ? CSS.escape(el.id) : el.id.replace(/([^a-zA-Z0-9_-])/g, '\\\\$1'));
+                        }
+                        const nm = el.getAttribute('name');
+                        if (nm) return el.tagName.toLowerCase() + '[name=' + JSON.stringify(nm) + ']';
+                        return '';
+                    };
+                    const nodes = Array.from(document.querySelectorAll('input, select, textarea, button'));
+                    for (let i = 0; i < nodes.length && out.length < limit; i++) {
+                        const el = nodes[i];
+                        const type = (el.type || el.tagName || '').toLowerCase();
+                        if (type === 'hidden') continue;
+                        const rect = el.getBoundingClientRect();
+                        const visible = rect.width > 0 && rect.height > 0;
+                        const sel = selectorFor(el);
+                        if (!sel) continue;
+                        let label = '';
+                        if (el.id) {
+                            const lbl = document.querySelector('label[for=' + JSON.stringify(el.id) + ']');
+                            if (lbl) label = (lbl.innerText || lbl.textContent || '').trim().slice(0, 240);
+                        }
+                        out.push({
+                            tag: el.tagName.toLowerCase(),
+                            type: type,
+                            selector: sel,
+                            name: el.getAttribute('name') || '',
+                            id: el.id || '',
+                            placeholder: (el.getAttribute('placeholder') || '').slice(0, 240),
+                            label: label,
+                            aria_label: (el.getAttribute('aria-label') || '').slice(0, 240),
+                            required: !!el.required,
+                            disabled: !!el.disabled,
+                            visible: visible,
+                        });
+                    }
+                    return out;
+                }""",
+                lim,
+            )
+            payload = await self._capture_state(session_id, session)
+            fields = rows if isinstance(rows, list) else []
+            return {"success": True, "fields": fields, "count": len(fields), **payload}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 

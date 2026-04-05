@@ -2049,6 +2049,8 @@ export async function builderLaunch(payload: {
     continue_on_subagent_failure?: boolean;
     force_research?: boolean;
     create_git_checkpoint?: boolean;
+    /** When set, all builder subagents use this Ollama tag for the run (team design + execution). */
+    ollama_model?: string;
 }): Promise<BuilderLaunchResponse> {
     const resp = await fetchWithTimeout(
         `${BASE}/api/agent-space/builder/launch`,
@@ -2072,6 +2074,7 @@ export async function builderPreview(payload: {
     team_name?: string;
     auto_agent_packs?: boolean;
     use_saved_teams?: boolean;
+    ollama_model?: string;
 }): Promise<BuilderPreviewResponse> {
     const resp = await fetchWithTimeout(
         `${BASE}/api/agent-space/builder/preview`,

@@ -35,13 +35,20 @@ export function useChat() {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(async () => {
             if (msgs.length === 0) return;
-            const serializable = msgs.map(m => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                mode: m.mode,
-                timestamp: m.timestamp,
-            }));
+            const serializable = msgs.map((m) => {
+                let content = m.content;
+                if (m.browserScreenshotUrl) {
+                    const note = `_(Page captured: ${m.browserScreenshotUrl})_`;
+                    content = content.trim() ? `${content.trim()}\n\n${note}` : note;
+                }
+                return {
+                    id: m.id,
+                    role: m.role,
+                    content,
+                    mode: m.mode,
+                    timestamp: m.timestamp,
+                };
+            });
             const autoTitle = title || deriveTitle(msgs);
             await api.saveChat(id, autoTitle, serializable);
             refreshChatList();
@@ -105,7 +112,12 @@ export function useChat() {
                     const updated = [...prev];
                     const last = updated[updated.length - 1];
                     if (last && last.role === 'assistant') {
-                        updated[updated.length - 1] = { ...last, routing, mode: routing.primary_model as Mode };
+                        const role = routing.primary_role || routing.primary_model;
+                        updated[updated.length - 1] = {
+                            ...last,
+                            routing,
+                            mode: (role as Mode) || last.mode,
+                        };
                     }
                     return updated;
                 });
@@ -136,9 +148,10 @@ export function useChat() {
                 }));
                 const skillSlugs = loadChatSkillSlugs();
                 const autoSelectSkills = loadChatAutoSkills();
+                const apiMode = modelOverride === 'browser' ? 'browser' : 'chat';
                 await api.streamChat(
                     content,
-                    'chat',
+                    apiMode,
                     sessionIdRef.current,
                     history,
                     appendChunk,
@@ -148,6 +161,20 @@ export function useChat() {
                     (progress) => {
                         if (typeof progress.searchingWeb === 'boolean') setSearchingWeb(progress.searchingWeb);
                         if (typeof progress.searchStatus === 'string') setSearchStatus(progress.searchStatus);
+                        if (progress.browserScreenshotB64) {
+                            setMessages((prev) => {
+                                const updated = [...prev];
+                                const last = updated[updated.length - 1];
+                                if (last && last.role === 'assistant') {
+                                    updated[updated.length - 1] = {
+                                        ...last,
+                                        browserScreenshotBase64: progress.browserScreenshotB64,
+                                        browserScreenshotUrl: progress.browserScreenshotUrl,
+                                    };
+                                }
+                                return updated;
+                            });
+                        }
                     },
                     modelOverride || undefined,
                     imageBase64,

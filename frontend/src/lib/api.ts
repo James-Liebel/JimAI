@@ -63,7 +63,12 @@ export async function streamChat(
     onSources: (sources: Source[]) => void,
     onRouting: (routing: RoutingDecision) => void,
     onDone: () => void,
-    onProgress?: (progress: { searchingWeb?: boolean; searchStatus?: string }) => void,
+    onProgress?: (progress: {
+        searchingWeb?: boolean;
+        searchStatus?: string;
+        browserScreenshotB64?: string;
+        browserScreenshotUrl?: string;
+    }) => void,
     modelOverride?: string,
     imageBase64?: string,
     skillSlugs?: string[],
@@ -112,11 +117,27 @@ export async function streamChat(
             if (!line.startsWith('data: ')) continue;
             try {
                 const data = JSON.parse(line.slice(6));
-                if (typeof onProgress === 'function' && (typeof data.searching_web === 'boolean' || typeof data.search_status === 'string')) {
-                    onProgress({
-                        searchingWeb: typeof data.searching_web === 'boolean' ? data.searching_web : undefined,
-                        searchStatus: typeof data.search_status === 'string' ? data.search_status : undefined,
-                    });
+                if (typeof onProgress === 'function') {
+                    const hasSearch =
+                        typeof data.searching_web === 'boolean' || typeof data.search_status === 'string';
+                    const hasBrowser =
+                        typeof data.browser_screenshot_b64 === 'string' &&
+                        data.browser_screenshot_b64.length > 0;
+                    if (hasSearch || hasBrowser) {
+                        onProgress({
+                            searchingWeb:
+                                typeof data.searching_web === 'boolean' ? data.searching_web : undefined,
+                            searchStatus:
+                                typeof data.search_status === 'string' ? data.search_status : undefined,
+                            browserScreenshotB64: hasBrowser
+                                ? String(data.browser_screenshot_b64)
+                                : undefined,
+                            browserScreenshotUrl:
+                                typeof data.browser_screenshot_url === 'string'
+                                    ? data.browser_screenshot_url
+                                    : undefined,
+                        });
+                    }
                 }
                 if (data.text) onChunk(data.text);
                 if (data.done && data.sources) onSources(data.sources);

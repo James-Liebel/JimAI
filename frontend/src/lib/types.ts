@@ -1,4 +1,4 @@
-export type Mode = 'math' | 'code' | 'chat' | 'vision' | 'writing' | 'data' | 'finance';
+export type Mode = 'math' | 'code' | 'chat' | 'vision' | 'writing' | 'data' | 'finance' | 'browser';
 
 export type SpeedMode = 'fast' | 'balanced' | 'deep';
 
@@ -65,6 +65,9 @@ export interface RoutingDecision {
     auto_web_research_domain_count?: number;
     auto_web_research_query_count?: number;
     auto_web_research_status?: string;
+    /** Headless browser screenshot path (Chat API) */
+    chat_browser_capture?: boolean;
+    chat_browser_url?: string | null;
     /** Per-request model context (this chat only, after windowing) */
     context_window_messages?: number;
     context_window_chars?: number;
@@ -82,6 +85,9 @@ export interface Message {
     isStreaming?: boolean;
     routing?: RoutingDecision;
     imageBase64?: string;
+    /** Ephemeral: headless browser capture for this assistant turn (not persisted in saveChat) */
+    browserScreenshotBase64?: string;
+    browserScreenshotUrl?: string;
 }
 
 export interface ChatState {
@@ -110,4 +116,5 @@ export const MODEL_OPTIONS = [
     { value: 'writing', label: 'Chat (writing style)', color: 'border-accent-amber' },
     { value: 'data', label: 'Data science model', color: 'border-accent-green' },
     { value: 'finance', label: 'Finance model', color: 'border-accent-blue' },
+    { value: 'browser', label: 'Browser (screenshot)', color: 'border-cyan-500/60' },
 ] as const;

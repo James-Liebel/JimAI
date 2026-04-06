@@ -17,6 +17,7 @@ const MODE_COLORS: Record<Mode, string> = {
     writing: 'from-rose-500 to-pink-600',
     data: 'from-cyan-500 to-sky-600',
     finance: 'from-lime-500 to-green-600',
+    browser: 'from-sky-600 to-cyan-700',
 };
 
 interface Props {

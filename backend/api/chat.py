@@ -366,6 +366,98 @@ def _source_url(value: str) -> str:
     return raw if raw.startswith(("http://", "https://")) else ""
 
 
+# ── Headless browser capture for Chat (Playwright via Agent Space) ─────
+
+_URL_IN_MESSAGE = re.compile(r"https?://[^\s\>)\"']+", re.IGNORECASE)
+_GITHUB_PROFILE_PHRASE = re.compile(
+    r"(?:github|gh)\s+(?:page|profile|account|user)\s+(?:for\s+|of\s+|my\s+)?@?"
+    r"([A-Za-z0-9](?:[A-Za-z0-9_-]{0,38}[A-Za-z0-9])?)",
+    re.IGNORECASE,
+)
+_GITHUB_PAGE_USERNAME = re.compile(
+    r"github\s+page\s+([A-Za-z0-9](?:[A-Za-z0-9_-]{0,38}[A-Za-z0-9])?)",
+    re.IGNORECASE,
+)
+_CHAT_BROWSER_VERBS = re.compile(
+    r"screenshot|screen\s*shot|capture\s+(?:a\s+)?(?:page|site|website)|open\s+(?:a\s+)?browser|"
+    r"show\s+me\s+what|navigate\s+to|go\s+to\s+(?:the\s+)?(?:page|site)|"
+    r"what(?:'s|s| is)\s+on\s+(?:the\s+)?(?:page|site)|take\s+a\s+picture\s+of\s+(?:the\s+)?(?:page|site)",
+    re.IGNORECASE,
+)
+
+
+def _should_attempt_chat_browser_capture(message: str, chat_request_mode: str) -> bool:
+    rm = str(chat_request_mode or "").strip().lower()
+    if rm == "browser":
+        return True
+    text = str(message or "").strip()
+    if not text:
+        return False
+    if not _CHAT_BROWSER_VERBS.search(text):
+        return False
+    if _URL_IN_MESSAGE.search(text):
+        return True
+    if _GITHUB_PROFILE_PHRASE.search(text):
+        return True
+    if _GITHUB_PAGE_USERNAME.search(text):
+        return True
+    if re.search(r"github\.com/[\w.-]+", text, re.IGNORECASE):
+        return True
+    return False
+
+
+def _extract_page_capture_url(message: str) -> str | None:
+    text = str(message or "").strip()
+    if not text:
+        return None
+    m = _URL_IN_MESSAGE.search(text)
+    if m:
+        return m.group(0).rstrip(").,;]'\"")
+    m2 = _GITHUB_PROFILE_PHRASE.search(text)
+    if m2 and m2.group(1).strip():
+        return f"https://github.com/{m2.group(1).strip()}"
+    m3 = re.search(r"github\.com/([\w.-]+)/?", text, re.IGNORECASE)
+    if m3:
+        return f"https://github.com/{m3.group(1)}"
+    m4 = _GITHUB_PAGE_USERNAME.search(text)
+    if m4 and m4.group(1).strip():
+        return f"https://github.com/{m4.group(1).strip()}"
+    return None
+
+
+async def _chat_playwright_screenshot(url: str) -> tuple[str | None, str | None, str]:
+    """Return (raw_base64_png, error_message, resolved_url)."""
+    u = str(url or "").strip()
+    if not u:
+        return None, "No URL to open.", ""
+    try:
+        from agent_space.runtime import browser_manager
+    except ImportError:
+        return None, "Browser automation is not available (Agent Space runtime missing).", u
+
+    opened = await browser_manager.open_session(url=u, headless=True)
+    if not opened.get("success"):
+        err = str(opened.get("error") or "Failed to open browser session.")
+        return None, err, u
+    sid = str(opened.get("session_id") or "")
+    if not sid:
+        return None, "Browser session did not return session_id.", u
+    try:
+        shot = await browser_manager.screenshot(sid, full_page=False)
+        if not shot.get("success"):
+            return None, str(shot.get("error") or "Screenshot failed."), u
+        b64 = shot.get("image_base64")
+        if not isinstance(b64, str) or not b64.strip():
+            return None, "Screenshot returned no image data.", u
+        final = str(shot.get("url") or opened.get("url") or u)
+        return b64.strip(), None, final
+    finally:
+        try:
+            await browser_manager.close_session(sid)
+        except Exception:
+            logger.debug("chat browser close_session failed", exc_info=True)
+
+
 async def _build_auto_web_research_context(
     message: str,
     limit: int = 8,
@@ -636,6 +728,10 @@ async def _stream_chat(
 ) -> AsyncGenerator[str, None]:
     """Core streaming logic — RAG retrieval → prompt build → Ollama stream."""
 
+    chat_request_mode = str(mode or "chat").strip().lower()
+    browser_png_b64: str | None = None
+    browser_capture_url = ""
+
     # Check for "what files do you have?" shortcut
     if _FILE_QUERIES.search(message):
         sources = await vectordb.list_sources()
@@ -648,9 +744,38 @@ async def _stream_chat(
         yield f"data: {json.dumps({'text': answer, 'done': True, 'sources': []})}\n\n"
         return
 
+    # Headless browser screenshot (Playwright) when user asks or Chat mode is "browser"
+    if _should_attempt_chat_browser_capture(message, chat_request_mode):
+        target_url = _extract_page_capture_url(message)
+        if not target_url and chat_request_mode == "browser":
+            hint = (
+                "Browser mode needs a target. Include a full URL (https://…) or a phrase like "
+                "**GitHub profile SomeUser** or **github page SomeUser** so the server can open a page and attach a screenshot."
+            )
+            yield f"data: {json.dumps({'text': hint, 'done': True, 'sources': [], 'routing': {'primary_role': 'browser', 'reasoning': 'browser mode — missing URL'}})}\n\n"
+            return
+        if target_url:
+            yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': True, 'search_status': 'Capturing page in headless browser…'})}\n\n"
+            b64, err, final_u = await _chat_playwright_screenshot(target_url)
+            yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': ''})}\n\n"
+            if err:
+                fail = (
+                    f"I tried to open **{target_url}** in a headless browser but could not capture it: {err}\n\n"
+                    "Check that Playwright is installed (`pip install playwright` then `playwright install chromium`), "
+                    "that outbound HTTPS is allowed, and that the URL is reachable."
+                )
+                yield f"data: {json.dumps({'text': fail, 'done': True, 'sources': [], 'routing': {'primary_role': 'browser', 'reasoning': 'browser capture failed'}})}\n\n"
+                return
+            browser_png_b64 = b64
+            browser_capture_url = final_u or target_url
+            yield f"data: {json.dumps({'browser_screenshot_b64': browser_png_b64, 'browser_screenshot_url': browser_capture_url, 'done': False})}\n\n"
+
     # Auto-route based on message content
     from models.router import classify_message
-    routing = classify_message(message, has_image=has_image or bool(image_b64))
+    routing = classify_message(
+        message,
+        has_image=has_image or bool(image_b64) or bool(browser_png_b64),
+    )
 
     manual_override_active = False
     if model_override and model_override in MODEL_ROUTES:
@@ -666,7 +791,19 @@ async def _stream_chat(
 
     mode = routing.primary_role if hasattr(routing, "primary_role") else routing.primary_model
 
-    if image_b64 and not manual_override_active:
+    if browser_png_b64:
+        image_b64 = browser_png_b64
+        vm = get_model_config("vision")
+        routing.primary_model = vm.model
+        routing.primary_role = "vision"
+        routing.pipeline = [vm.model]
+        routing.pipeline_roles = ["vision"]
+        routing.is_hybrid = False
+        routing.detected_domains = ["vision"]
+        routing.reasoning = f"Headless browser screenshot ({browser_capture_url}) — vision model."
+        mode = "vision"
+        manual_override_active = False
+    elif image_b64 and not manual_override_active:
         mode = "vision"
         routing.primary_role = "vision"
         routing.primary_model = get_model_config("vision").model
@@ -686,7 +823,9 @@ async def _stream_chat(
         "domain_count": 0,
     }
     requires_live_answer = _requires_live_web_answer(message)
-    auto_research_attempted = _should_auto_web_research(message, mode)
+    auto_research_attempted = (
+        False if browser_png_b64 else _should_auto_web_research(message, mode)
+    )
     if auto_research_attempted:
         yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': True, 'search_status': 'Searching web…'})}\n\n"
         try:
@@ -731,6 +870,8 @@ async def _stream_chat(
             "auto_web_research_fetched_pages": int(auto_research_meta.get("fetched_pages", 0)),
             "auto_web_research_domain_count": int(auto_research_meta.get("domain_count", 0)),
             "auto_web_research_query_count": len(list(auto_research_meta.get("queries") or [])),
+            "chat_browser_capture": bool(browser_png_b64),
+            "chat_browser_url": browser_capture_url or None,
         }
         session_store.add_message(session_id, "assistant", fallback, mode)
         yield f"data: {json.dumps({'text': fallback, 'done': True, 'sources': [], 'routing': routing_info})}\n\n"
@@ -759,6 +900,12 @@ async def _stream_chat(
     # Get model config for this mode
     config = get_model_config(mode)
     system_prompt = config.system_prompt
+    if browser_png_b64:
+        system_prompt = (
+            f"{system_prompt}\n\n"
+            "A real headless-browser viewport screenshot of the page the user asked about is attached to this turn. "
+            "Describe what you see and answer their question based on the image."
+        )
 
     # Inject Data Science context if detected
     if any(d in ["math", "code", "data_science"] for d in routing.detected_domains):
@@ -850,6 +997,8 @@ async def _stream_chat(
         "context_window_chars": sum(len(m["content"]) for m in history_for_model),
         "cross_chat_memory_active": bool(cx_block),
         "rolling_summary_active": bool(roll),
+        "chat_browser_capture": bool(browser_png_b64),
+        "chat_browser_url": browser_capture_url or None,
     }
 
     # ── Hybrid pipeline execution ──────────────────────────────────────

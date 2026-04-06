@@ -119,6 +119,29 @@ export default function MessageBubble({ message }: Props) {
                     {isUser ? (
                         <p className="m-0 whitespace-pre-wrap text-sm leading-relaxed text-text-primary">{message.content}</p>
                     ) : (
+                        <>
+                        {message.browserScreenshotBase64 && (
+                            <div className="mb-3 space-y-1">
+                                {message.browserScreenshotUrl && (
+                                    <p className="m-0 text-[11px] text-text-muted">
+                                        Headless capture:{' '}
+                                        <a
+                                            href={message.browserScreenshotUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-accent underline-offset-2 hover:underline"
+                                        >
+                                            {message.browserScreenshotUrl}
+                                        </a>
+                                    </p>
+                                )}
+                                <img
+                                    src={`data:image/png;base64,${message.browserScreenshotBase64}`}
+                                    alt="Browser viewport capture"
+                                    className="max-h-[min(70vh,520px)] w-auto max-w-full border border-surface-4 object-contain"
+                                />
+                            </div>
+                        )}
                         <ReactMarkdown
                             remarkPlugins={[remarkMath]}
                             rehypePlugins={[rehypeKatex]}
@@ -147,6 +170,7 @@ export default function MessageBubble({ message }: Props) {
                         >
                             {preprocessLatex(message.content) || (message.isStreaming ? '' : '*Empty response*')}
                         </ReactMarkdown>
+                        </>
                     )}
                 </div>
 

@@ -1062,7 +1062,7 @@ def start_services(args: argparse.Namespace) -> None:
             "backend",
             host=args.host,
             port=int(args.backend_port),
-            timeout_seconds=20,
+            timeout_seconds=60,
             proc=backend_proc,
         )
     else:

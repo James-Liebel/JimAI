@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "setup:browser": "python scripts/setup_playwright.py",
+    "setup:browser:chromium-only": "python scripts/setup_playwright.py --browser-only",
+    "agentspace:setup-browser": "python scripts/agentspace_lifecycle.py setup-browser",
     "agentspace:start": "python scripts/agentspace_lifecycle.py start",
     "agentspace:start:n8n": "python scripts/agentspace_lifecycle.py start --with-n8n",
     "agentspace:stop": "python scripts/agentspace_lifecycle.py stop",

@@ -710,10 +710,62 @@ def _wait_for_tcp_ready(
 
 
 def choose_backend_python() -> str:
+    venv_linux = BACKEND_DIR / ".venv" / "bin" / "python"
+    if venv_linux.exists():
+        return str(venv_linux)
     venv_python = BACKEND_DIR / ".venv" / "Scripts" / "python.exe"
     if venv_python.exists():
         return str(venv_python)
     return sys.executable
+
+
+def ensure_playwright_chromium(python_exe: str) -> None:
+    """If Chromium is missing, install it (Chat browser capture + Agent Space). Idempotent."""
+    check_script = REPO_ROOT / "scripts" / "check_playwright_chromium.py"
+    if not check_script.is_file():
+        return
+    try:
+        check = subprocess.run(
+            [python_exe, str(check_script)],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        check = None
+    if check is not None and check.returncode == 0:
+        return
+    print(
+        "JimAI: Playwright Chromium not ready — installing (first run may download a large browser bundle)…",
+        flush=True,
+    )
+    setup_script = REPO_ROOT / "scripts" / "setup_playwright.py"
+    if not setup_script.is_file():
+        print("JimAI: Missing scripts/setup_playwright.py — run: npm run setup:browser", flush=True)
+        return
+    setup = subprocess.run(
+        [python_exe, str(setup_script)],
+        cwd=str(REPO_ROOT),
+    )
+    if setup.returncode != 0:
+        print(
+            "JimAI: Playwright setup failed. From repo root try: npm run setup:browser",
+            flush=True,
+        )
+        return
+    verify = subprocess.run(
+        [python_exe, str(check_script)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    if verify.returncode != 0:
+        print(
+            "JimAI: Chromium still did not start. Check scripts/check_playwright_chromium.py output.",
+            flush=True,
+        )
 
 
 def choose_tool(name: str) -> str:
@@ -982,8 +1034,9 @@ def start_services(args: argparse.Namespace) -> None:
     env["AGENT_SPACE_N8N_URL"] = args.n8n_url or f"http://localhost:{args.n8n_port}"
     env["AGENT_SPACE_N8N_AUTO_START"] = "true" if bool(getattr(args, "n8n_auto_start", False)) else "false"
 
+    backend_py = choose_backend_python()
     backend_cmd = [
-        choose_backend_python(),
+        backend_py,
         "-m",
         "uvicorn",
         "main:app",
@@ -1000,6 +1053,7 @@ def start_services(args: argparse.Namespace) -> None:
     backend_proc: subprocess.Popen | None = None
     frontend_proc: subprocess.Popen | None = None
     if not backend_ready:
+        ensure_playwright_chromium(backend_py)
         backend_proc = subprocess.Popen(
             backend_cmd,
             cwd=BACKEND_DIR,
@@ -1438,6 +1492,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("shortcuts", help="Create desktop shortcut .cmd files.")
 
+    setup_browser = sub.add_parser(
+        "setup-browser",
+        help="Install backend requirements (pip) and Playwright Chromium for Chat + Agent Space.",
+    )
+    setup_browser.add_argument(
+        "--browser-only",
+        action="store_true",
+        help="Only download Chromium; skip pip install.",
+    )
+
     free_setup = sub.add_parser(
         "free-stack-setup",
         help="Download and configure free local stack services with local accounts.",
@@ -1478,6 +1542,12 @@ def main() -> None:
         start_desktop(args)
     elif args.command == "shortcuts":
         create_shortcuts(args)
+    elif args.command == "setup-browser":
+        py = choose_backend_python()
+        cmd = [py, str(REPO_ROOT / "scripts" / "setup_playwright.py")]
+        if bool(getattr(args, "browser_only", False)):
+            cmd.append("--browser-only")
+        raise SystemExit(subprocess.run(cmd, cwd=str(REPO_ROOT)).returncode)
     elif args.command == "free-stack-setup":
         free_stack_setup(args)
     elif args.command == "free-stack-start":

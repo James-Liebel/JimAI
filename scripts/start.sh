@@ -10,6 +10,13 @@ else
     sleep 3
 fi
 
+# Playwright Chromium (Chat browser capture, Agent Space)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if ! python "$SCRIPT_DIR/check_playwright_chromium.py" 2>/dev/null; then
+    echo "Installing Playwright + Chromium..."
+    python "$SCRIPT_DIR/setup_playwright.py" || true
+fi
+
 # Start backend
 cd "$(dirname "$0")/../backend"
 python -m uvicorn main:app --reload --port 8000 &

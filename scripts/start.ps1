@@ -68,6 +68,20 @@ foreach ($pkg in $packages) {
     }
 }
 
+# Playwright Chromium (Chat browser capture, Agent Space)
+if (Test-Path $backendPython) {
+    Write-Host "Checking Playwright Chromium..." -ForegroundColor Cyan
+    $checkPw = Join-Path $PSScriptRoot "check_playwright_chromium.py"
+    & $backendPython $checkPw 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Installing Playwright + Chromium..." -ForegroundColor Yellow
+        $setupPw = Join-Path $PSScriptRoot "setup_playwright.py"
+        & $backendPython $setupPw
+    } else {
+        Write-Host "  [OK] Playwright Chromium" -ForegroundColor Green
+    }
+}
+
 # Start backend (bind to 0.0.0.0 for Tailscale access)
 # Use the backend's virtualenv Python explicitly so dependencies and versions are correct.
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; & '$backendPython' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"

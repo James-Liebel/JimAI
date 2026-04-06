@@ -1,5 +1,6 @@
 """Private AI Backend — FastAPI application entry point."""
 
+import asyncio
 import inspect
 import logging
 import os
@@ -34,28 +35,44 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown lifecycle."""
-    # Startup: validate Ollama connection (can auto-start later per app instance).
+    """Startup / shutdown lifecycle.
+
+    Uvicorn runs lifespan startup *before* binding the listen socket. Heavy Agent Space
+    init (n8n, Qdrant warmup, etc.) can exceed launcher TCP probes unless we defer it.
+    """
     logger.info("Starting Private AI backend...")
     try:
         models = await ollama_client.list_models()
         logger.info("Ollama connected — %d models available", len(models))
     except ConnectionError:
         logger.info("Ollama is not running at startup; it will auto-start on first app instance.")
+
+    async def _agent_space_startup_task() -> None:
+        try:
+            from agent_space.runtime import startup as agent_space_startup
+
+            await agent_space_startup()
+            logger.info("Agent Space runtime initialized (background).")
+        except Exception as exc:
+            logger.warning("Agent Space startup warning: %s", exc)
+
+    agent_space_bg = asyncio.create_task(_agent_space_startup_task())
     try:
-        from agent_space.runtime import startup as agent_space_startup
-        await agent_space_startup()
-    except Exception as exc:
-        logger.warning("Agent Space startup warning: %s", exc)
-    yield
-    # Shutdown: close HTTP client
-    try:
-        from agent_space.runtime import shutdown as agent_space_shutdown
-        await agent_space_shutdown()
-    except Exception as exc:
-        logger.warning("Agent Space shutdown warning: %s", exc)
-    await ollama_client.close()
-    logger.info("Backend shut down cleanly")
+        yield
+    finally:
+        if not agent_space_bg.done():
+            try:
+                await agent_space_bg
+            except Exception as exc:
+                logger.warning("Agent Space background startup did not finish cleanly: %s", exc)
+        try:
+            from agent_space.runtime import shutdown as agent_space_shutdown
+
+            await agent_space_shutdown()
+        except Exception as exc:
+            logger.warning("Agent Space shutdown warning: %s", exc)
+        await ollama_client.close()
+        logger.info("Backend shut down cleanly")
 
 
 app = FastAPI(

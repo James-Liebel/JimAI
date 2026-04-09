@@ -14,7 +14,6 @@ const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
-    { to: '/automation', label: 'Automation' },
     { to: '/self-code', label: 'SelfCode' },
 ];
 

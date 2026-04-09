@@ -311,6 +311,34 @@ export default function Chat() {
                                         chat summary
                                     </span>
                                 )}
+                                {(lastRouting?.tools_used ?? []).map((tool) => {
+                                    const TOOL_LABELS: Record<string, string> = {
+                                        code_exec: '⚡ code ran',
+                                        math: '∑ math',
+                                        sysinfo: '💻 sysinfo',
+                                        datetime: '🕐 time',
+                                        calculator: '🔢 calc',
+                                        git: '🌿 git',
+                                        file_read: '📄 file',
+                                        unit_convert: '📐 units',
+                                        hash: '🔑 hash',
+                                        base64: '📦 base64',
+                                        json_format: '{ } json',
+                                        regex_test: '🔍 regex',
+                                        text_stats: '📝 stats',
+                                        uuid: '🆔 uuid',
+                                        color: '🎨 color',
+                                    };
+                                    return (
+                                        <span
+                                            key={tool}
+                                            className="rounded-badge border border-cyan-500/25 bg-cyan-500/8 px-2 py-0.5 text-cyan-400"
+                                            title={`Auto tool used: ${tool}`}
+                                        >
+                                            {TOOL_LABELS[tool] ?? tool}
+                                        </span>
+                                    );
+                                })}
                             </>
                         )}
                     </div>

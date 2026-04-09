@@ -68,6 +68,8 @@ export interface RoutingDecision {
     /** Headless browser screenshot path (Chat API) */
     chat_browser_capture?: boolean;
     chat_browser_url?: string | null;
+    /** Auto tools that ran for this turn (code_exec, math, sysinfo, datetime, calculator) */
+    tools_used?: string[];
     /** Per-request model context (this chat only, after windowing) */
     context_window_messages?: number;
     context_window_chars?: number;

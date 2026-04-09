@@ -27,6 +27,18 @@ const DS_SIGNALS = [
     /\b(clustering|classification|regression problem)\b/i,
 ];
 
+// Utility tool signals — shown as routing hints in the input bar
+const UTIL_SIGNALS: Array<[RegExp, string]> = [
+    [/\bgit\s+(status|log|diff|blame)\b|\brecent\s+commits?\b|\bwhat\s+changed\b/i, 'git'],
+    [/\bmd5\b|\bsha256?\b|\bhash\s+(of|this)\b/i, 'hash'],
+    [/\bbase64\s+(encode|decode)\b|\bencode.{0,15}base64\b/i, 'base64'],
+    [/\b(format|validate)\b.{0,15}\bjson\b|\bjson\s+(format|lint)\b/i, 'json'],
+    [/\b(word\s+count|reading\s+time|count\s+words?)\b/i, 'text stats'],
+    [/\bgenerate\b.{0,12}\b(uuid|guid)\b/i, 'uuid'],
+    [/\bconvert\b.{0,30}\b(km|miles?|kg|lbs?|celsius|fahrenheit)\b/i, 'unit convert'],
+    [/\b#[0-9A-Fa-f]{3,8}\b|\brgb\s*\(.+\).{0,15}\bto\b/i, 'color'],
+];
+
 // Browser intent: user wants to open a URL / take a screenshot
 const BROWSER_SIGNALS = [
     /\bscreenshot\b/i,
@@ -58,6 +70,11 @@ export function classifyLocally(text: string, hasImage: boolean): string {
 
     // Builder intent check
     if (BUILDER_SIGNALS.some((p) => p.test(text))) return 'builder';
+
+    // Utility tool signals
+    for (const [pattern, label] of UTIL_SIGNALS) {
+        if (pattern.test(text)) return label;
+    }
 
     const mathScore = MATH_SIGNALS.filter((p) => p.test(text)).length;
     const codeScore = CODE_SIGNALS.filter((p) => p.test(text)).length;

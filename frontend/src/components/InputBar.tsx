@@ -282,7 +282,7 @@ export default function InputBar({
                         <>
                             {routingPreview === 'browser' && (
                                 <span className="animate-fade-in flex items-center gap-1 text-cyan-400">
-                                    → 🌐 browser capture
+                                    → 🌐 browser
                                 </span>
                             )}
                             {routingPreview === 'builder' && (
@@ -290,14 +290,17 @@ export default function InputBar({
                                     → 🔨 builder
                                 </span>
                             )}
-                            {routingPreview !== 'browser' && routingPreview !== 'builder' && (
+                            {!['browser', 'builder', 'chat model', 'code model', 'math model', 'vision model', 'math + code pipeline'].includes(routingPreview)
+                             && !routingPreview.endsWith('model') && !routingPreview.includes('pipeline') && (
+                                <span className="animate-fade-in text-cyan-400">
+                                    → ⚙ {routingPreview}
+                                </span>
+                            )}
+                            {(routingPreview.endsWith('model') || routingPreview.includes('pipeline')) && (
                                 <span className="animate-fade-in">
                                     → {routingPreview.includes('pipeline')
                                         ? routingPreview
-                                        : resolveModelLabel(
-                                            routingPreview.replace(' model', ''),
-                                            speedMode,
-                                        )}
+                                        : resolveModelLabel(routingPreview.replace(' model', ''), speedMode)}
                                 </span>
                             )}
                         </>

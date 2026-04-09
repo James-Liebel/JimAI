@@ -835,6 +835,26 @@ async def _stream_chat(
         routing.primary_role = "vision"
         routing.primary_model = get_model_config("vision").model
 
+    # ── Auto tool dispatch (code exec, math, sysinfo, datetime, calculator) ──
+    from api.chat_tools import run_tools, build_tool_context, detect_needed_tools
+    tool_results: list[dict] = []
+    tool_names_used: list[str] = []
+    needed_tools = detect_needed_tools(message)
+    if needed_tools and not browser_png_b64:
+        status_label = " · ".join(
+            {"code_exec": "Running code", "math": "Computing math",
+             "sysinfo": "Reading system info", "datetime": "Checking time",
+             "calculator": "Calculating"}.get(t, t)
+            for t in needed_tools
+        )
+        yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': True, 'search_status': status_label + '…'})}\n\n"
+        try:
+            tool_results = await run_tools(message)
+            tool_names_used = [r["tool"] for r in tool_results if r.get("tool")]
+        except Exception as _te:
+            logger.warning("Tool dispatch failed: %s", _te)
+        yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': ''})}\n\n"
+
     # Retrieve RAG context — scoped to sources ingested in this chat/session
     session_sources = session_store.get_sources(session_id)
     rag_chunks = await vectordb.retrieve(message, n=5, sources=session_sources)
@@ -899,10 +919,16 @@ async def _stream_chat(
             "auto_web_research_query_count": len(list(auto_research_meta.get("queries") or [])),
             "chat_browser_capture": bool(browser_png_b64),
             "chat_browser_url": browser_capture_url or None,
+            "tools_used": tool_names_used,
         }
         session_store.add_message(session_id, "assistant", fallback, mode)
         yield f"data: {json.dumps({'text': fallback, 'done': True, 'sources': [], 'routing': routing_info})}\n\n"
         return
+    # Inject tool results (always highest priority — ground truth)
+    tool_context = build_tool_context(tool_results)
+    if tool_context:
+        augmented_prompt = f"{tool_context}\n\n{augmented_prompt}"
+
     if auto_research_context:
         augmented_prompt = (
             f"{augmented_prompt}\n\n"
@@ -1026,6 +1052,7 @@ async def _stream_chat(
         "rolling_summary_active": bool(roll),
         "chat_browser_capture": bool(browser_png_b64),
         "chat_browser_url": browser_capture_url or None,
+        "tools_used": tool_names_used,
     }
 
     # ── Hybrid pipeline execution ──────────────────────────────────────

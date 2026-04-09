@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
 import { PageHeader } from '../components/PageHeader';
+import { Camera, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function AgentBrowser() {
     const [sessions, setSessions] = useState<agentApi.BrowserSessionSummary[]>([]);
@@ -19,6 +20,11 @@ export default function AgentBrowser() {
     const [imageClickMode, setImageClickMode] = useState<'click' | 'move'>('click');
     const [headedMode, setHeadedMode] = useState(false);
     const [liveMirror, setLiveMirror] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [quickUrl, setQuickUrl] = useState('https://');
+    const [quickScreenshot, setQuickScreenshot] = useState('');
+    const [quickLoading, setQuickLoading] = useState(false);
+    const [quickError, setQuickError] = useState('');
     const [mirrorMs, setMirrorMs] = useState(900);
     const [selectValue, setSelectValue] = useState('');
     const [selectLabel, setSelectLabel] = useState('');
@@ -54,6 +60,28 @@ export default function AgentBrowser() {
         if (!sessionId) return;
         const data = await agentApi.browserScreenshot(sessionId, false);
         if (data && data.image_base64) setScreenshotBase64(data.image_base64);
+    };
+
+    const handleQuickScreenshot = async () => {
+        const u = quickUrl.trim();
+        if (!u || u === 'https://') return;
+        setQuickLoading(true);
+        setQuickError('');
+        setQuickScreenshot('');
+        let sid = '';
+        try {
+            const opened = await agentApi.openBrowserSession({ url: u, headless: true });
+            if (!opened?.session_id) throw new Error(opened?.error || 'Failed to open browser session.');
+            sid = opened.session_id;
+            const shot = await agentApi.browserScreenshot(sid, true);
+            if (!shot?.image_base64) throw new Error('No screenshot returned.');
+            setQuickScreenshot(shot.image_base64);
+        } catch (err) {
+            setQuickError(err instanceof Error ? err.message : 'Screenshot failed.');
+        } finally {
+            if (sid) agentApi.closeBrowserSession(sid).catch(() => {});
+            setQuickLoading(false);
+        }
     };
 
     useEffect(() => {
@@ -157,9 +185,64 @@ export default function AgentBrowser() {
         <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
             <PageHeader
                 title="Agent Browser"
-                description="Playwright-powered automation: navigate, scroll, extract, fill forms, and mirror the session in-app (similar to operator UIs). Use only on sites you are allowed to access; respect robots, paywalls, and terms of service. Headed mode opens a real Chromium window on the machine running the backend."
+                description="Playwright-powered browser automation. Take screenshots, fill forms, and automate websites. You can also ask the AI in Chat to 'screenshot antigravity.com' and it will do this automatically."
             />
-            <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
+
+            {/* Quick Screenshot — one-click capture */}
+            <section className="rounded-card border border-accent-blue/30 bg-surface-1 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                    <Camera size={15} className="text-accent-blue shrink-0" />
+                    <h2 className="text-sm font-semibold text-text-primary">Quick Screenshot</h2>
+                    <span className="text-xs text-text-muted">— enter a URL and capture the full page in one click</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <input
+                        value={quickUrl}
+                        onChange={(e) => setQuickUrl(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void handleQuickScreenshot(); }}
+                        placeholder="https://antigravity.com"
+                        className="flex-1 min-w-[260px] bg-surface-0 border border-surface-4 rounded-btn px-3 py-2 text-sm text-text-primary"
+                    />
+                    <button
+                        onClick={() => void handleQuickScreenshot()}
+                        disabled={quickLoading || !quickUrl.trim() || quickUrl.trim() === 'https://'}
+                        className="px-4 py-2 rounded-btn border border-accent-blue/40 bg-accent-blue/10 text-accent-blue text-sm font-medium disabled:opacity-40 hover:bg-accent-blue/20 transition-colors"
+                    >
+                        {quickLoading ? 'Capturing…' : 'Take Screenshot'}
+                    </button>
+                </div>
+                {quickError && <p className="text-xs text-accent-red">{quickError}</p>}
+                {quickScreenshot && (
+                    <div className="space-y-1">
+                        <p className="text-xs text-text-muted">Screenshot of <span className="text-text-secondary">{quickUrl}</span></p>
+                        <img
+                            src={`data:image/png;base64,${quickScreenshot}`}
+                            alt="Quick screenshot"
+                            className="max-h-[500px] w-auto max-w-full border border-surface-4 rounded-btn object-contain"
+                        />
+                        <button
+                            onClick={() => { setQuickScreenshot(''); setQuickUrl('https://'); }}
+                            className="text-xs text-text-muted hover:text-accent-red transition-colors"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                )}
+            </section>
+
+            {/* Advanced Session Controls */}
+            <section className="rounded-card border border-surface-4 bg-surface-1 overflow-hidden">
+                <button
+                    type="button"
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-2 transition-colors text-left"
+                >
+                    {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Advanced Session Controls
+                    <span className="text-xs text-text-muted font-normal">— manual navigation, cursor control, form interaction</span>
+                </button>
+                {showAdvanced && <div className="p-4 space-y-4 border-t border-surface-4">
+            <div className="space-y-3">
                 <label className="flex flex-wrap items-center gap-2 text-xs text-text-secondary">
                     <input
                         type="checkbox"
@@ -225,9 +308,9 @@ export default function AgentBrowser() {
                         Close All
                     </button>
                 </div>
-            </section>
+            </div>
 
-            <section className="grid md:grid-cols-[300px_1fr] gap-4">
+            <div className="grid md:grid-cols-[300px_1fr] gap-4">
                 <div className="rounded-card border border-surface-4 bg-surface-1 p-3">
                     <h2 className="text-sm font-semibold text-text-primary">Sessions</h2>
                     <div className="mt-2 space-y-2 max-h-[420px] overflow-auto">
@@ -768,6 +851,8 @@ export default function AgentBrowser() {
                         </pre>
                     )}
                 </div>
+            </div>
+            </div>}
             </section>
 
             {message && <p className="text-sm text-accent-green">{message}</p>}

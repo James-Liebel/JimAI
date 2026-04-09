@@ -51,17 +51,15 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
                     </h2>
                     <p className={`text-text-muted max-w-sm text-center ${isMobile ? 'text-xs' : 'text-xs'}`}>
                         {isMobile
-                            ? 'Ask anything — math, code, data, images, or "screenshot a website".'
-                            : 'Paste anything — code, math, data, images. Say "screenshot antigravity.com" to browse the web. Auto-routes to the right model.'}
+                            ? 'Ask anything — math, code, data, images, or any website.'
+                            : 'Paste anything — code, math, data, images. Mention a URL and the browser runs automatically. The system picks the right tool.'}
                     </p>
-                    <div className={`mt-4 grid gap-2 w-full ${isMobile ? 'grid-cols-2 max-w-sm' : 'grid-cols-3 max-w-2xl mt-6'}`}>
+                    <div className={`mt-4 grid gap-2 w-full ${isMobile ? 'grid-cols-2 max-w-sm' : 'grid-cols-2 max-w-lg mt-6'}`}>
                         {[
                             { icon: '∑', label: 'Math', desc: 'Proofs, LaTeX', color: 'text-accent-blue' },
                             { icon: '⟨/⟩', label: 'Code', desc: 'Write, fix', color: 'text-accent-green' },
                             { icon: '📊', label: 'Data', desc: 'EDA, ML', color: 'text-accent-amber' },
                             { icon: '👁', label: 'Vision', desc: 'Images, OCR', color: 'text-accent-purple' },
-                            { icon: '🌐', label: 'Browse', desc: '"screenshot antigravity.com"', color: 'text-cyan-400' },
-                            { icon: '🔍', label: 'Research', desc: 'Web + sources', color: 'text-accent-green' },
                         ].map((item) => (
                             <div key={item.label} className={`bg-surface-1 rounded-none border border-surface-4 ${isMobile ? 'p-2.5' : 'p-3'}`}>
                                 <div className={`${item.color} font-medium flex items-center gap-1.5 mb-0.5 ${isMobile ? 'text-xs' : 'text-xs'}`}>

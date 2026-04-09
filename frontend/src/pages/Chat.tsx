@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { Menu } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
 import { useUpload } from '../hooks/useUpload';
@@ -13,7 +13,8 @@ import { consumeQueuedChatPrompt } from '../lib/chatBridge';
 import { detectLikelySystemTask } from '../lib/detectSystemIntent';
 import { consumeSystemTask } from '../lib/systemTaskBridge';
 import { runLocalSystemAgentAuto } from '../lib/localSystemAgentSidecar';
-import { cn } from '../lib/utils';
+import { cn, writeSharedWorkspaceDraft } from '../lib/utils';
+import { classifyLocally } from '../lib/classifier';
 import { CHAT_SKILLS_CHANGED, loadChatAutoSkills, loadChatSkillSlugs } from '../lib/chatSkillSelection';
 import type { SpeedMode } from '../lib/types';
 
@@ -23,6 +24,7 @@ interface OutletCtx {
 }
 
 export default function Chat() {
+    const navigate = useNavigate();
     const {
         messages,
         isStreaming,
@@ -40,6 +42,17 @@ export default function Chat() {
 
     const [localPcLog, setLocalPcLog] = useState('');
     const [localPcRunning, setLocalPcRunning] = useState(false);
+
+    // Smart action: detect if the last user message should be sent to Builder
+    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
+    const lastUserContent = lastUserMessage?.content ?? '';
+    const lastUserIntent = lastUserContent.trim().length > 0 ? classifyLocally(lastUserContent, false) : '';
+    const showBuilderSuggestion = lastUserIntent === 'builder' && !isStreaming && messages.length >= 2;
+
+    const handleSendToBuilder = useCallback(() => {
+        writeSharedWorkspaceDraft({ objective: lastUserContent, prompt: lastUserContent });
+        navigate('/builder');
+    }, [lastUserContent, navigate]);
 
     const { speedMode, onSpeedModeChange } = (useOutletContext<OutletCtx>() ?? {
         speedMode: 'balanced' as SpeedMode,
@@ -322,6 +335,19 @@ export default function Chat() {
                                 <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-text-secondary">
                                     {localPcRunning && !localPcLog ? 'Running local filesystem agent…' : localPcLog}
                                 </pre>
+                            </div>
+                        )}
+
+                        {showBuilderSuggestion && (
+                            <div className="flex-shrink-0 flex items-center gap-3 border-t border-accent-green/20 bg-accent-green/5 px-4 py-2 animate-fade-in">
+                                <span className="text-xs text-accent-green font-medium">🔨 This looks like a build request</span>
+                                <button
+                                    onClick={handleSendToBuilder}
+                                    className="text-xs px-3 py-1 rounded-btn border border-accent-green/40 text-accent-green hover:bg-accent-green/10 transition-colors font-medium"
+                                >
+                                    Open in Builder →
+                                </button>
+                                <span className="text-xs text-text-muted">Builder can run agents and edit files autonomously</span>
                             </div>
                         )}
 

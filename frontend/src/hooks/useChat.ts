@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { v4 as uuid } from 'uuid';
 import type { Message, Mode, Source, RoutingDecision } from '../lib/types';
 import * as api from '../lib/api';
-import { loadChatAutoSkills, loadChatSkillSlugs } from '../lib/chatSkillSelection';
 
 const SAVE_DEBOUNCE_MS = 2000;
 
@@ -146,8 +145,6 @@ export function useChat() {
                     role: m.role,
                     content: m.content,
                 }));
-                const skillSlugs = loadChatSkillSlugs();
-                const autoSelectSkills = loadChatAutoSkills();
                 const apiMode = modelOverride === 'browser' ? 'browser' : 'chat';
                 await api.streamChat(
                     content,
@@ -178,8 +175,8 @@ export function useChat() {
                     },
                     modelOverride || undefined,
                     imageBase64,
-                    skillSlugs.length > 0 ? skillSlugs : undefined,
-                    autoSelectSkills,
+                    undefined,
+                    true,
                 );
             } catch (err) {
                 appendChunk(`\n\n**Error:** ${err instanceof Error ? err.message : 'Unknown error'}`);

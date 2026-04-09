@@ -369,6 +369,12 @@ def _source_url(value: str) -> str:
 # ── Headless browser capture for Chat (Playwright via Agent Space) ─────
 
 _URL_IN_MESSAGE = re.compile(r"https?://[^\s\>)\"']+", re.IGNORECASE)
+# Bare domain: something like antigravity.com or sub.domain.co.uk (no scheme required)
+_BARE_DOMAIN = re.compile(
+    r"(?<!\w)((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)"
+    r"+(?:com|org|net|io|co|app|dev|ai|edu|gov|uk|au|ca|de|fr|jp|cn|ru|br|it|es|nl|se|no|fi|dk|pl|cz|hu|ro|bg|hr|sk|si|lt|lv|ee|mx|ar|cl|pe|in|sg|nz|za|ke|ng|gh|eg|sa|ae|tr|il|ph|id|th|vn|my|pk|bd|lk|np|mm|kh|la|mn|uz|kz|az|ge|am|md|by|ua|rs|ba|mk|al|mt|cy|lu|li|mc|sm|is|gl|fo|ax|gg|je|im|io|ai|la|ad|va|to|tv|tm|nu|nf|ms|mp|mh|gu|fm|as|ck|ws|ki|fj|pg|sb|vu|nc|pf|wf|pm|re|yt|mq|gp|bl|mf|gf|sr|aw|cw|sx|bq|bz|gt|sv|hn|ni|cr|pa|cu|jm|ht|do|pr|vi|tt|bb|lc|vc|gd|ag|dm|kn|bs|tc|ky|vg|bm|ai|ms|gp|bl))(?:[/\w\-.~:@!$&'()*+,;=?#%]*)?(?![\w.])",
+    re.IGNORECASE,
+)
 _GITHUB_PROFILE_PHRASE = re.compile(
     r"(?:github|gh)\s+(?:page|profile|account|user)\s+(?:for\s+|of\s+|my\s+)?@?"
     r"([A-Za-z0-9](?:[A-Za-z0-9_-]{0,38}[A-Za-z0-9])?)",
@@ -378,10 +384,15 @@ _GITHUB_PAGE_USERNAME = re.compile(
     r"github\s+page\s+([A-Za-z0-9](?:[A-Za-z0-9_-]{0,38}[A-Za-z0-9])?)",
     re.IGNORECASE,
 )
+# Broader set of browser-intent verbs — including natural phrases users actually type
 _CHAT_BROWSER_VERBS = re.compile(
-    r"screenshot|screen\s*shot|capture\s+(?:a\s+)?(?:page|site|website)|open\s+(?:a\s+)?browser|"
-    r"show\s+me\s+what|navigate\s+to|go\s+to\s+(?:the\s+)?(?:page|site)|"
-    r"what(?:'s|s| is)\s+on\s+(?:the\s+)?(?:page|site)|take\s+a\s+picture\s+of\s+(?:the\s+)?(?:page|site)",
+    r"screenshot|screen\s*shot|capture\s+(?:a\s+)?(?:page|site|website)|"
+    r"open\s+(?:a\s+)?browser|show\s+me\s+what|navigate\s+to|go\s+to\s+(?:the\s+)?(?:page|site)|"
+    r"what(?:'s|s| is)\s+on\s+(?:the\s+)?(?:page|site)|take\s+a\s+picture\s+of\s+(?:the\s+)?(?:page|site)|"
+    r"(?:open|visit|browse\s+to?|check\s+out?|look\s+at|pull\s+up|load|display|show\s+me|"
+    r"what(?:'?s|\s+is)\s+(?:on\s+)?|what\s+does\s+\S+\s+look\s+like|"
+    r"can\s+you\s+(?:open|visit|check|browse|show)|"
+    r"browse\s+(?:to\s+)?|go\s+to|open\s+up)",
     re.IGNORECASE,
 )
 
@@ -393,15 +404,24 @@ def _should_attempt_chat_browser_capture(message: str, chat_request_mode: str) -
     text = str(message or "").strip()
     if not text:
         return False
-    if not _CHAT_BROWSER_VERBS.search(text):
-        return False
-    if _URL_IN_MESSAGE.search(text):
+    has_verb = bool(_CHAT_BROWSER_VERBS.search(text))
+    has_full_url = bool(_URL_IN_MESSAGE.search(text))
+    has_bare_domain = bool(_BARE_DOMAIN.search(text))
+    has_github = (
+        bool(_GITHUB_PROFILE_PHRASE.search(text))
+        or bool(_GITHUB_PAGE_USERNAME.search(text))
+        or bool(re.search(r"github\.com/[\w.-]+", text, re.IGNORECASE))
+    )
+    # Explicit URL (https://...) with any browser-like verb → capture
+    if has_full_url and has_verb:
         return True
-    if _GITHUB_PROFILE_PHRASE.search(text):
+    # Bare domain (antigravity.com) with any browser verb → capture
+    if has_bare_domain and has_verb:
         return True
-    if _GITHUB_PAGE_USERNAME.search(text):
+    # Full URL alone with strong screenshot verb
+    if has_full_url and re.search(r"screenshot|screen\s*shot|capture", text, re.IGNORECASE):
         return True
-    if re.search(r"github\.com/[\w.-]+", text, re.IGNORECASE):
+    if has_github:
         return True
     return False
 
@@ -410,9 +430,11 @@ def _extract_page_capture_url(message: str) -> str | None:
     text = str(message or "").strip()
     if not text:
         return None
+    # Explicit https:// URL takes priority
     m = _URL_IN_MESSAGE.search(text)
     if m:
         return m.group(0).rstrip(").,;]'\"")
+    # GitHub shorthand patterns
     m2 = _GITHUB_PROFILE_PHRASE.search(text)
     if m2 and m2.group(1).strip():
         return f"https://github.com/{m2.group(1).strip()}"
@@ -422,6 +444,11 @@ def _extract_page_capture_url(message: str) -> str | None:
     m4 = _GITHUB_PAGE_USERNAME.search(text)
     if m4 and m4.group(1).strip():
         return f"https://github.com/{m4.group(1).strip()}"
+    # Bare domain — prepend https://
+    m5 = _BARE_DOMAIN.search(text)
+    if m5:
+        raw = m5.group(0).rstrip(").,;]'\"")
+        return f"https://{raw}"
     return None
 
 

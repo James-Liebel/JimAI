@@ -275,18 +275,32 @@ export default function InputBar({
             {/* Routing preview + override dropdown */}
             <div className="flex items-center justify-between px-1">
                 <div className={cn(
-                    'text-text-muted flex items-center gap-1.5',
+                    'text-text-muted flex items-center gap-1.5 flex-wrap',
                     isMobile ? 'text-xs' : 'text-[11px]',
                 )}>
                     {routingPreview && !modelOverride && (
-                        <span className="animate-fade-in">
-                            → {routingPreview.includes('pipeline')
-                                ? routingPreview
-                                : resolveModelLabel(
-                                    routingPreview.replace(' model', ''),
-                                    speedMode,
-                                )}
-                        </span>
+                        <>
+                            {routingPreview === 'browser' && (
+                                <span className="animate-fade-in flex items-center gap-1 text-cyan-400">
+                                    → 🌐 browser capture
+                                </span>
+                            )}
+                            {routingPreview === 'builder' && (
+                                <span className="animate-fade-in flex items-center gap-1 text-accent-green">
+                                    → 🔨 builder
+                                </span>
+                            )}
+                            {routingPreview !== 'browser' && routingPreview !== 'builder' && (
+                                <span className="animate-fade-in">
+                                    → {routingPreview.includes('pipeline')
+                                        ? routingPreview
+                                        : resolveModelLabel(
+                                            routingPreview.replace(' model', ''),
+                                            speedMode,
+                                        )}
+                                </span>
+                            )}
+                        </>
                     )}
                     {modelOverride && (
                         <span className="animate-fade-in flex items-center gap-1">

@@ -27,8 +27,37 @@ const DS_SIGNALS = [
     /\b(clustering|classification|regression problem)\b/i,
 ];
 
+// Browser intent: user wants to open a URL / take a screenshot
+const BROWSER_SIGNALS = [
+    /\bscreenshot\b/i,
+    /\bscreen\s*shot\b/i,
+    /\b(open|visit|browse\s+to?|check\s+out?|look\s+at|pull\s+up|load|display)\b.{0,40}(https?:\/\/|www\.|\.(com|org|net|io|co|app|dev|ai))/i,
+    /\b(open|visit|browse|check|go\s+to|navigate\s+to)\s+(https?:\/\/\S+|www\.\S+)/i,
+    /https?:\/\/\S+/i,
+    /\bwhat\s+does\s+\S+\.(com|org|net|io|co|app|dev|ai)\b/i,
+    /\b(show\s+me\s+|open\s+up\s+)?(the\s+)?\S+\.(com|org|net|io|co|app|dev|ai)\b/i,
+    /\bnavigat(e|ing)\s+to\b/i,
+    /\bcapture\s+(a\s+)?(page|site|website|screenshot)\b/i,
+];
+
+// Builder intent: user wants to build / create an app or feature
+const BUILDER_SIGNALS = [
+    /\b(build|create|make|generate|scaffold|bootstrap)\b.{0,40}\b(app|application|website|site|tool|dashboard|ui|interface|widget|component|page|feature|project)\b/i,
+    /\b(build\s+me|create\s+me|make\s+me|write\s+me)\b/i,
+    /\b(new\s+)(app|project|website|tool|dashboard|api|service|script)\b/i,
+    /\b(start|begin|kick\s+off)\b.{0,30}\b(project|app|application|website)\b/i,
+    /\bfull.?stack\b/i,
+    /\b(react|vue|svelte|nextjs|next\.js)\s+(app|project|component)\b/i,
+];
+
 export function classifyLocally(text: string, hasImage: boolean): string {
     if (hasImage) return 'vision model';
+
+    // Browser intent check (high confidence — show routing hint)
+    if (BROWSER_SIGNALS.some((p) => p.test(text))) return 'browser';
+
+    // Builder intent check
+    if (BUILDER_SIGNALS.some((p) => p.test(text))) return 'builder';
 
     const mathScore = MATH_SIGNALS.filter((p) => p.test(text)).length;
     const codeScore = CODE_SIGNALS.filter((p) => p.test(text)).length;

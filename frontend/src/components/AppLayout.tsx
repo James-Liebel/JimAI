@@ -12,7 +12,8 @@ import { API_BASE, apiUrl } from '../lib/backendBase';
 
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
-    { to: '/skills', label: 'Skills' },
+    { to: '/research', label: 'Research' },
+    { to: '/browser', label: 'Browser' },
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/automation', label: 'Automation' },

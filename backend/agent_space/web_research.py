@@ -36,7 +36,7 @@ FETCH_TTL = 30 * 60
 CACHE_FILE = MEMORY_DIR / "web_research_cache.json"
 COLLECTION = "search_memory"
 CACHE_HIT_MIN = 0.88
-QUERY_REWRITE_TIMEOUT_S = 0.95
+QUERY_REWRITE_TIMEOUT_S = 20.0
 EXACT_CACHE_TTL_SECONDS = 12 * 60 * 60
 SERVICE_STATUS_CACHE_TTL_SECONDS = 30
 PARALLEL_PROVIDER_TIMEOUT_S = 5.0
@@ -338,7 +338,7 @@ def score_relevance(query: str, rows: list[dict[str, Any]]) -> list[tuple[float,
     return scored
 
 
-async def rewrite_query_variants(query: str, timeout_seconds: float = 3.0) -> tuple[list[str], bool]:
+async def rewrite_query_variants(query: str, timeout_seconds: float = 20.0) -> tuple[list[str], bool]:
     q = str(query or "").strip()
     if not q:
         return [], False

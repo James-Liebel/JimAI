@@ -24,7 +24,32 @@
       "Bash(python3 -m py_compile *.py)",
       "Bash(grep -r \"NotImplemented\\\\|TODO\\\\|FIXME\\\\|pass$\" /c/Users/james/JimAI-1/backend --include=\"*.py\")",
       "Bash(grep pass$:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "Bash(ollama list:*)",
+      "Bash(nvidia-smi --query-gpu=name,memory.used,memory.free --format=csv,noheader)",
+      "Bash(powershell.exe:*)",
+      "Bash(ollama ps:*)",
+      "Read(//c/Users/james/AppData/Local/Ollama//**)",
+      "Read(//c/Users/james/.ollama//**)",
+      "Bash(/c/Windows/System32/nvidia-smi.exe:*)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\('Ollama OK -', len\\(data.get\\('models',[]\\)\\), 'models'\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(/c/Windows/System32/reg.exe query:*)",
+      "Bash(grep -iv \"^$\")",
+      "Bash(/c/Users/james/AppData/Local/Programs/Python/Python314/python.exe --version)",
+      "Bash(sqlite3:*)",
+      "Bash(/c/Windows/System32/reg.exe add:*)",
+      "Bash(regtool -s set '/HKCU/Environment/OLLAMA_FLASH_ATTENTION' '1')",
+      "Bash(setx OLLAMA_FLASH_ATTENTION 1)",
+      "Bash(setx OLLAMA_CONTEXT_LENGTH 32768)",
+      "Bash(/c/Windows/System32/setx.exe OLLAMA_FLASH_ATTENTION 1)",
+      "Bash(/c/Windows/System32/setx.exe OLLAMA_CONTEXT_LENGTH 32768)",
+      "Bash(/c/Users/james/AppData/Local/Programs/Python/Python314/python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --log-level info)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(grep -r \"VITE_\\\\|localhost\\\\|127.0.0.1\\\\|backend\\\\|api\" /c/Users/james/JimAI-1/frontend/.env*)",
+      "Bash(ls /c/Users/james/JimAI-1/frontend/.env*)",
+      "Bash(ls:*)",
+      "Bash(/c/Windows/System32/netstat.exe -an)"
     ]
   }
 }

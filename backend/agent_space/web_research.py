@@ -1068,10 +1068,10 @@ async def research_stream(query: str, *, force_live: bool = False, model: str | 
             entry["score"] = relevance
         rows.append(entry)
 
-    relevant_count = sum(1 for row in rows if float(row.get("relevance") or 0.0) >= 0.2)
+    relevant_count = sum(1 for row in rows if float(row.get("relevance") or 0.0) >= 0.25)
     total_count = len(rows)
-    context_rows = [row for row in rows if float(row.get("relevance") or 0.0) >= 0.15][:8]
-    poor_relevance = bool(rows) and max_relevance < 0.2
+    context_rows = [row for row in rows if float(row.get("relevance") or 0.0) >= 0.25][:8]
+    poor_relevance = bool(rows) and max_relevance < 0.25
     sources = _source_rows(rows)
     timings["parallel_search"] = round(_perf_delta(t0), 4)
     logger.info("[research] parallel_search: %.3fs (%d results)", timings["parallel_search"], len(rows))
@@ -1103,7 +1103,7 @@ async def research_stream(query: str, *, force_live: bool = False, model: str | 
             continue
         seen_targets.add(key)
         deep_targets.append(row)
-        if len(deep_targets) >= 3:
+        if len(deep_targets) >= 5:
             break
     deep_content_by_url: dict[str, str] = {}
     if deep_targets:
@@ -1159,7 +1159,8 @@ async def research_stream(query: str, *, force_live: bool = False, model: str | 
         context_lines.append("")
     for idx, row in enumerate(context_rows[:8], start=1):
         url = str(row.get("url") or "")
-        context_lines.append(f"[{idx}] {row.get('title', 'Untitled')}")
+        relevance_pct = round(float(row.get("relevance") or 0.0) * 100)
+        context_lines.append(f"[{idx}] {row.get('title', 'Untitled')} (relevance: {relevance_pct}%)")
         context_lines.append(f"URL: {url}")
         context_lines.append(
             deep_content_by_url.get(url)
@@ -1174,15 +1175,18 @@ async def research_stream(query: str, *, force_live: bool = False, model: str | 
     model_name = str(model or cfg.get("model", "qwen2.5-coder:14b"))
     system_prompt = (
         f"You are a precise web research assistant. Today is {datetime.now().strftime('%Y-%m-%d')}.\n"
-        "You will be given search results for the user's query.\n"
+        "You will be given search results with a relevance score (0–100%) for each source.\n"
         "Rules:\n"
-        "- If the results are clearly irrelevant to the query, say:\n"
-        "  'The search returned irrelevant results for this query.\n"
-        "  Based on general knowledge: [answer]'\n"
-        "- Never invent sources. Only cite [N] when that source actually\n"
-        "  contains information about the query.\n"
-        "- If you know the answer from training data and results confirm\n"
-        "  it, combine both.\n"
+        "- Only cite [N] when that source's content directly supports the specific claim you are making.\n"
+        "  Do NOT cite a source just because it appeared in search results.\n"
+        "- Do NOT draw conclusions that go beyond what the source text actually states.\n"
+        "- Sources with low relevance (below ~40%) are weak matches — treat their content cautiously\n"
+        "  and do not cite them for specific factual claims.\n"
+        "- If the sources do not contain enough information to answer the query, say so explicitly.\n"
+        "  Then, if you have relevant training knowledge, add a clearly labelled section:\n"
+        "  'Based on general knowledge (not from search results): ...'\n"
+        "- Never blend training knowledge with source citations in a way that makes training\n"
+        "  knowledge appear sourced.\n"
         "- Be direct. No filler. No 'Certainly'."
     )
     prompt = (
@@ -1190,8 +1194,9 @@ async def research_stream(query: str, *, force_live: bool = False, model: str | 
         f"Intent detected: {intent}\n"
         f"Relevant results found: {relevant_count} of {total_count}\n\n"
         f"{context}\n\n"
-        "Answer the query accurately. Use [N] citations from above.\n"
-        "If results are poor, say so and use your knowledge."
+        "Answer the query using only what the sources above actually state. "
+        "Cite [N] only when that source directly supports the claim. "
+        "If the sources are insufficient, say so, then provide general knowledge clearly labelled as such."
     )
     answer_parts: list[str] = []
     raw_mode = False

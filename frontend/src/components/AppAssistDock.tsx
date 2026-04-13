@@ -117,8 +117,9 @@ export function AppAssistDock({ hidden }: { hidden?: boolean }) {
                 className={cn(
                     'fixed z-[60] flex items-center gap-2 rounded-full border border-accent/35 bg-surface-1 px-3 py-2 text-xs font-semibold text-text-primary shadow-lg transition-colors',
                     'hover:border-accent/50 hover:bg-surface-2',
-                    'bottom-[max(1rem,calc(env(safe-area-inset-bottom,0px)+4.5rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
-                    'md:bottom-6 md:right-6',
+                    // Top-right on all screen sizes — clear of the input bar and clip button
+                    'top-[max(3.5rem,calc(env(safe-area-inset-top,0px)+3.5rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
+                    'md:top-20 md:right-4',
                 )}
                 title="Cross-surface assist: app-planned agents for this tab"
                 aria-expanded={panelOpen}
@@ -142,9 +143,10 @@ export function AppAssistDock({ hidden }: { hidden?: boolean }) {
             {panelOpen && (
                 <div
                     className={cn(
-                        'fixed z-[60] flex max-h-[min(92vh,720px)] w-[min(100vw-1.5rem,420px)] flex-col overflow-hidden rounded-xl border border-surface-5 bg-surface-1 shadow-2xl',
-                        'bottom-[max(5.25rem,calc(env(safe-area-inset-bottom,0px)+5.25rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
-                        'md:bottom-24 md:right-6 md:max-h-[min(85vh,640px)]',
+                        'fixed z-[60] flex max-h-[min(72vh,600px)] w-[min(100vw-1.5rem,420px)] flex-col overflow-hidden rounded-xl border border-surface-5 bg-surface-1 shadow-2xl',
+                        // Panel opens downward from top-right button on all screen sizes
+                        'top-[max(5rem,calc(env(safe-area-inset-top,0px)+5rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
+                        'md:top-[5.5rem] md:right-4 md:max-h-[min(85vh,640px)]',
                     )}
                     role="dialog"
                     aria-labelledby="app-assist-title"

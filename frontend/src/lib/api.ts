@@ -213,11 +213,9 @@ export async function getHealth(): Promise<{
     ollama_url?: string;
     version?: string;
 }> {
-    // Dev: call FastAPI directly so Vite does not proxy /health (avoids noisy "http proxy error: /health"
-    // ECONNREFUSED logs when the backend is down; /api/* can still use the proxy).
-    const envBase = String(import.meta.env.VITE_API_BASE || '').trim();
-    const url =
-        import.meta.env.DEV && !envBase ? 'http://127.0.0.1:8000/health' : apiUrl('/health');
+    // Always go through the Vite proxy (/health → :8000) so remote clients
+    // (phone, Tailscale) don't try to hit 127.0.0.1 on their own device.
+    const url = apiUrl('/health');
     const resp = await fetchWithTimeout(url);
     if (!resp.ok) throw new Error(`health ${resp.status}`);
     return resp.json();

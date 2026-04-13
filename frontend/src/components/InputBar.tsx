@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type ClipboardEvent } from 'react';
-import { Mic, MicOff, Camera, Paperclip, Send } from 'lucide-react';
+import { Mic, MicOff, Camera, Images, Paperclip, Send } from 'lucide-react';
 import { MODEL_OPTIONS } from '../lib/types';
 import { cn, fileToBase64 } from '../lib/utils';
 import { classifyLocally } from '../lib/classifier';
@@ -42,10 +42,12 @@ export default function InputBar({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const cameraInputRef = useRef<HTMLInputElement>(null);
+    const galleryInputRef = useRef<HTMLInputElement>(null);
     const [text, setText] = useState('');
     const [attachedFile, setAttachedFile] = useState<File | null>(null);
     const [pastedImage, setPastedImage] = useState<string | null>(null);
     const [routingPreview, setRoutingPreview] = useState('');
+    const [showPhotoMenu, setShowPhotoMenu] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
     const handleSpeechResult = useCallback((transcript: string) => {
@@ -137,6 +139,15 @@ export default function InputBar({
         e.target.value = '';
     };
 
+    const handleGallerySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const b64 = await fileToBase64(file);
+            setPastedImage(b64);
+        }
+        e.target.value = '';
+    };
+
     const overrideOption = MODEL_OPTIONS.find((o) => o.value === modelOverride);
     const borderClass = modelOverride && overrideOption?.color ? overrideOption.color : 'border-surface-4';
     const modelSelectValue = modelOverride || `__speed_${speedMode}`;
@@ -204,15 +215,42 @@ export default function InputBar({
                 />
 
                 {isMobile && (
-                    <>
+                    <div className="relative shrink-0">
                         <button
                             type="button"
-                            onClick={() => cameraInputRef.current?.click()}
-                            className="shrink-0 p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
-                            title="Take photo"
+                            onClick={() => setShowPhotoMenu((v) => !v)}
+                            className="p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+                            title="Photo options"
                         >
                             <Camera size={20} />
                         </button>
+                        {showPhotoMenu && (
+                            <>
+                                {/* dismiss backdrop */}
+                                <div
+                                    className="fixed inset-0 z-[55]"
+                                    onClick={() => setShowPhotoMenu(false)}
+                                />
+                                <div className="absolute bottom-full left-0 z-[56] mb-1 flex flex-col overflow-hidden rounded-lg border border-surface-5 bg-surface-1 shadow-xl">
+                                    <button
+                                        type="button"
+                                        className="flex items-center gap-2.5 px-4 py-3 text-sm text-text-primary hover:bg-surface-2 active:bg-surface-3"
+                                        onClick={() => { setShowPhotoMenu(false); cameraInputRef.current?.click(); }}
+                                    >
+                                        <Camera size={16} className="shrink-0 text-text-muted" />
+                                        Take Photo
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="flex items-center gap-2.5 px-4 py-3 text-sm text-text-primary hover:bg-surface-2 active:bg-surface-3 border-t border-surface-5"
+                                        onClick={() => { setShowPhotoMenu(false); galleryInputRef.current?.click(); }}
+                                    >
+                                        <Images size={16} className="shrink-0 text-text-muted" />
+                                        Choose Photo
+                                    </button>
+                                </div>
+                            </>
+                        )}
                         <input
                             ref={cameraInputRef}
                             type="file"
@@ -221,7 +259,14 @@ export default function InputBar({
                             className="hidden"
                             onChange={handleCameraCapture}
                         />
-                    </>
+                        <input
+                            ref={galleryInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleGallerySelect}
+                        />
+                    </div>
                 )}
 
                 <textarea

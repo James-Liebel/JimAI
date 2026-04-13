@@ -15,8 +15,8 @@ function resolveBackendBase(): string {
         return '';
     }
 
-    // Vite dev: use same-origin so /api/* goes through vite.config.mjs proxy to :8000.
-    // Health checks use http://127.0.0.1:8000/health directly (see getHealth) to avoid proxy log spam.
+    // Vite dev: use same-origin so /api/* and /health go through vite.config.mjs proxy to :8000.
+    // This ensures remote clients (phone, Tailscale) route correctly instead of hitting their own 127.0.0.1.
     if (import.meta.env.DEV) {
         return '';
     }

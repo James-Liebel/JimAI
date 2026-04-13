@@ -338,11 +338,18 @@ def score_relevance(query: str, rows: list[dict[str, Any]]) -> list[tuple[float,
     return scored
 
 
+_HEAVY_MODELS = {"qwen2.5:32b", "qwen2.5:32b-instruct"}
+_REWRITE_FALLBACK_MODEL = "qwen2.5-coder:7b"
+
+
 async def rewrite_query_variants(query: str, timeout_seconds: float = 20.0) -> tuple[list[str], bool]:
     q = str(query or "").strip()
     if not q:
         return [], False
-    model = str(_settings.get().get("model", "qwen2.5-coder:14b"))
+    configured = str(_settings.get().get("model", "qwen2.5-coder:14b"))
+    # Use a lightweight model for query rewriting when the configured model is a heavy 32B
+    # model — 32B is too slow for this short-lived task and often times out.
+    model = _REWRITE_FALLBACK_MODEL if configured in _HEAVY_MODELS else configured
     prompt = "Rewrite this search query to maximize web search result quality. Output 2-3 search query variations, one per line, no explanation:\nQuery: " + q
     try:
         raw = await asyncio.wait_for(

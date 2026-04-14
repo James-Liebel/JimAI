@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
@@ -253,3 +255,36 @@ def register_browser_routes(
     @router.post("/browser/close-all")
     async def browser_close_all() -> dict[str, Any]:
         return await browser_manager.close_all()
+
+    @router.post("/browser/atlas/open")
+    async def browser_atlas_open(
+        url: str = Query(default="https://www.google.com"),
+        profile_dir: str = Query(default=""),
+    ) -> dict[str, Any]:
+        return await browser_manager.open_atlas_session(url=url, profile_dir=profile_dir)
+
+    @router.get("/browser/agent/run")
+    async def browser_agent_run(
+        goal: str = Query(..., min_length=1),
+        url: str = Query(default="about:blank"),
+        max_steps: int = Query(default=20, ge=1, le=40),
+        headless: bool = Query(default=False),
+    ) -> StreamingResponse:
+        from .browser_agent_runner import run_browser_agent
+
+        async def _sse():
+            async for event in run_browser_agent(
+                goal,
+                url,
+                browser_manager=browser_manager,
+                max_steps=max_steps,
+                headless=headless,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            yield 'data: {"type":"keepalive"}\n\n'
+
+        return StreamingResponse(
+            _sse(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+        )

@@ -2009,6 +2009,69 @@ export async function closeAllBrowserSessions() {
     return resp.json();
 }
 
+export interface BrowserAgentStep {
+    type: 'opened' | 'step' | 'error' | 'done' | 'stopped' | 'keepalive';
+    step?: number;
+    thought?: string;
+    action?: string;
+    action_detail?: Record<string, unknown>;
+    screenshot?: string;
+    url?: string;
+    session_id?: string;
+    result?: string;
+    error?: string;
+    reason?: string;
+}
+
+export async function openAtlasSession(url = 'https://www.google.com', profileDir = '') {
+    const params = new URLSearchParams({ url });
+    if (profileDir) params.set('profile_dir', profileDir);
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/browser/atlas/open?${params}`,
+        { method: 'POST' },
+        60000,
+    );
+    if (!resp.ok) throw new Error(`atlas open failed: ${resp.status}`);
+    return resp.json() as Promise<{ success: boolean; session_id?: string; url?: string; title?: string; error?: string; persistent?: boolean }>;
+}
+
+export function runBrowserAgent(
+    goal: string,
+    url: string,
+    opts: { maxSteps?: number; headless?: boolean } = {},
+    onEvent: (event: BrowserAgentStep) => void,
+    onDone: () => void,
+    signal?: AbortSignal,
+): void {
+    const params = new URLSearchParams({
+        goal,
+        url,
+        max_steps: String(opts.maxSteps ?? 20),
+        headless: String(opts.headless ?? false),
+    });
+    const src = new EventSource(`${BASE}/api/agent-space/browser/agent/run?${params}`);
+    if (signal) {
+        signal.addEventListener('abort', () => src.close());
+    }
+    src.onmessage = (e) => {
+        try {
+            const data: BrowserAgentStep = JSON.parse(e.data);
+            if (data.type === 'keepalive') return;
+            onEvent(data);
+            if (data.type === 'done' || data.type === 'stopped') {
+                src.close();
+                onDone();
+            }
+        } catch {
+            // skip malformed
+        }
+    };
+    src.onerror = () => {
+        src.close();
+        onDone();
+    };
+}
+
 export async function builderClarify(payload: {
     prompt: string;
     context?: string;

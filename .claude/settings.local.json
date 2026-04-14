@@ -49,7 +49,9 @@
       "Bash(grep -r \"VITE_\\\\|localhost\\\\|127.0.0.1\\\\|backend\\\\|api\" /c/Users/james/JimAI-1/frontend/.env*)",
       "Bash(ls /c/Users/james/JimAI-1/frontend/.env*)",
       "Bash(ls:*)",
-      "Bash(/c/Windows/System32/netstat.exe -an)"
+      "Bash(/c/Windows/System32/netstat.exe -an)",
+      "Bash(grep -n \"modelOverride\\\\|setModelOverride\\\\|MODEL_OPTIONS\" /c/Users/james/JimAI-1/frontend/src/components/*.tsx)",
+      "Bash(grep -E \"\\\\.py$|\\\\.ts$\")"
     ]
   }
 }

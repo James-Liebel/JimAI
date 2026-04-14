@@ -252,6 +252,104 @@ class BrowserAgentManager:
                 logger.exception("Failed to stop playwright during open_session cleanup")
             return {"success": False, "error": str(exc)}
 
+    async def open_atlas_session(
+        self,
+        *,
+        url: str = "https://www.google.com",
+        profile_dir: str = "",
+    ) -> dict[str, Any]:
+        """Launch a persistent Chrome session with a saved profile (cookies, logins intact).
+
+        Uses the real installed Chrome when available (channel='chrome'), falling back
+        to Playwright's bundled Chromium. The profile_dir is preserved between calls so
+        Google/other logins survive restarts.
+        """
+        can_spawn, spawn_error = await self._can_spawn_subprocess()
+        if not can_spawn:
+            return {"success": False, "error": f"Browser launch unavailable: {spawn_error}"}
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            return {"success": False, "error": "playwright is not installed."}
+
+        if not profile_dir:
+            from .paths import DATA_ROOT
+            profile_dir = str(DATA_ROOT / "browser_profile")
+
+        import pathlib
+        pathlib.Path(profile_dir).mkdir(parents=True, exist_ok=True)
+
+        playwright = None
+        context = None
+        try:
+            playwright = await async_playwright().start()
+            launch_kw: dict[str, Any] = {
+                "headless": False,
+                "viewport": {"width": 1280, "height": 800},
+                "args": ["--no-first-run", "--no-default-browser-check"],
+            }
+            # Try real Chrome first; fall back to bundled Chromium
+            try:
+                context = await playwright.chromium.launch_persistent_context(
+                    profile_dir,
+                    channel="chrome",
+                    **launch_kw,
+                )
+            except Exception:
+                context = await playwright.chromium.launch_persistent_context(
+                    profile_dir,
+                    **launch_kw,
+                )
+
+            pages = context.pages
+            page = pages[0] if pages else await context.new_page()
+            if url and url != "about:blank":
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                except Exception:
+                    pass
+
+            viewport = page.viewport_size or {"width": 1280, "height": 800}
+            session_id = str(uuid.uuid4())
+            self._sessions[session_id] = {
+                "playwright": playwright,
+                "browser": None,       # persistent context has no separate Browser object
+                "context": context,
+                "page": page,
+                "created_at": time.time(),
+                "headless": False,
+                "persistent": True,
+                "profile_dir": profile_dir,
+                "cursor": {
+                    "x": float((viewport.get("width", 1280) or 1280) / 2.0),
+                    "y": float((viewport.get("height", 800) or 800) / 2.0),
+                },
+            }
+            state = await self._capture_state(session_id, self._sessions[session_id])
+            return {
+                "success": True,
+                "session_id": session_id,
+                "url": state["url"],
+                "title": state["title"],
+                "cursor": state["cursor"],
+                "viewport": state["viewport"],
+                "headless": False,
+                "persistent": True,
+                "profile_dir": profile_dir,
+            }
+        except Exception as exc:
+            try:
+                if context:
+                    await context.close()
+            except Exception:
+                pass
+            try:
+                if playwright:
+                    await playwright.stop()
+            except Exception:
+                pass
+            return {"success": False, "error": str(exc)}
+
     async def navigate(self, session_id: str, url: str) -> dict[str, Any]:
         session = self._sessions.get(session_id)
         if session is None:

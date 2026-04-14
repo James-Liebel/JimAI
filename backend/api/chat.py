@@ -1260,11 +1260,12 @@ async def _stream_chat(
             stream=True,
             temperature=params.get("temperature", config.temperature),
             num_ctx=params.get("num_ctx"),
+            num_predict=params.get("num_predict"),
             repeat_penalty=params.get("repeat_penalty", 1.1),
+            think=params.get("think"),
         ):
             full_response.append(chunk)
-            if not requires_live_answer:
-                yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
+            yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
         full_response_str = "".join(full_response)
 
         if should_judge(mode, speed_mode.value, len(message)):
@@ -1283,13 +1284,10 @@ async def _stream_chat(
         full_response_str, review_text = await _run_review(message, full_response_str)
     stale_response_corrected = False
     if requires_live_answer and auto_research_sources and _response_looks_stale_for_live_request(full_response_str):
-        full_response_str = _build_live_source_fallback_response(auto_research_sources, message)
+        correction = _build_live_source_fallback_response(auto_research_sources, message)
+        full_response_str = full_response_str + "\n\n---\n*Live-source update:*\n" + correction
         stale_response_corrected = True
-    if requires_live_answer:
-        chunk_size = 120
-        for i in range(0, len(full_response_str), chunk_size):
-            chunk = full_response_str[i : i + chunk_size]
-            yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
+        yield f"data: {json.dumps({'text': '\\n\\n---\\n*Live-source update:*\\n' + correction, 'done': False, 'model': config.model})}\n\n"
 
     session_store.add_message(session_id, "assistant", full_response_str, mode)
     _schedule_memory_update(session_id, message, full_response_str)

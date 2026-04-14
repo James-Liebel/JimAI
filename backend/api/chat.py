@@ -395,23 +395,35 @@ _CHAT_BROWSER_VERBS = re.compile(
     r"browse\s+(?:to\s+)?|go\s+to|open\s+up)",
     re.IGNORECASE,
 )
+# Localhost patterns: localhost:PORT or 127.0.0.1:PORT
+_LOCALHOST_URL = re.compile(
+    r"(?:https?://)?(?:localhost|127\.0\.0\.1)(?::\d{2,5})?(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
+# Verification/check language about a running app
+_APP_VERIFY_VERBS = re.compile(
+    r"(?:verify|check|confirm|test|look\s+at|show\s+me|screenshot|capture|what\s+does\s+it\s+look\s+like|"
+    r"is\s+it\s+(?:working|running|up)|does\s+it\s+(?:work|look)|what\s+(?:does|do)\s+(?:it|the\s+(?:app|frontend|ui|page))\s+look\s+like)",
+    re.IGNORECASE,
+)
 
 
 def _should_attempt_chat_browser_capture(message: str, chat_request_mode: str) -> bool:
-    rm = str(chat_request_mode or "").strip().lower()
-    if rm == "browser":
-        return True
     text = str(message or "").strip()
     if not text:
         return False
     has_verb = bool(_CHAT_BROWSER_VERBS.search(text))
     has_full_url = bool(_URL_IN_MESSAGE.search(text))
     has_bare_domain = bool(_BARE_DOMAIN.search(text))
+    has_localhost = bool(_LOCALHOST_URL.search(text))
     has_github = (
         bool(_GITHUB_PROFILE_PHRASE.search(text))
         or bool(_GITHUB_PAGE_USERNAME.search(text))
         or bool(re.search(r"github\.com/[\w.-]+", text, re.IGNORECASE))
     )
+    # Localhost URL (any verification/check verb, or any browser verb, or even alone)
+    if has_localhost and (has_verb or bool(_APP_VERIFY_VERBS.search(text))):
+        return True
     # Explicit URL (https://...) with any browser-like verb → capture
     if has_full_url and has_verb:
         return True
@@ -430,6 +442,13 @@ def _extract_page_capture_url(message: str) -> str | None:
     text = str(message or "").strip()
     if not text:
         return None
+    # Localhost URLs (http optional — add http:// if missing scheme)
+    m0 = _LOCALHOST_URL.search(text)
+    if m0:
+        raw = m0.group(0).rstrip(").,;]'\"")
+        if not raw.startswith("http"):
+            raw = f"http://{raw}"
+        return raw
     # Explicit https:// URL takes priority
     m = _URL_IN_MESSAGE.search(text)
     if m:
@@ -771,16 +790,9 @@ async def _stream_chat(
         yield f"data: {json.dumps({'text': answer, 'done': True, 'sources': []})}\n\n"
         return
 
-    # Headless browser screenshot (Playwright) when user asks or Chat mode is "browser"
+    # Headless browser screenshot (Playwright) — auto-triggered by message context
     if _should_attempt_chat_browser_capture(message, chat_request_mode):
         target_url = _extract_page_capture_url(message)
-        if not target_url and chat_request_mode == "browser":
-            hint = (
-                "Browser mode needs a target. Include a full URL (https://…) or a phrase like "
-                "**GitHub profile SomeUser** or **github page SomeUser** so the server can open a page and attach a screenshot."
-            )
-            yield f"data: {json.dumps({'text': hint, 'done': True, 'sources': [], 'routing': {'primary_role': 'browser', 'reasoning': 'browser mode — missing URL'}})}\n\n"
-            return
         if target_url:
             yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': True, 'search_status': 'Capturing page in headless browser…'})}\n\n"
             b64, err, final_u = await _chat_playwright_screenshot(target_url)

@@ -145,7 +145,7 @@ export function useChat() {
                     role: m.role,
                     content: m.content,
                 }));
-                const apiMode = modelOverride === 'browser' ? 'browser' : 'chat';
+                const apiMode = 'chat';
                 await api.streamChat(
                     content,
                     apiMode,

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
 import { PageHeader } from '../components/PageHeader';
-import { Camera, ChevronDown, ChevronRight } from 'lucide-react';
+import { Camera, ChevronDown, ChevronRight, Square, Play } from 'lucide-react';
 
 export default function AgentBrowser() {
     const [sessions, setSessions] = useState<agentApi.BrowserSessionSummary[]>([]);
@@ -31,6 +31,17 @@ export default function AgentBrowser() {
     const [pressKey, setPressKey] = useState('Tab');
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
+
+    // ── AI Agent state ──────────────────────────────────────────────────
+    const [agentGoal, setAgentGoal] = useState('');
+    const [agentUrl, setAgentUrl] = useState('https://');
+    const [agentHeadless, setAgentHeadless] = useState(false);
+    const [agentRunning, setAgentRunning] = useState(false);
+    const [agentSteps, setAgentSteps] = useState<agentApi.BrowserAgentStep[]>([]);
+    const [agentScreenshot, setAgentScreenshot] = useState('');
+    const [agentCurrentUrl, setAgentCurrentUrl] = useState('');
+    const agentAbortRef = useRef<AbortController | null>(null);
+    const agentLogRef = useRef<HTMLDivElement>(null);
 
     const refreshSessions = async () => {
         const rows = await agentApi.listBrowserSessions();
@@ -145,6 +156,38 @@ export default function AgentBrowser() {
         return null;
     };
 
+    const startAgent = useCallback(() => {
+        if (!agentGoal.trim() || agentRunning) return;
+        const ctrl = new AbortController();
+        agentAbortRef.current = ctrl;
+        setAgentRunning(true);
+        setAgentSteps([]);
+        setAgentScreenshot('');
+        setAgentCurrentUrl(agentUrl);
+
+        agentApi.runBrowserAgent(
+            agentGoal,
+            agentUrl,
+            { headless: agentHeadless },
+            (event) => {
+                setAgentSteps((prev) => [...prev, event]);
+                if (event.screenshot) setAgentScreenshot(event.screenshot);
+                if (event.url) setAgentCurrentUrl(event.url);
+                // scroll log to bottom
+                setTimeout(() => {
+                    agentLogRef.current?.scrollTo({ top: agentLogRef.current.scrollHeight, behavior: 'smooth' });
+                }, 50);
+            },
+            () => setAgentRunning(false),
+            ctrl.signal,
+        );
+    }, [agentGoal, agentUrl, agentHeadless, agentRunning]);
+
+    const stopAgent = useCallback(() => {
+        agentAbortRef.current?.abort();
+        setAgentRunning(false);
+    }, []);
+
     const cursorMarkerStyle = useMemo(() => {
         if (!pageState?.cursor || !pageState?.viewport) return null;
         const width = Math.max(1, pageState.viewport.width || 1);
@@ -185,8 +228,112 @@ export default function AgentBrowser() {
         <div className="h-full overflow-auto space-y-4 p-5 md:p-8">
             <PageHeader
                 title="Agent Browser"
-                description="Playwright-powered browser automation. Take screenshots, fill forms, and automate websites. You can also ask the AI in Chat to 'screenshot antigravity.com' and it will do this automatically."
+                description="AI-controlled browser — give it a goal and it navigates, clicks, and types on its own. Manual controls below for direct access."
             />
+
+            {/* ── AI Agent Panel ─────────────────────────────────────── */}
+            <div className="border border-surface-4 bg-surface-1 p-4 space-y-3">
+                <h2 className="text-sm font-semibold text-text-primary">AI Agent</h2>
+                <div className="flex gap-2">
+                    <input
+                        className="flex-1 border border-surface-4 bg-surface-2 px-3 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
+                        placeholder="Goal — e.g. 'Search for the latest qwen3 release on GitHub'"
+                        value={agentGoal}
+                        onChange={(e) => setAgentGoal(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && startAgent()}
+                        disabled={agentRunning}
+                    />
+                    <input
+                        className="w-56 border border-surface-4 bg-surface-2 px-3 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
+                        placeholder="Start URL"
+                        value={agentUrl}
+                        onChange={(e) => setAgentUrl(e.target.value)}
+                        disabled={agentRunning}
+                    />
+                    <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer select-none">
+                        <input
+                            type="checkbox"
+                            checked={agentHeadless}
+                            onChange={(e) => setAgentHeadless(e.target.checked)}
+                            disabled={agentRunning}
+                            className="accent-accent-blue"
+                        />
+                        headless
+                    </label>
+                    {agentRunning ? (
+                        <button
+                            onClick={stopAgent}
+                            className="flex items-center gap-1.5 border border-accent-red bg-accent-red/10 px-3 py-1.5 text-xs text-accent-red hover:bg-accent-red/20"
+                        >
+                            <Square size={12} /> Stop
+                        </button>
+                    ) : (
+                        <button
+                            onClick={startAgent}
+                            disabled={!agentGoal.trim()}
+                            className="flex items-center gap-1.5 border border-accent-blue bg-accent-blue/10 px-3 py-1.5 text-xs text-accent-blue hover:bg-accent-blue/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <Play size={12} /> Run Agent
+                        </button>
+                    )}
+                </div>
+
+                {(agentSteps.length > 0 || agentRunning) && (
+                    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                        {/* Live screenshot */}
+                        <div className="border border-surface-4 bg-surface-2">
+                            {agentCurrentUrl && (
+                                <div className="border-b border-surface-4 px-3 py-1 text-xs text-text-muted truncate">
+                                    {agentCurrentUrl}
+                                </div>
+                            )}
+                            {agentScreenshot ? (
+                                <img
+                                    src={`data:image/png;base64,${agentScreenshot}`}
+                                    alt="Agent browser view"
+                                    className="w-full object-contain"
+                                />
+                            ) : (
+                                <div className="flex h-40 items-center justify-center text-xs text-text-muted">
+                                    {agentRunning ? 'Opening browser…' : 'No screenshot yet'}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Step log */}
+                        <div
+                            ref={agentLogRef}
+                            className="max-h-96 overflow-y-auto border border-surface-4 bg-surface-2 p-3 space-y-2 text-xs font-mono"
+                        >
+                            {agentSteps.map((s, i) => (
+                                <div key={i} className={`border-l-2 pl-2 ${
+                                    s.type === 'done' ? 'border-accent-green text-accent-green' :
+                                    s.type === 'error' ? 'border-accent-red text-accent-red' :
+                                    s.type === 'stopped' ? 'border-accent-amber text-accent-amber' :
+                                    s.type === 'opened' ? 'border-accent-blue text-text-secondary' :
+                                    'border-surface-4 text-text-secondary'
+                                }`}>
+                                    {s.type === 'opened' && <span>Opened: {s.url}</span>}
+                                    {s.type === 'step' && (
+                                        <span>
+                                            <span className="text-text-muted">#{s.step} [{s.action}] </span>
+                                            {s.thought}
+                                        </span>
+                                    )}
+                                    {s.type === 'error' && <span>Error: {s.error}</span>}
+                                    {s.type === 'done' && <span>Done: {s.result}</span>}
+                                    {s.type === 'stopped' && <span>Stopped: {s.reason}</span>}
+                                </div>
+                            ))}
+                            {agentRunning && (
+                                <div className="border-l-2 border-accent-blue pl-2 text-accent-blue animate-pulse">
+                                    thinking…
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
 
             {/* Quick Screenshot — one-click capture */}
             <section className="rounded-card border border-accent-blue/30 bg-surface-1 p-4 space-y-3">

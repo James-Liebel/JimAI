@@ -17,6 +17,7 @@ const Research = lazy(() => import('./pages/Research'));
 const SelfCode = lazy(() => import('./pages/SelfCode'));
 const Settings = lazy(() => import('./pages/Settings'));
 const AgentBrowser = lazy(() => import('./pages/AgentBrowser'));
+const BrowserAtlas = lazy(() => import('./pages/BrowserAtlas'));
 const Builder = lazy(() => import('./pages/Builder'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const Automation = lazy(() => import('./pages/Automation'));
@@ -73,6 +74,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/workflow" element={<WorkflowReview />} />
                         <Route path="/research" element={<Research />} />
                         <Route path="/browser" element={<AgentBrowser />} />
+                        <Route path="/atlas" element={<BrowserAtlas />} />
                         <Route path="/builder" element={<Builder />} />
                         <Route path="/automation" element={<Automation />} />
                         <Route path="/system" element={<Navigate to="/chat" replace />} />

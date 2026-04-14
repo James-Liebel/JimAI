@@ -1,4 +1,4 @@
-export type Mode = 'math' | 'code' | 'chat' | 'vision' | 'writing' | 'data' | 'finance' | 'browser';
+export type Mode = 'math' | 'code' | 'chat' | 'vision' | 'writing' | 'data' | 'finance';
 
 export type SpeedMode = 'fast' | 'balanced' | 'deep';
 
@@ -118,5 +118,4 @@ export const MODEL_OPTIONS = [
     { value: 'writing', label: 'Chat (writing style)', color: 'border-accent-amber' },
     { value: 'data', label: 'Data science model', color: 'border-accent-green' },
     { value: 'finance', label: 'Finance model', color: 'border-accent-blue' },
-    { value: 'browser', label: 'Browser (screenshot)', color: 'border-cyan-500/60' },
 ] as const;

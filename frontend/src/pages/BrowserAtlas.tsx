@@ -164,21 +164,34 @@ export default function BrowserAtlas() {
         setAgentStatus('running');
         setStepLog([]);
 
-        // Use existing session — pass session_id via goal context
-        // Agent runner opens its own session, so we stream and mirror simultaneously
+        // Pause the mirror while the agent runs — it will update screenshots itself
+        if (mirrorRef.current) {
+            clearInterval(mirrorRef.current);
+            mirrorRef.current = null;
+        }
+
         agentApi.runBrowserAgent(
             goal,
             liveUrl || 'https://www.google.com',
             { headless: false },
             (event) => {
                 setStepLog((prev) => [...prev, event as StepLog]);
-                if (event.screenshot) setScreenshot(event.screenshot);
-                if (event.url) setLiveUrl(event.url);
+                if (event.screenshot) setScreenshot(event.screenshot as string);
+                if (event.url) setLiveUrl(event.url as string);
             },
-            () => setAgentStatus((s) => s === 'running' ? 'done' : s),
+            () => {
+                setAgentStatus((s) => s === 'running' ? 'done' : s);
+                // Resume the mirror after the agent finishes
+                setMirrorActive((active) => {
+                    if (active && sessionId) {
+                        mirrorRef.current = setInterval(() => void captureScreenshot(), 800);
+                    }
+                    return active;
+                });
+            },
             ctrl.signal,
         );
-    }, [sessionId, goal, agentStatus, liveUrl]);
+    }, [sessionId, goal, agentStatus, liveUrl, captureScreenshot]);
 
     const stopAgent = () => {
         abortRef.current?.abort();

@@ -180,6 +180,14 @@ export function useChat() {
                 );
             } catch (err) {
                 appendChunk(`\n\n**Error:** ${err instanceof Error ? err.message : 'Unknown error'}`);
+                setMessages((prev) => {
+                    const updated = [...prev];
+                    const last = updated[updated.length - 1];
+                    if (last?.role === 'assistant' && last.isStreaming) {
+                        updated[updated.length - 1] = { ...last, isStreaming: false };
+                    }
+                    return updated;
+                });
                 setIsStreaming(false);
                 setSearchingWeb(false);
                 setSearchStatus('');

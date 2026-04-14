@@ -51,7 +51,8 @@
       "Bash(ls:*)",
       "Bash(/c/Windows/System32/netstat.exe -an)",
       "Bash(grep -n \"modelOverride\\\\|setModelOverride\\\\|MODEL_OPTIONS\" /c/Users/james/JimAI-1/frontend/src/components/*.tsx)",
-      "Bash(grep -E \"\\\\.py$|\\\\.ts$\")"
+      "Bash(grep -E \"\\\\.py$|\\\\.ts$\")",
+      "Bash(python -c \"import ast, sys; files=['api/chat.py','agent_space/web_research.py','agent_space/browser_agent_runner.py']; [print\\(f\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in files]; print\\('OK'\\)\")"
     ]
   }
 }

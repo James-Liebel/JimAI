@@ -147,14 +147,24 @@ def _cache_key(kind: str, raw: str) -> str:
     return hashlib.sha256(f"{kind}:{str(raw).strip().lower()}".encode("utf-8")).hexdigest()
 
 
+# In-memory disk-cache mirror: loaded once, kept hot, written through on puts.
+_disk_cache_items: dict[str, Any] | None = None
+
+
 def _load_cache() -> dict[str, Any]:
+    global _disk_cache_items
+    if _disk_cache_items is not None:
+        return {"items": _disk_cache_items}
     ensure_layout()
     if not CACHE_FILE.exists():
-        return {"items": {}}
+        _disk_cache_items = {}
+        return {"items": _disk_cache_items}
     try:
-        return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+        _disk_cache_items = dict(data.get("items") or {})
     except Exception:
-        return {"items": {}}
+        _disk_cache_items = {}
+    return {"items": _disk_cache_items}
 
 
 def _cache_get(kind: str, raw: str, ttl: int) -> dict[str, Any] | None:
@@ -171,11 +181,16 @@ def _cache_get(kind: str, raw: str, ttl: int) -> dict[str, Any] | None:
 
 
 def _cache_put(kind: str, raw: str, payload: dict[str, Any]) -> None:
+    global _disk_cache_items
     cache = _load_cache()
     items = dict(cache.get("items") or {})
     items[_cache_key(kind, raw)] = {"created_at": time.time(), "payload": dict(payload)}
-    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
+    _disk_cache_items = items
+    try:
+        CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        logger.debug("web_research: cache write failed", exc_info=True)
 
 
 def _searxng_url() -> str:

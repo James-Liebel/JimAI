@@ -104,6 +104,7 @@ export async function streamChat(
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let doneEmitted = false;
 
     while (true) {
         const { done, value } = await reader.read();
@@ -147,13 +148,17 @@ export async function streamChat(
                     judge: data.judge,
                     consistency: data.consistency,
                 });
-                if (data.done) onDone();
+                if (data.done && !doneEmitted) {
+                    doneEmitted = true;
+                    onDone();
+                }
             } catch {
                 // skip malformed chunks
             }
         }
     }
-    onDone();
+    // Ensure onDone fires even if the server closes without a done:true event
+    if (!doneEmitted) onDone();
 }
 
 export async function uploadFile(

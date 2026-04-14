@@ -272,4 +272,4 @@ async def run_browser_agent(
         try:
             await browser_manager.close_session(session_id)
         except Exception:
-            pass
+            logger.warning("browser_agent: failed to close session %s", session_id, exc_info=True)

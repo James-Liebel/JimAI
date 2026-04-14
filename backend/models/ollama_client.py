@@ -139,7 +139,9 @@ async def chat_stream(
     stream: bool = True,
     temperature: float = 0.7,
     num_ctx: int | None = None,
+    num_predict: int | None = None,
     repeat_penalty: float = 1.1,
+    think: bool | None = None,
     keep_alive: str = "30m",
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -147,6 +149,10 @@ async def chat_stream(
     options: dict = {"temperature": temperature, "repeat_penalty": repeat_penalty}
     if num_ctx is not None:
         options["num_ctx"] = num_ctx
+    if num_predict is not None:
+        options["num_predict"] = num_predict
+    if think is not None:
+        options["think"] = think
     payload: dict = {
         "model": model,
         "messages": messages,
@@ -170,7 +176,9 @@ async def chat_full(
     messages: list[dict],
     temperature: float = 0.7,
     num_ctx: int | None = None,
+    num_predict: int | None = None,
     repeat_penalty: float = 1.1,
+    think: bool | None = None,
     keep_alive: str = "30m",
     base_url: str | None = None,
 ) -> str:
@@ -182,7 +190,9 @@ async def chat_full(
         stream=True,
         temperature=temperature,
         num_ctx=num_ctx,
+        num_predict=num_predict,
         repeat_penalty=repeat_penalty,
+        think=think,
         keep_alive=keep_alive,
         base_url=base_url,
     ):

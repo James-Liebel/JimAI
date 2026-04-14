@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEvent, KeyboardEvent } from 'react';
 import * as agentApi from '../lib/agentSpaceApi';
-import { Globe, Play, Square, RefreshCw, ChevronRight, AlertCircle } from 'lucide-react';
+import { Globe, Play, Square, RefreshCw, ChevronRight, AlertCircle, MousePointer } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 type AgentStatus = 'idle' | 'running' | 'done' | 'error';
@@ -29,9 +30,12 @@ export default function BrowserAtlas() {
     const [goal, setGoal] = useState('');
     const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
     const [stepLog, setStepLog] = useState<StepLog[]>([]);
+    const [interactiveMode, setInteractiveMode] = useState(false);
+    const viewportSize = { width: 1280, height: 800 };
     const abortRef = useRef<AbortController | null>(null);
     const mirrorRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const logRef = useRef<HTMLDivElement>(null);
+    const screenshotContainerRef = useRef<HTMLDivElement>(null);
 
     const captureScreenshot = useCallback(async (sid = sessionId) => {
         if (!sid) return;
@@ -41,6 +45,60 @@ export default function BrowserAtlas() {
             if (data?.url) setLiveUrl(data.url);
         } catch { /* ignore */ }
     }, [sessionId]);
+
+    const onScreenshotClick = useCallback(async (evt: MouseEvent<HTMLImageElement>) => {
+        if (!interactiveMode || !sessionId) return;
+        const rect = evt.currentTarget.getBoundingClientRect();
+        const relX = (evt.clientX - rect.left) / Math.max(1, rect.width);
+        const relY = (evt.clientY - rect.top) / Math.max(1, rect.height);
+        const x = Math.round(relX * viewportSize.width);
+        const y = Math.round(relY * viewportSize.height);
+        try {
+            await agentApi.browserCursorClick(sessionId, { x, y });
+            setTimeout(() => void captureScreenshot(), 400);
+        } catch { /* ignore */ }
+    }, [interactiveMode, sessionId, viewportSize, captureScreenshot]);
+
+    // Native wheel handler attached directly to avoid passive listener issues
+    useEffect(() => {
+        const el = screenshotContainerRef.current;
+        if (!el) return;
+        const handler = (evt: globalThis.WheelEvent) => {
+            if (!interactiveMode || !sessionId) return;
+            evt.preventDefault();
+            agentApi.browserScrollPage(sessionId, { delta_y: evt.deltaY })
+                .then(() => setTimeout(() => void captureScreenshot(), 300))
+                .catch(() => {});
+        };
+        el.addEventListener('wheel', handler, { passive: false });
+        return () => el.removeEventListener('wheel', handler);
+    }, [interactiveMode, sessionId, captureScreenshot]);
+
+    const onScreenshotKeyDown = useCallback(async (evt: KeyboardEvent<HTMLDivElement>) => {
+        if (!interactiveMode || !sessionId) return;
+        // Map common keys to Playwright key names
+        const keyMap: Record<string, string> = {
+            Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape',
+            ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
+            Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+        };
+        const key = keyMap[evt.key] ?? (evt.key.length === 1 ? evt.key : null);
+        if (!key) return;
+        evt.preventDefault();
+        try {
+            await agentApi.browserPressKey(sessionId, key);
+            if (['Enter', 'Backspace', 'Delete'].includes(key)) {
+                setTimeout(() => void captureScreenshot(), 400);
+            }
+        } catch { /* ignore */ }
+    }, [interactiveMode, sessionId, captureScreenshot]);
+
+    // Focus screenshot container when interactive mode is enabled
+    useEffect(() => {
+        if (interactiveMode && screenshotContainerRef.current) {
+            screenshotContainerRef.current.focus();
+        }
+    }, [interactiveMode]);
 
     // Live mirror — refresh screenshot every 800ms when connected
     useEffect(() => {
@@ -79,6 +137,7 @@ export default function BrowserAtlas() {
 
     const disconnect = async () => {
         setMirrorActive(false);
+        setInteractiveMode(false);
         abortRef.current?.abort();
         if (sessionId) {
             agentApi.closeBrowserSession(sessionId).catch(() => {});
@@ -166,6 +225,20 @@ export default function BrowserAtlas() {
                         </button>
 
                         <button
+                            onClick={() => setInteractiveMode((v) => !v)}
+                            title={interactiveMode ? 'Interactive mode ON — click to disable' : 'Enable interactive mode (click/scroll/type)'}
+                            className={cn(
+                                'flex items-center gap-1 border px-2 py-1 text-xs transition-colors',
+                                interactiveMode
+                                    ? 'border-accent-blue bg-accent-blue/20 text-accent-blue'
+                                    : 'border-surface-4 bg-surface-2 text-text-muted hover:text-text-primary',
+                            )}
+                        >
+                            <MousePointer size={13} />
+                            {interactiveMode ? 'Live' : 'Interact'}
+                        </button>
+
+                        <button
                             onClick={() => void disconnect()}
                             className="ml-1 border border-accent-red/40 bg-accent-red/10 px-3 py-1 text-xs text-accent-red hover:bg-accent-red/20"
                         >
@@ -207,13 +280,28 @@ export default function BrowserAtlas() {
                             {liveUrl}
                         </div>
                     )}
-                    <div className="flex flex-1 items-center justify-center overflow-auto">
+                    {interactiveMode && (
+                        <div className="border-b border-accent-blue/30 bg-accent-blue/8 px-4 py-0.5 text-[10px] text-accent-blue/80">
+                            Interactive — click, scroll, or type on the page below
+                        </div>
+                    )}
+                    <div
+                        ref={screenshotContainerRef}
+                        className={cn(
+                            'flex flex-1 items-center justify-center overflow-auto outline-none',
+                            interactiveMode && 'cursor-crosshair',
+                        )}
+                        tabIndex={interactiveMode ? 0 : -1}
+                        onKeyDown={interactiveMode ? onScreenshotKeyDown : undefined}
+                    >
                         {screenshot ? (
                             <img
                                 src={`data:image/png;base64,${screenshot}`}
                                 alt="Browser view"
-                                className="max-h-full max-w-full object-contain"
+                                className={cn('max-h-full max-w-full object-contain select-none', interactiveMode && 'pointer-events-auto')}
                                 style={{ imageRendering: 'auto' }}
+                                draggable={false}
+                                onClick={interactiveMode ? onScreenshotClick : undefined}
                             />
                         ) : (
                             <div className="flex flex-col items-center gap-3 text-text-muted">
@@ -291,13 +379,14 @@ export default function BrowserAtlas() {
                         {stepLog.map((s, i) => (
                             <div
                                 key={i}
-                                className={cn('border-l-2 pl-2 leading-relaxed', {
-                                    'border-accent-blue text-text-secondary': s.type === 'opened',
-                                    'border-surface-4 text-text-secondary': s.type === 'step',
-                                    'border-accent-red text-accent-red': s.type === 'error',
-                                    'border-accent-green text-accent-green': s.type === 'done',
-                                    'border-accent-amber text-accent-amber': s.type === 'stopped',
-                                })}
+                                className={cn(
+                                    'border-l-2 pl-2 leading-relaxed',
+                                    s.type === 'opened' && 'border-accent-blue text-text-secondary',
+                                    s.type === 'step' && 'border-surface-4 text-text-secondary',
+                                    s.type === 'error' && 'border-accent-red text-accent-red',
+                                    s.type === 'done' && 'border-accent-green text-accent-green',
+                                    s.type === 'stopped' && 'border-accent-amber text-accent-amber',
+                                )}
                             >
                                 {s.type === 'opened' && <span>Opened: {s.url}</span>}
                                 {s.type === 'step' && (

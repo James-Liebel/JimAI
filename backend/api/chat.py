@@ -1312,11 +1312,22 @@ async def _stream_chat(
 
 # ── Endpoints ──────────────────────────────────────────────────────────
 
+async def _safe_stream_chat(*args, **kwargs) -> AsyncGenerator[str, None]:
+    """Wraps _stream_chat so any unhandled exception yields a done:true error event
+    instead of silently dropping the SSE connection."""
+    try:
+        async for chunk in _stream_chat(*args, **kwargs):
+            yield chunk
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unhandled error in _stream_chat")
+        yield f"data: {json.dumps({'text': f'\\n\\n**Error:** {exc}', 'done': True, 'sources': [], 'error': str(exc)})}\n\n"
+
+
 @router.post("")
 async def chat(req: ChatRequest) -> StreamingResponse:
     """Streaming chat endpoint — returns SSE chunks."""
     return StreamingResponse(
-        _stream_chat(
+        _safe_stream_chat(
             req.message,
             req.mode,
             req.session_id,

@@ -144,7 +144,7 @@ async def chat_stream(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
-    keep_alive: str = "30m",
+    keep_alive: str = "5m",
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream assistant reply using Ollama /api/chat. base_url: use NPU/second instance when set (e.g. OLLAMA_NPU_BASE_URL)."""
@@ -187,7 +187,7 @@ async def chat_full(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
-    keep_alive: str = "30m",
+    keep_alive: str = "5m",
     base_url: str | None = None,
 ) -> str:
     """Non-streaming: return full assistant reply from /api/chat. base_url: NPU/second instance when set."""
@@ -221,7 +221,7 @@ async def generate(
     num_predict: int | None = None,
     num_batch: int | None = None,
     repeat_penalty: float = 1.1,
-    keep_alive: str = "30m",
+    keep_alive: str = "5m",
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream text chunks from Ollama /api/generate. base_url: NPU/second instance when set."""

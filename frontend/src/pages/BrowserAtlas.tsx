@@ -222,13 +222,20 @@ export default function BrowserAtlas() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            el.value = ${JSON.stringify(text)};
+                            // React/framework-compatible value setter
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+                                || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+                            if (nativeSetter && nativeSetter.set) {
+                                nativeSetter.set.call(el, ${JSON.stringify(text)});
+                            } else {
+                                el.value = ${JSON.stringify(text)};
+                            }
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                             return 'typed';
                         })()
                     `).catch(() => {});
-                    await new Promise((r) => setTimeout(r, 400));
+                    await new Promise((r) => setTimeout(r, 500));
                 }
                 break;
             }
@@ -242,22 +249,47 @@ export default function BrowserAtlas() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            el.value = ${JSON.stringify(text)};
+                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+                                || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+                            if (nativeSetter && nativeSetter.set) {
+                                nativeSetter.set.call(el, ${JSON.stringify(text)});
+                            } else {
+                                el.value = ${JSON.stringify(text)};
+                            }
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
-                            if (el.form) el.form.submit();
                             return 'submitted';
                         })()
                     `).catch(() => {});
                     await new Promise<void>((res) => {
                         const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
                         wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 4000);
+                        setTimeout(res, 5000);
                     });
                 }
+                break;
+            }
+
+            case 'press_key': {
+                const key = String(params.key ?? 'Enter');
+                await wv.executeJavaScript(`
+                    (function() {
+                        const el = document.activeElement || document.body;
+                        el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
+                        el.dispatchEvent(new KeyboardEvent('keypress', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
+                        el.dispatchEvent(new KeyboardEvent('keyup', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
+                        return 'key_pressed';
+                    })()
+                `).catch(() => {});
+                await new Promise((r) => setTimeout(r, 1000));
+                break;
+            }
+
+            case 'wait': {
+                await new Promise((r) => setTimeout(r, 2500));
                 break;
             }
 

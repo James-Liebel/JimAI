@@ -273,3 +273,94 @@ async def run_browser_agent(
             await browser_manager.close_session(session_id)
         except Exception:
             logger.warning("browser_agent: failed to close session %s", session_id, exc_info=True)
+
+
+_CHAT_SYSTEM = """\
+You are a browser agent embedded in an AI desktop app (JimAI). You control a Chrome browser \
+running inside Electron. The user sees the live browser and can also browse manually.
+
+Given the current page state and the user's instruction, decide what single action to take.
+
+Respond ONLY with valid JSON — no markdown, no extra text:
+{
+  "thought": "one sentence: what you see and what to do",
+  "action": "navigate" | "click_selector" | "type" | "type_and_submit" | "scroll" | "js" | "talk" | "done",
+  "params": {
+    // navigate:         {"url": "https://..."}
+    // click_selector:   {"selector": "css selector"}
+    // type:             {"selector": "css selector", "text": "text"}
+    // type_and_submit:  {"selector": "css selector", "text": "text"}
+    // scroll:           {"dy": 400}
+    // js:               {"code": "javascript to run in the page"}
+    // talk:             {}
+    // done:             {}
+  },
+  "response": "natural language: explain what you're doing, or answer the user's question"
+}
+
+Selector tips (prefer specific over generic):
+- Google search: textarea[name="q"], input[name="q"]
+- Amazon search: input[name="field-keywords"]
+- Generic search: input[type="search"], input[aria-label*="earch" i]
+- Submit: button[type="submit"], input[type="submit"], [role="button"][aria-label*="earch" i]
+- Links: a[href*="keyword"] or match exact link text
+
+Use "talk" for greetings, clarifications, or questions that need no browser action.
+Use "done" when the user's goal is fully achieved.
+Take the most direct, efficient action — prefer navigate over clicking when a URL is known."""
+
+
+async def chat_browser_step(
+    message: str,
+    url: str,
+    title: str,
+    page_text: str,
+    history: list[dict],
+) -> dict:
+    """Single-step browser agent for the Atlas chat panel.
+
+    The frontend handles the execution loop; this function only generates the next action.
+    """
+    from config.models import get_config, get_speed_mode
+    from config.inference_params import get_inference_params
+
+    config = get_config("chat")
+    params = get_inference_params("chat", get_speed_mode())
+
+    history_block = ""
+    for turn in history[-8:]:
+        role = str(turn.get("role", "user")).capitalize()
+        content = str(turn.get("content", "")).strip()
+        if content:
+            history_block += f"{role}: {content}\n"
+
+    page_block = (
+        f"Current URL: {url or '(unknown)'}\n"
+        f"Page title:  {title or '(unknown)'}\n\n"
+        f"Page content:\n{(page_text or '(empty)').strip()[:4000]}"
+    )
+
+    prompt = (
+        f"{history_block}\n"
+        f"Page state:\n{page_block}\n\n"
+        f"User: {message}\n\n"
+        "Respond with JSON:"
+    )
+
+    raw = await ollama_client.generate_full(
+        model=config.model,
+        prompt=prompt,
+        system=_CHAT_SYSTEM,
+        temperature=0.15,
+        num_ctx=params.get("num_ctx"),
+        num_predict=512,
+        num_batch=params.get("num_batch"),
+        repeat_penalty=1.05,
+    )
+
+    parsed = _parse_action(raw)
+    if "response" not in parsed:
+        parsed["response"] = parsed.get("thought", raw.strip()[:300])
+    if "params" not in parsed:
+        parsed["params"] = {}
+    return parsed

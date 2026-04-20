@@ -24,6 +24,12 @@ MAX_STEPS_DEFAULT = 20
 # Small, fast model — no vision needed
 AGENT_MODEL = "qwen3:8b"
 
+# Atlas chat panel: two-tier model selection
+# Executor handles per-step mechanical actions (click/type/navigate) — must be fast.
+# Planner handles the first step and error recovery — needs stronger reasoning.
+BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:7b"
+BROWSER_PLANNER_MODEL = "qwen3:8b"
+
 _ACTION_SYSTEM = """\
 You are a browser automation agent. You receive the current page's URL, title, \
 visible text, and a list of interactive elements (inputs, buttons, links).
@@ -53,6 +59,8 @@ Include only keys relevant to your action. Rules:
 
 def _parse_action(raw: str) -> dict[str, Any]:
     text = str(raw or "").strip()
+    # Strip <think>…</think> blocks produced by qwen3/deepseek reasoning models
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
     fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fenced:
         text = fenced.group(1).strip()
@@ -62,7 +70,7 @@ def _parse_action(raw: str) -> dict[str, Any]:
     try:
         return dict(json.loads(text))
     except Exception:
-        return {"action": "wait", "thought": f"Could not parse model output: {raw[:120]}"}
+        return {"action": "talk", "thought": f"Could not parse model output: {raw[:120]}", "response": "I had trouble understanding that page. Could you describe what you see or try again?"}
 
 
 def _build_page_context(
@@ -275,39 +283,67 @@ async def run_browser_agent(
             logger.warning("browser_agent: failed to close session %s", session_id, exc_info=True)
 
 
-_CHAT_SYSTEM = """\
-You are a browser agent embedded in an AI desktop app (JimAI). You control a Chrome browser \
-running inside Electron. The user sees the live browser and can also browse manually.
+_EXECUTOR_SYSTEM = """\
+Browser automation executor. Output ONE action as JSON — no markdown, no extra text.
 
-Given the current page state and the user's instruction, decide what single action to take.
+Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
-Respond ONLY with valid JSON — no markdown, no extra text:
-{
-  "thought": "one sentence: what you see and what to do",
-  "action": "navigate" | "click_selector" | "type" | "type_and_submit" | "scroll" | "js" | "talk" | "done",
-  "params": {
-    // navigate:         {"url": "https://..."}
-    // click_selector:   {"selector": "css selector"}
-    // type:             {"selector": "css selector", "text": "text"}
-    // type_and_submit:  {"selector": "css selector", "text": "text"}
-    // scroll:           {"dy": 400}
-    // js:               {"code": "javascript to run in the page"}
-    // talk:             {}
-    // done:             {}
-  },
-  "response": "natural language: explain what you're doing, or answer the user's question"
-}
+Actions:
+  navigate        {"url":"https://..."}
+  click_selector  {"selector":"css"}
+  type            {"selector":"css","text":"value"}
+  type_and_submit {"selector":"css","text":"value"}
+  press_key       {"key":"Enter"}
+  scroll          {"dy":400}
+  js              {"code":"js expression"}
+  wait            {}
+  done            {}
 
-Selector tips (prefer specific over generic):
-- Google search: textarea[name="q"], input[name="q"]
-- Amazon search: input[name="field-keywords"]
-- Generic search: input[type="search"], input[aria-label*="earch" i]
-- Submit: button[type="submit"], input[type="submit"], [role="button"][aria-label*="earch" i]
-- Links: a[href*="keyword"] or match exact link text
+Key selectors:
+  Google email input : input[name="identifier"]
+  Google email Next  : #identifierNext
+  Google password    : input[name="Passwd"],input[type="password"]
+  Google password Next: #passwordNext
+  Google search      : textarea[name="q"],input[name="q"]
+  Generic submit     : button[type="submit"]"""
 
-Use "talk" for greetings, clarifications, or questions that need no browser action.
-Use "done" when the user's goal is fully achieved.
-Take the most direct, efficient action — prefer navigate over clicking when a URL is known."""
+_PLANNER_SYSTEM = """\
+You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
+running inside Electron. The user can also browse manually alongside you.
+
+Given the current page state and the user's instruction, output ONE action as valid JSON.
+Do NOT output any markdown, code fences, comments, or explanation — ONLY the JSON object.
+
+Required keys: "thought", "action", "params", "response"
+
+Actions and their params objects:
+  navigate        -> {"url": "https://..."}
+  click_selector  -> {"selector": "css_selector"}
+  type            -> {"selector": "css_selector", "text": "text to type"}
+  type_and_submit -> {"selector": "css_selector", "text": "text to type"}
+  press_key       -> {"key": "Enter"}
+  scroll          -> {"dy": 400}
+  js              -> {"code": "javascript expression"}
+  wait            -> {}
+  talk            -> {}
+  done            -> {}
+
+CSS selector reference (prefer specific):
+  Google login email:     input[type="email"], input[name="identifier"]
+  Google login password:  input[type="password"], input[name="Passwd"]
+  Google "Next" button:   #identifierNext, #passwordNext, button[jsname="LgbsSe"]
+  Google search box:      textarea[name="q"], input[name="q"]
+  AP Classroom login:     navigate to classroom.google.com then sign in with Google
+  Generic submit:         button[type="submit"], input[type="submit"]
+  Generic search:         input[type="search"], input[aria-label*="earch" i]
+
+Rules:
+- Use "talk" only for greetings or clarifications requiring no browser action.
+- Use "wait" when you need the page to finish loading.
+- Use "done" when the user's goal is fully achieved.
+- For Google login: type email -> click_selector #identifierNext -> type password -> click_selector #passwordNext.
+- Prefer navigate over clicking links when you know the URL.
+- Always fill "response" with a plain-English description of what you are doing."""
 
 
 async def chat_browser_step(
@@ -321,41 +357,50 @@ async def chat_browser_step(
 
     The frontend handles the execution loop; this function only generates the next action.
     """
-    from config.models import get_config, get_speed_mode
-    from config.inference_params import get_inference_params
+    # Model selection: planner for first step + error recovery, executor for everything else.
+    # Planner (qwen3:8b) reasons about the goal and recovers from failures.
+    # Executor (qwen2.5-coder:7b) is fast and accurate for mechanical click/type/navigate steps.
+    user_turns = [h for h in history if str(h.get("role", "")) == "user"]
+    recent_contents = " ".join(str(h.get("content", "")) for h in history[-4:]).lower()
+    is_first_step = len(user_turns) <= 1
+    is_stuck = recent_contents.count("could not parse") >= 1 or recent_contents.count("error") >= 2
 
-    config = get_config("chat")
-    params = get_inference_params("chat", get_speed_mode())
-
-    history_block = ""
-    for turn in history[-8:]:
-        role = str(turn.get("role", "user")).capitalize()
-        content = str(turn.get("content", "")).strip()
-        if content:
-            history_block += f"{role}: {content}\n"
+    use_planner = is_first_step or is_stuck
+    model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
+    system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
+    num_ctx = 8192 if use_planner else 4096
+    num_predict = 512 if use_planner else 256
+    num_batch = 1024 if use_planner else 512
 
     page_block = (
         f"Current URL: {url or '(unknown)'}\n"
         f"Page title:  {title or '(unknown)'}\n\n"
-        f"Page content:\n{(page_text or '(empty)').strip()[:4000]}"
+        f"Page content:\n{(page_text or '(empty)').strip()[:3000 if not use_planner else 4000]}"
     )
 
-    prompt = (
-        f"{history_block}\n"
+    user_prompt = (
         f"Page state:\n{page_block}\n\n"
-        f"User: {message}\n\n"
-        "Respond with JSON:"
+        f"User instruction: {message}\n\n"
+        "Output JSON only:"
     )
 
-    raw = await ollama_client.generate_full(
-        model=config.model,
-        prompt=prompt,
-        system=_CHAT_SYSTEM,
-        temperature=0.15,
-        num_ctx=params.get("num_ctx"),
-        num_predict=512,
-        num_batch=params.get("num_batch"),
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for turn in history[-6:]:
+        role = str(turn.get("role", "user"))
+        content = str(turn.get("content", "")).strip()
+        if content and role in ("user", "agent", "assistant"):
+            messages.append({"role": "user" if role == "user" else "assistant", "content": content})
+    messages.append({"role": "user", "content": user_prompt})
+
+    raw = await ollama_client.chat_full(
+        model=model,
+        messages=messages,
+        temperature=0.1 if not use_planner else 0.15,
+        num_ctx=num_ctx,
+        num_predict=num_predict,
+        num_batch=num_batch,
         repeat_penalty=1.05,
+        think=False,
     )
 
     parsed = _parse_action(raw)

@@ -178,6 +178,8 @@ function createWindow() {
             sandbox: false,
             webSecurity: true,
             allowRunningInsecureContent: false,
+            // Required for <webview> tag used by Atlas browser tab.
+            webviewTag: true,
         },
     });
     mainWindow = window;

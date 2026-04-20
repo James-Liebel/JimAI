@@ -14,6 +14,9 @@ let mainWindow = null;
 let stopRequested = false;
 let reloadInFlight = false;
 
+// Keep GPU free for AI inference — the UI is text-heavy and renders fine on CPU.
+app.disableHardwareAcceleration();
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 function isTrustedAppUrl(url, allowedOrigin) {

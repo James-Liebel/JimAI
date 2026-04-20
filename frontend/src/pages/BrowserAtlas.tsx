@@ -1,422 +1,530 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { MouseEvent, KeyboardEvent } from 'react';
-import * as agentApi from '../lib/agentSpaceApi';
-import { Globe, Play, Square, RefreshCw, ChevronRight, AlertCircle, MousePointer } from 'lucide-react';
+import {
+    Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
+    Bot, User, X,
+} from 'lucide-react';
 import { cn } from '../lib/utils';
 
-type AgentStatus = 'idle' | 'running' | 'done' | 'error';
-
-interface StepLog {
-    step?: number;
-    type: string;
-    thought?: string;
-    action?: string;
-    url?: string;
-    error?: string;
-    result?: string;
-    reason?: string;
+// ── Webview type (Electron-specific element) ─────────────────────────────────
+interface AtlasWebview extends HTMLElement {
+    loadURL(url: string): Promise<void>;
+    executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
+    goBack(): void;
+    goForward(): void;
+    reload(): void;
+    stop(): void;
+    getURL(): string;
+    getTitle(): string;
+    canGoBack(): boolean;
+    canGoForward(): boolean;
+    isLoading(): boolean;
 }
 
+
+// ── Types ────────────────────────────────────────────────────────────────────
+interface ChatMessage {
+    id: string;
+    role: 'user' | 'agent' | 'system';
+    content: string;
+    actionLabel?: string;
+}
+
+interface AgentStep {
+    thought?: string;
+    action?: string;
+    params?: Record<string, unknown>;
+    response?: string;
+}
+
+const BACKEND = 'http://127.0.0.1:8000/api/agent-space';
+const MAX_STEPS = 15;
+const isElectron = navigator.userAgent.includes('Electron');
+
+// ── Backend call ─────────────────────────────────────────────────────────────
+async function agentStep(
+    message: string,
+    url: string,
+    title: string,
+    pageText: string,
+    history: { role: string; content: string }[],
+): Promise<AgentStep> {
+    const res = await fetch(`${BACKEND}/browser/atlas/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, url, title, page_text: pageText, history }),
+    });
+    if (!res.ok) throw new Error(`Backend error ${res.status}`);
+    return res.json() as Promise<AgentStep>;
+}
+
+// ── Component ────────────────────────────────────────────────────────────────
 export default function BrowserAtlas() {
-    const [sessionId, setSessionId] = useState('');
-    const [sessionUrl, setSessionUrl] = useState('');
-    const [screenshot, setScreenshot] = useState('');
-    const [liveUrl, setLiveUrl] = useState('');
-    const [navInput, setNavInput] = useState('');
-    const [connecting, setConnecting] = useState(false);
-    const [connectError, setConnectError] = useState('');
-    const [mirrorActive, setMirrorActive] = useState(false);
+    const webviewRef = useRef<AtlasWebview>(null);
 
-    const [goal, setGoal] = useState('');
-    const [agentStatus, setAgentStatus] = useState<AgentStatus>('idle');
-    const [stepLog, setStepLog] = useState<StepLog[]>([]);
-    const [interactiveMode, setInteractiveMode] = useState(false);
-    const viewportSize = { width: 1280, height: 800 };
-    const abortRef = useRef<AbortController | null>(null);
-    const mirrorRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const logRef = useRef<HTMLDivElement>(null);
-    const screenshotContainerRef = useRef<HTMLDivElement>(null);
+    // Navigation state
+    const [navInput, setNavInput] = useState('https://www.google.com');
+    const [pageTitle, setPageTitle] = useState('');
+    const [canGoBack, setCanGoBack] = useState(false);
+    const [canGoForward, setCanGoForward] = useState(false);
+    const [loading, setLoading] = useState(false);
 
-    const captureScreenshot = useCallback(async (sid = sessionId) => {
-        if (!sid) return;
-        try {
-            const data = await agentApi.browserScreenshot(sid, false);
-            if (data?.image_base64) setScreenshot(data.image_base64);
-            if (data?.url) setLiveUrl(data.url);
-        } catch { /* ignore */ }
-    }, [sessionId]);
+    // Chat state
+    const [messages, setMessages] = useState<ChatMessage[]>([
+        {
+            id: 'welcome',
+            role: 'agent',
+            content:
+                'I can control this browser for you. Try: "Go to Amazon and search for wireless headphones" or "Open GitHub and find the qwen3 repo".',
+        },
+    ]);
+    const [input, setInput] = useState('');
+    const [agentRunning, setAgentRunning] = useState(false);
+    const abortRef = useRef(false);
+    const historyRef = useRef<{ role: string; content: string }[]>([]);
+    const chatRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
-    const onScreenshotClick = useCallback(async (evt: MouseEvent<HTMLImageElement>) => {
-        if (!interactiveMode || !sessionId) return;
-        const rect = evt.currentTarget.getBoundingClientRect();
-        const relX = (evt.clientX - rect.left) / Math.max(1, rect.width);
-        const relY = (evt.clientY - rect.top) / Math.max(1, rect.height);
-        const x = Math.round(relX * viewportSize.width);
-        const y = Math.round(relY * viewportSize.height);
-        try {
-            await agentApi.browserCursorClick(sessionId, { x, y });
-            setTimeout(() => void captureScreenshot(), 400);
-        } catch { /* ignore */ }
-    }, [interactiveMode, sessionId, viewportSize, captureScreenshot]);
-
-    // Native wheel handler attached directly to avoid passive listener issues
+    // Scroll chat to bottom whenever messages change
     useEffect(() => {
-        const el = screenshotContainerRef.current;
-        if (!el) return;
-        const handler = (evt: globalThis.WheelEvent) => {
-            if (!interactiveMode || !sessionId) return;
-            evt.preventDefault();
-            agentApi.browserScrollPage(sessionId, { delta_y: evt.deltaY })
-                .then(() => setTimeout(() => void captureScreenshot(), 300))
-                .catch(() => {});
+        chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
+    }, [messages]);
+
+    // ── Wire webview events ──────────────────────────────────────────────────
+    useEffect(() => {
+        const wv = webviewRef.current;
+        if (!wv || !isElectron) return;
+
+        const updateNav = () => {
+            const url = wv.getURL();
+            setNavInput(url);
+            setCanGoBack(wv.canGoBack());
+            setCanGoForward(wv.canGoForward());
         };
-        el.addEventListener('wheel', handler, { passive: false });
-        return () => el.removeEventListener('wheel', handler);
-    }, [interactiveMode, sessionId, captureScreenshot]);
 
-    const onScreenshotKeyDown = useCallback(async (evt: KeyboardEvent<HTMLDivElement>) => {
-        if (!interactiveMode || !sessionId) return;
-        // Map common keys to Playwright key names
-        const keyMap: Record<string, string> = {
-            Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape',
-            ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
-            Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+        const onTitleUpdated = (e: unknown) => {
+            setPageTitle((e as { title: string }).title || '');
         };
-        const key = keyMap[evt.key] ?? (evt.key.length === 1 ? evt.key : null);
-        if (!key) return;
-        evt.preventDefault();
+
+        const onStartLoading = () => setLoading(true);
+        const onStopLoading = () => { setLoading(false); updateNav(); };
+
+        wv.addEventListener('did-navigate', updateNav);
+        wv.addEventListener('did-navigate-in-page', updateNav);
+        wv.addEventListener('page-title-updated', onTitleUpdated);
+        wv.addEventListener('did-start-loading', onStartLoading);
+        wv.addEventListener('did-stop-loading', onStopLoading);
+
+        return () => {
+            wv.removeEventListener('did-navigate', updateNav);
+            wv.removeEventListener('did-navigate-in-page', updateNav);
+            wv.removeEventListener('page-title-updated', onTitleUpdated);
+            wv.removeEventListener('did-start-loading', onStartLoading);
+            wv.removeEventListener('did-stop-loading', onStopLoading);
+        };
+    }, []);
+
+    // ── Navigation helpers ───────────────────────────────────────────────────
+    const navigate = useCallback((url?: string) => {
+        const wv = webviewRef.current;
+        if (!wv) return;
+        let target = (url ?? navInput).trim();
+        if (!target) return;
+        if (!target.startsWith('http')) target = `https://${target}`;
+        setNavInput(target);
+        wv.loadURL(target).catch(() => {});
+    }, [navInput]);
+
+    // ── Page state extraction ────────────────────────────────────────────────
+    const getPageState = useCallback(async (): Promise<{ url: string; title: string; pageText: string }> => {
+        const wv = webviewRef.current;
+        if (!wv) return { url: '', title: '', pageText: '' };
+
+        const url = wv.getURL();
+        const title = wv.getTitle();
+        let pageText = '';
         try {
-            await agentApi.browserPressKey(sessionId, key);
-            if (['Enter', 'Backspace', 'Delete'].includes(key)) {
-                setTimeout(() => void captureScreenshot(), 400);
+            const raw = await wv.executeJavaScript(`
+                (function() {
+                    const text = (document.body && document.body.innerText) ? document.body.innerText.slice(0, 3500) : '';
+                    const links = [...document.querySelectorAll('a[href]')]
+                        .slice(0, 40)
+                        .map(a => (a.innerText || '').trim().slice(0, 60) + ' → ' + a.href)
+                        .filter(Boolean)
+                        .join('\\n');
+                    const inputs = [...document.querySelectorAll('input,select,textarea,button')]
+                        .slice(0, 30)
+                        .map(el => {
+                            const tag = el.tagName.toLowerCase();
+                            const name = el.id ? '#' + el.id : (el.name ? '[name="' + el.name + '"]' : '');
+                            const label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || '';
+                            return tag + (name ? name : '') + (label ? ' "' + label.slice(0,40) + '"' : '');
+                        })
+                        .join(', ');
+                    return JSON.stringify({ text, links, inputs });
+                })()
+            `) as string;
+            const parsed = JSON.parse(raw) as { text: string; links: string; inputs: string };
+            pageText = `${parsed.text}\n\n--- Links ---\n${parsed.links}\n\n--- Interactive ---\n${parsed.inputs}`;
+        } catch { /* cross-origin or CSP block — proceed without page text */ }
+
+        return { url, title, pageText };
+    }, []);
+
+    // ── Execute an agent action on the webview ───────────────────────────────
+    const executeAction = useCallback(async (action: string, params: Record<string, unknown>) => {
+        const wv = webviewRef.current;
+        if (!wv) return;
+
+        switch (action) {
+            case 'navigate': {
+                const url = String(params.url ?? '');
+                if (url) {
+                    setNavInput(url);
+                    await wv.loadURL(url).catch(() => {});
+                    // Wait for page to settle
+                    await new Promise<void>((res) => {
+                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
+                        wv.addEventListener('did-stop-loading', done);
+                        setTimeout(res, 5000); // fallback timeout
+                    });
+                }
+                break;
             }
-        } catch { /* ignore */ }
-    }, [interactiveMode, sessionId, captureScreenshot]);
 
-    // Focus screenshot container when interactive mode is enabled
-    useEffect(() => {
-        if (interactiveMode && screenshotContainerRef.current) {
-            screenshotContainerRef.current.focus();
-        }
-    }, [interactiveMode]);
-
-    // Live mirror — refresh screenshot every 800ms when connected
-    useEffect(() => {
-        if (!mirrorActive || !sessionId) return;
-        mirrorRef.current = setInterval(() => void captureScreenshot(), 800);
-        return () => { if (mirrorRef.current) clearInterval(mirrorRef.current); };
-    }, [mirrorActive, sessionId, captureScreenshot]);
-
-    // Scroll log to bottom on new entries
-    useEffect(() => {
-        logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' });
-    }, [stepLog]);
-
-    const connect = async () => {
-        setConnecting(true);
-        setConnectError('');
-        try {
-            const data = await agentApi.openAtlasSession(
-                sessionUrl.trim() || 'https://www.google.com',
-            );
-            if (!data.success || !data.session_id) {
-                setConnectError(data.error || 'Failed to open browser.');
-                return;
+            case 'click_selector': {
+                const sel = String(params.selector ?? '');
+                if (sel) {
+                    await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return 'not_found';
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.click();
+                            return 'clicked';
+                        })()
+                    `).catch(() => {});
+                    await new Promise((r) => setTimeout(r, 1200));
+                }
+                break;
             }
-            setSessionId(data.session_id);
-            setLiveUrl(data.url || '');
-            setNavInput(data.url || '');
-            setMirrorActive(true);
-            await captureScreenshot(data.session_id);
-        } catch (err) {
-            setConnectError(err instanceof Error ? err.message : 'Connection failed.');
-        } finally {
-            setConnecting(false);
+
+            case 'type': {
+                const sel = String(params.selector ?? '');
+                const text = String(params.text ?? '');
+                if (sel) {
+                    await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return 'not_found';
+                            el.focus();
+                            el.value = ${JSON.stringify(text)};
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            return 'typed';
+                        })()
+                    `).catch(() => {});
+                    await new Promise((r) => setTimeout(r, 400));
+                }
+                break;
+            }
+
+            case 'type_and_submit': {
+                const sel = String(params.selector ?? '');
+                const text = String(params.text ?? '');
+                if (sel) {
+                    await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return 'not_found';
+                            el.focus();
+                            el.value = ${JSON.stringify(text)};
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            if (el.form) el.form.submit();
+                            return 'submitted';
+                        })()
+                    `).catch(() => {});
+                    await new Promise<void>((res) => {
+                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
+                        wv.addEventListener('did-stop-loading', done);
+                        setTimeout(res, 4000);
+                    });
+                }
+                break;
+            }
+
+            case 'scroll': {
+                const dy = Number(params.dy ?? 400);
+                await wv.executeJavaScript(`window.scrollBy({ top: ${dy}, behavior: 'smooth' })`).catch(() => {});
+                await new Promise((r) => setTimeout(r, 500));
+                break;
+            }
+
+            case 'js': {
+                const code = String(params.code ?? '');
+                if (code) await wv.executeJavaScript(code).catch(() => {});
+                await new Promise((r) => setTimeout(r, 600));
+                break;
+            }
         }
-    };
+    }, []);
 
-    const disconnect = async () => {
-        setMirrorActive(false);
-        setInteractiveMode(false);
-        abortRef.current?.abort();
-        if (sessionId) {
-            agentApi.closeBrowserSession(sessionId).catch(() => {});
-            setSessionId('');
+    // ── Chat helpers ─────────────────────────────────────────────────────────
+    const addMsg = useCallback((role: ChatMessage['role'], content: string, actionLabel?: string) => {
+        setMessages((prev) => [
+            ...prev,
+            { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel },
+        ]);
+    }, []);
+
+    // ── Agent loop ───────────────────────────────────────────────────────────
+    const runAgentLoop = useCallback(async (userMessage: string) => {
+        abortRef.current = false;
+        setAgentRunning(true);
+        historyRef.current = [...historyRef.current, { role: 'user', content: userMessage }];
+
+        for (let step = 0; step < MAX_STEPS; step++) {
+            if (abortRef.current) break;
+
+            const { url, title, pageText } = await getPageState();
+
+            let result: AgentStep;
+            try {
+                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10));
+            } catch (err) {
+                addMsg('system', `Connection error: ${err instanceof Error ? err.message : 'unknown'}`);
+                break;
+            }
+
+            if (abortRef.current) break;
+
+            const { action = 'talk', params = {}, response = '' } = result;
+
+            if (response) {
+                addMsg('agent', response, action === 'talk' || action === 'done' ? undefined : action);
+                historyRef.current = [...historyRef.current, { role: 'agent', content: response }];
+            }
+
+            if (action === 'done' || action === 'talk') break;
+
+            await executeAction(action, params as Record<string, unknown>);
         }
-        setScreenshot('');
-        setLiveUrl('');
-        setStepLog([]);
-        setAgentStatus('idle');
-    };
 
-    const navigate = async () => {
-        if (!sessionId || !navInput.trim()) return;
-        let url = navInput.trim();
-        if (!url.startsWith('http')) url = `https://${url}`;
-        await agentApi.browserNavigate(sessionId, url);
-        await captureScreenshot();
-    };
+        setAgentRunning(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+    }, [getPageState, executeAction, addMsg]);
 
-    const runAgent = useCallback(() => {
-        if (!sessionId || !goal.trim() || agentStatus === 'running') return;
-        const ctrl = new AbortController();
-        abortRef.current = ctrl;
-        setAgentStatus('running');
-        setStepLog([]);
+    const sendMessage = useCallback(() => {
+        const msg = input.trim();
+        if (!msg || agentRunning) return;
+        setInput('');
+        addMsg('user', msg);
+        void runAgentLoop(msg);
+    }, [input, agentRunning, addMsg, runAgentLoop]);
 
-        // Pause the mirror while the agent runs — it will update screenshots itself
-        if (mirrorRef.current) {
-            clearInterval(mirrorRef.current);
-            mirrorRef.current = null;
-        }
+    const stopAgent = useCallback(() => {
+        abortRef.current = true;
+        setAgentRunning(false);
+    }, []);
 
-        agentApi.runBrowserAgent(
-            goal,
-            liveUrl || 'https://www.google.com',
-            { headless: false },
-            (event) => {
-                setStepLog((prev) => [...prev, event as StepLog]);
-                if (event.screenshot) setScreenshot(event.screenshot as string);
-                if (event.url) setLiveUrl(event.url as string);
-            },
-            () => {
-                setAgentStatus((s) => s === 'running' ? 'done' : s);
-                // Resume the mirror after the agent finishes
-                setMirrorActive((active) => {
-                    if (active && sessionId) {
-                        mirrorRef.current = setInterval(() => void captureScreenshot(), 800);
-                    }
-                    return active;
-                });
-            },
-            ctrl.signal,
+    const clearChat = useCallback(() => {
+        setMessages([{
+            id: 'welcome-reset',
+            role: 'agent',
+            content: 'Chat cleared. What would you like me to do?',
+        }]);
+        historyRef.current = [];
+    }, []);
+
+    // ── Non-Electron fallback ─────────────────────────────────────────────────
+    if (!isElectron) {
+        return (
+            <div className="flex h-full items-center justify-center flex-col gap-3 text-text-muted">
+                <Globe size={48} className="opacity-20" />
+                <p className="text-sm font-medium">Atlas Browser requires the desktop app.</p>
+                <p className="text-xs opacity-60">Open JimAI in Electron to use this feature.</p>
+            </div>
         );
-    }, [sessionId, goal, agentStatus, liveUrl, captureScreenshot]);
+    }
 
-    const stopAgent = () => {
-        abortRef.current?.abort();
-        setAgentStatus('idle');
-    };
-
-    const connected = Boolean(sessionId);
-
+    // ── Render ────────────────────────────────────────────────────────────────
     return (
         <div className="flex h-full flex-col bg-surface-0 overflow-hidden">
-            {/* Top bar */}
-            <div className="flex items-center gap-2 border-b border-surface-3 bg-surface-1 px-4 py-2">
-                <Globe size={16} className="shrink-0 text-accent-blue" />
-                <span className="text-sm font-semibold text-text-primary mr-2">Atlas Browser</span>
 
-                {connected ? (
-                    <>
-                        {/* URL bar */}
-                        <form
-                            className="flex flex-1 items-center gap-1 max-w-2xl"
-                            onSubmit={(e) => { e.preventDefault(); void navigate(); }}
-                        >
-                            <input
-                                className="flex-1 border border-surface-4 bg-surface-2 px-3 py-1 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
-                                value={navInput}
-                                onChange={(e) => setNavInput(e.target.value)}
-                                placeholder="https://"
-                            />
-                            <button
-                                type="submit"
-                                className="border border-surface-4 bg-surface-2 px-2 py-1 text-text-muted hover:text-text-primary"
-                                title="Navigate"
-                            >
-                                <ChevronRight size={14} />
-                            </button>
-                        </form>
+            {/* ── Top bar ───────────────────────────────────────────────────── */}
+            <div className="flex items-center gap-1 border-b border-surface-3 bg-surface-1 px-2 py-1.5 shrink-0">
+                <Globe size={13} className="text-accent-blue mx-1 shrink-0" />
 
-                        <button
-                            onClick={() => void captureScreenshot()}
-                            className="border border-surface-4 bg-surface-2 px-2 py-1 text-text-muted hover:text-text-primary"
-                            title="Refresh screenshot"
-                        >
-                            <RefreshCw size={13} />
-                        </button>
+                <button
+                    onClick={() => webviewRef.current?.goBack()}
+                    disabled={!canGoBack}
+                    className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                    title="Back"
+                >
+                    <ArrowLeft size={13} />
+                </button>
+                <button
+                    onClick={() => webviewRef.current?.goForward()}
+                    disabled={!canGoForward}
+                    className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                    title="Forward"
+                >
+                    <ArrowRight size={13} />
+                </button>
+                <button
+                    onClick={() => loading ? webviewRef.current?.stop() : webviewRef.current?.reload()}
+                    className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+                    title={loading ? 'Stop' : 'Reload'}
+                >
+                    <RotateCcw size={12} className={cn(loading && 'animate-spin')} />
+                </button>
 
-                        <button
-                            onClick={() => setInteractiveMode((v) => !v)}
-                            title={interactiveMode ? 'Interactive mode ON — click to disable' : 'Enable interactive mode (click/scroll/type)'}
-                            className={cn(
-                                'flex items-center gap-1 border px-2 py-1 text-xs transition-colors',
-                                interactiveMode
-                                    ? 'border-accent-blue bg-accent-blue/20 text-accent-blue'
-                                    : 'border-surface-4 bg-surface-2 text-text-muted hover:text-text-primary',
-                            )}
-                        >
-                            <MousePointer size={13} />
-                            {interactiveMode ? 'Live' : 'Interact'}
-                        </button>
+                <form
+                    className="flex flex-1 items-center mx-1"
+                    onSubmit={(e) => { e.preventDefault(); navigate(); }}
+                >
+                    <input
+                        className="w-full border border-surface-4 bg-surface-2 rounded px-3 py-1 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors"
+                        value={navInput}
+                        onChange={(e) => setNavInput(e.target.value)}
+                        placeholder="Search or enter URL"
+                        spellCheck={false}
+                    />
+                </form>
 
-                        <button
-                            onClick={() => void disconnect()}
-                            className="ml-1 border border-accent-red/40 bg-accent-red/10 px-3 py-1 text-xs text-accent-red hover:bg-accent-red/20"
-                        >
-                            Disconnect
-                        </button>
-                    </>
-                ) : (
-                    <div className="flex flex-1 items-center gap-2">
-                        <input
-                            className="w-72 border border-surface-4 bg-surface-2 px-3 py-1 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
-                            placeholder="Start URL (default: google.com)"
-                            value={sessionUrl}
-                            onChange={(e) => setSessionUrl(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && void connect()}
-                            disabled={connecting}
-                        />
-                        <button
-                            onClick={() => void connect()}
-                            disabled={connecting}
-                            className="border border-accent-blue bg-accent-blue/10 px-4 py-1 text-sm text-accent-blue hover:bg-accent-blue/20 disabled:opacity-40"
-                        >
-                            {connecting ? 'Launching Chrome…' : 'Launch Chrome'}
-                        </button>
-                        {connectError && (
-                            <span className="flex items-center gap-1 text-xs text-accent-red">
-                                <AlertCircle size={12} /> {connectError}
-                            </span>
-                        )}
-                    </div>
+                {pageTitle && (
+                    <span className="text-[11px] text-text-muted truncate max-w-40 hidden xl:block" title={pageTitle}>
+                        {pageTitle}
+                    </span>
                 )}
             </div>
 
-            {/* Main area */}
-            <div className="flex flex-1 overflow-hidden">
-                {/* Browser view */}
-                <div className="flex flex-1 flex-col overflow-hidden bg-surface-0">
-                    {connected && liveUrl && (
-                        <div className="border-b border-surface-3 px-4 py-1 text-xs text-text-muted truncate">
-                            {liveUrl}
-                        </div>
-                    )}
-                    {interactiveMode && (
-                        <div className="border-b border-accent-blue/30 bg-accent-blue/8 px-4 py-0.5 text-[10px] text-accent-blue/80">
-                            Interactive — click, scroll, or type on the page below
-                        </div>
-                    )}
+            {/* ── Main area ─────────────────────────────────────────────────── */}
+            <div className="flex flex-1 overflow-hidden min-h-0">
+
+                {/* ── Webview ─────────────────────────────────────────────── */}
+                <webview
+                    ref={webviewRef as React.RefObject<HTMLElement>}
+                    src="https://www.google.com"
+                    partition="persist:atlas"
+                    allowpopups
+                    style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: '100%',
+                        display: 'flex',
+                    }}
+                />
+
+                {/* ── Agent chat panel ────────────────────────────────────── */}
+                <div className="flex w-72 shrink-0 flex-col border-l border-surface-3 bg-surface-1 min-h-0">
+
+                    {/* Header */}
+                    <div className="border-b border-surface-3 px-3 py-2 flex items-center gap-2 shrink-0">
+                        <Bot size={13} className="text-accent-blue shrink-0" />
+                        <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide flex-1">
+                            AI Agent
+                        </span>
+                        {agentRunning && (
+                            <span className="text-[10px] text-accent-blue animate-pulse">running…</span>
+                        )}
+                        <button
+                            onClick={clearChat}
+                            disabled={agentRunning}
+                            className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                            title="Clear chat"
+                        >
+                            <X size={11} />
+                        </button>
+                    </div>
+
+                    {/* Messages */}
                     <div
-                        ref={screenshotContainerRef}
-                        className={cn(
-                            'flex flex-1 items-center justify-center overflow-auto outline-none',
-                            interactiveMode && 'cursor-crosshair',
-                        )}
-                        tabIndex={interactiveMode ? 0 : -1}
-                        onKeyDown={interactiveMode ? onScreenshotKeyDown : undefined}
+                        ref={chatRef}
+                        className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0"
                     >
-                        {screenshot ? (
-                            <img
-                                src={`data:image/png;base64,${screenshot}`}
-                                alt="Browser view"
-                                className={cn('max-h-full max-w-full object-contain select-none', interactiveMode && 'pointer-events-auto')}
-                                style={{ imageRendering: 'auto' }}
-                                draggable={false}
-                                onClick={interactiveMode ? onScreenshotClick : undefined}
-                            />
-                        ) : (
-                            <div className="flex flex-col items-center gap-3 text-text-muted">
-                                <Globe size={48} className="opacity-20" />
-                                <p className="text-sm">
-                                    {connecting
-                                        ? 'Launching Chrome with your profile…'
-                                        : 'Launch Chrome to get started. Your Google account and saved logins will be available.'}
-                                </p>
-                                {!connected && !connecting && (
-                                    <button
-                                        onClick={() => void connect()}
-                                        className="mt-1 border border-accent-blue bg-accent-blue/10 px-5 py-2 text-sm text-accent-blue hover:bg-accent-blue/20"
-                                    >
-                                        Launch Chrome
-                                    </button>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Right panel — agent */}
-                <div className="flex w-80 shrink-0 flex-col border-l border-surface-3 bg-surface-1">
-                    <div className="border-b border-surface-3 px-4 py-2 text-xs font-semibold text-text-secondary uppercase tracking-wide">
-                        AI Agent
-                    </div>
-
-                    {/* Goal input */}
-                    <div className="border-b border-surface-3 p-3 space-y-2">
-                        <textarea
-                            rows={3}
-                            className="w-full resize-none border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
-                            placeholder={connected ? 'Goal — e.g. "Search for qwen3 on GitHub and open the first result"' : 'Connect first, then give the AI a goal'}
-                            value={goal}
-                            onChange={(e) => setGoal(e.target.value)}
-                            disabled={!connected || agentStatus === 'running'}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runAgent();
-                            }}
-                        />
-                        <div className="flex gap-2">
-                            {agentStatus === 'running' ? (
-                                <button
-                                    onClick={stopAgent}
-                                    className="flex flex-1 items-center justify-center gap-1.5 border border-accent-red/40 bg-accent-red/10 py-1.5 text-xs text-accent-red hover:bg-accent-red/20"
-                                >
-                                    <Square size={11} /> Stop
-                                </button>
-                            ) : (
-                                <button
-                                    onClick={runAgent}
-                                    disabled={!connected || !goal.trim()}
-                                    className="flex flex-1 items-center justify-center gap-1.5 border border-accent-blue bg-accent-blue/10 py-1.5 text-xs text-accent-blue hover:bg-accent-blue/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                    <Play size={11} /> Run  <span className="text-text-muted">(Ctrl+↵)</span>
-                                </button>
-                            )}
-                        </div>
-                        {agentStatus === 'done' && (
-                            <p className="text-xs text-accent-green">Agent finished.</p>
-                        )}
-                    </div>
-
-                    {/* Step log */}
-                    <div
-                        ref={logRef}
-                        className="flex-1 overflow-y-auto p-3 space-y-1.5 text-xs font-mono"
-                    >
-                        {stepLog.length === 0 && (
-                            <p className="text-text-muted italic">
-                                {connected ? 'No agent steps yet. Give a goal and click Run.' : 'Connect to Chrome first.'}
-                            </p>
-                        )}
-                        {stepLog.map((s, i) => (
+                        {messages.map((msg) => (
                             <div
-                                key={i}
+                                key={msg.id}
                                 className={cn(
-                                    'border-l-2 pl-2 leading-relaxed',
-                                    s.type === 'opened' && 'border-accent-blue text-text-secondary',
-                                    s.type === 'step' && 'border-surface-4 text-text-secondary',
-                                    s.type === 'error' && 'border-accent-red text-accent-red',
-                                    s.type === 'done' && 'border-accent-green text-accent-green',
-                                    s.type === 'stopped' && 'border-accent-amber text-accent-amber',
+                                    'flex gap-2 items-start',
+                                    msg.role === 'user' && 'flex-row-reverse',
                                 )}
                             >
-                                {s.type === 'opened' && <span>Opened: {s.url}</span>}
-                                {s.type === 'step' && (
-                                    <span>
-                                        <span className="text-text-muted">#{s.step} [{s.action}] </span>
-                                        {s.thought}
-                                    </span>
-                                )}
-                                {s.type === 'error' && <span>✗ {s.error}</span>}
-                                {s.type === 'done' && <span>✓ {s.result}</span>}
-                                {s.type === 'stopped' && <span>⏹ {s.reason}</span>}
+                                {/* Avatar */}
+                                <div className={cn(
+                                    'shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5',
+                                    msg.role === 'agent' && 'bg-accent-blue/15',
+                                    msg.role === 'user' && 'bg-surface-3',
+                                    msg.role === 'system' && 'bg-accent-amber/15',
+                                )}>
+                                    {msg.role === 'agent' && <Bot size={10} className="text-accent-blue" />}
+                                    {msg.role === 'user' && <User size={10} className="text-text-muted" />}
+                                    {msg.role === 'system' && <span className="text-[8px] text-accent-amber">!</span>}
+                                </div>
+
+                                {/* Bubble */}
+                                <div className={cn(
+                                    'rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed max-w-[200px]',
+                                    msg.role === 'agent' && 'bg-surface-2 text-text-secondary',
+                                    msg.role === 'user' && 'bg-accent-blue/15 text-text-primary',
+                                    msg.role === 'system' && 'bg-surface-3 text-text-muted font-mono text-[10px]',
+                                )}>
+                                    {msg.actionLabel && (
+                                        <span className="block text-[10px] text-accent-blue/60 font-mono mb-1">
+                                            [{msg.actionLabel}]
+                                        </span>
+                                    )}
+                                    {msg.content}
+                                </div>
                             </div>
                         ))}
-                        {agentStatus === 'running' && (
-                            <div className="border-l-2 border-accent-blue pl-2 text-accent-blue animate-pulse">
-                                thinking…
+
+                        {agentRunning && (
+                            <div className="flex gap-2 items-start">
+                                <div className="shrink-0 w-5 h-5 rounded-full bg-accent-blue/15 flex items-center justify-center mt-0.5">
+                                    <Bot size={10} className="text-accent-blue" />
+                                </div>
+                                <div className="bg-surface-2 rounded-lg px-2.5 py-1.5 text-[12px] text-text-muted flex gap-1">
+                                    <span className="animate-bounce [animation-delay:0ms]">·</span>
+                                    <span className="animate-bounce [animation-delay:150ms]">·</span>
+                                    <span className="animate-bounce [animation-delay:300ms]">·</span>
+                                </div>
                             </div>
+                        )}
+                    </div>
+
+                    {/* Input */}
+                    <div className="border-t border-surface-3 p-2 flex gap-1.5 shrink-0">
+                        <input
+                            ref={inputRef}
+                            className="flex-1 border border-surface-4 bg-surface-2 rounded px-2.5 py-1.5 text-[12px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors min-w-0"
+                            placeholder={agentRunning ? 'Agent running…' : 'Tell the agent what to do…'}
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !agentRunning) sendMessage(); }}
+                            disabled={agentRunning}
+                        />
+                        {agentRunning ? (
+                            <button
+                                onClick={stopAgent}
+                                className="shrink-0 p-1.5 rounded border border-accent-red/40 bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
+                                title="Stop agent"
+                            >
+                                <Square size={13} />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={sendMessage}
+                                disabled={!input.trim()}
+                                className="shrink-0 p-1.5 rounded border border-accent-blue/50 bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                title="Send (Enter)"
+                            >
+                                <Send size={13} />
+                            </button>
                         )}
                     </div>
                 </div>

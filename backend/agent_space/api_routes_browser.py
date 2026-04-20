@@ -101,6 +101,14 @@ class BrowserWaitForRequest(BaseModel):
     timeout_ms: int = 30000
 
 
+class AtlasChatRequest(BaseModel):
+    message: str
+    url: str = ""
+    title: str = ""
+    page_text: str = ""
+    history: list[dict] = []
+
+
 def register_browser_routes(
     router: APIRouter,
     *,
@@ -262,6 +270,17 @@ def register_browser_routes(
         profile_dir: str = Query(default=""),
     ) -> dict[str, Any]:
         return await browser_manager.open_atlas_session(url=url, profile_dir=profile_dir)
+
+    @router.post("/browser/atlas/chat")
+    async def browser_atlas_chat(req: AtlasChatRequest) -> dict[str, Any]:
+        from agent_space.browser_agent_runner import chat_browser_step
+        return await chat_browser_step(
+            message=req.message,
+            url=req.url,
+            title=req.title,
+            page_text=req.page_text,
+            history=req.history,
+        )
 
     @router.get("/browser/agent/run")
     async def browser_agent_run(

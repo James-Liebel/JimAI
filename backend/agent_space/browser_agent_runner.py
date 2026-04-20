@@ -291,23 +291,26 @@ Browser automation executor. Output ONE action as JSON — no markdown, no extra
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
 Actions:
-  navigate        {"url":"https://..."}
-  click_selector  {"selector":"css"}
-  type            {"selector":"css","text":"value"}
-  type_and_submit {"selector":"css","text":"value"}
-  press_key       {"key":"Enter"}
-  scroll          {"dy":400}
-  js              {"code":"js expression"}
-  wait            {}
-  done            {}
+  navigate         {"url":"https://..."}
+  click_selector   {"selector":"css"}
+  trigger_autofill {"selector":"css"}  ← use this for email/password fields to fill from saved passwords
+  type             {"selector":"css","text":"value"}
+  type_and_submit  {"selector":"css","text":"value"}
+  press_key        {"key":"Enter"}
+  scroll           {"dy":400}
+  js               {"code":"js expression"}
+  wait             {}
+  done             {}
 
 Key selectors:
-  Google email input : input[name="identifier"]
-  Google email Next  : #identifierNext
-  Google password    : input[name="Passwd"],input[type="password"]
+  Google email input  : input[name="identifier"]
+  Google email Next   : #identifierNext
+  Google password     : input[name="Passwd"],input[type="password"]
   Google password Next: #passwordNext
-  Google search      : textarea[name="q"],input[name="q"]
-  Generic submit     : button[type="submit"]"""
+  Google search       : textarea[name="q"],input[name="q"]
+  Generic submit      : button[type="submit"]
+
+Login rule: ALWAYS use trigger_autofill on email and password fields — the browser has saved credentials from the user's Google account. Only fall back to type if autofill finds nothing."""
 
 _PLANNER_SYSTEM = """\
 You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
@@ -319,16 +322,17 @@ Do NOT output any markdown, code fences, comments, or explanation — ONLY the J
 Required keys: "thought", "action", "params", "response"
 
 Actions and their params objects:
-  navigate        -> {"url": "https://..."}
-  click_selector  -> {"selector": "css_selector"}
-  type            -> {"selector": "css_selector", "text": "text to type"}
-  type_and_submit -> {"selector": "css_selector", "text": "text to type"}
-  press_key       -> {"key": "Enter"}
-  scroll          -> {"dy": 400}
-  js              -> {"code": "javascript expression"}
-  wait            -> {}
-  talk            -> {}
-  done            -> {}
+  navigate         -> {"url": "https://..."}
+  click_selector   -> {"selector": "css_selector"}
+  trigger_autofill -> {"selector": "css_selector"}   ← preferred for email/password fields
+  type             -> {"selector": "css_selector", "text": "text to type"}
+  type_and_submit  -> {"selector": "css_selector", "text": "text to type"}
+  press_key        -> {"key": "Enter"}
+  scroll           -> {"dy": 400}
+  js               -> {"code": "javascript expression"}
+  wait             -> {}
+  talk             -> {}
+  done             -> {}
 
 CSS selector reference (prefer specific):
   Google login email:     input[type="email"], input[name="identifier"]
@@ -343,7 +347,7 @@ Rules:
 - Use "talk" only for greetings or clarifications requiring no browser action.
 - Use "wait" when you need the page to finish loading.
 - Use "done" when the user's goal is fully achieved.
-- For Google login: type email -> click_selector #identifierNext -> type password -> click_selector #passwordNext.
+- For login forms: use trigger_autofill on the email field, then click_selector #identifierNext, then trigger_autofill on the password field, then click_selector #passwordNext. The user's Google account has saved passwords — always try autofill first.
 - Prefer navigate over clicking links when you know the URL.
 - Always fill "response" with a plain-English description of what you are doing."""
 

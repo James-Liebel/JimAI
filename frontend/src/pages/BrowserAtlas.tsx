@@ -10,6 +10,15 @@ import { fetchWithTimeout } from '../lib/api';
 interface AtlasWebview extends HTMLElement {
     loadURL(url: string): Promise<void>;
     executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
+    sendInputEvent(event: {
+        type: 'mouseDown' | 'mouseUp' | 'mouseMove' | 'keyDown' | 'keyUp' | 'char';
+        x?: number;
+        y?: number;
+        button?: 'left' | 'middle' | 'right';
+        clickCount?: number;
+        keyCode?: string;
+        modifiers?: string[];
+    }): void;
     goBack(): void;
     goForward(): void;
     reload(): void;
@@ -285,6 +294,36 @@ export default function BrowserAtlas() {
                     })()
                 `).catch(() => {});
                 await new Promise((r) => setTimeout(r, 1000));
+                break;
+            }
+
+            case 'trigger_autofill': {
+                const sel = String(params.selector ?? '');
+                if (sel) {
+                    // Get real pixel coordinates so sendInputEvent triggers native Chromium autofill
+                    const rect = await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return null;
+                            const r = el.getBoundingClientRect();
+                            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                        })()
+                    `).catch(() => null) as { x: number; y: number } | null;
+
+                    if (rect) {
+                        // Real mouse events → Chromium autofill popup appears (same as human click)
+                        wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        await new Promise((r) => setTimeout(r, 900)); // wait for popup
+                        // ArrowDown selects first saved credential, Return confirms
+                        wv.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
+                        wv.sendInputEvent({ type: 'keyUp',   keyCode: 'Down' });
+                        await new Promise((r) => setTimeout(r, 200));
+                        wv.sendInputEvent({ type: 'keyDown', keyCode: 'Return' });
+                        wv.sendInputEvent({ type: 'keyUp',   keyCode: 'Return' });
+                        await new Promise((r) => setTimeout(r, 600));
+                    }
+                }
                 break;
             }
 

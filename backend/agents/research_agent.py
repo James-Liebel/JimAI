@@ -4,7 +4,8 @@ import logging
 
 from models import ollama_client
 from models.router import get_current_model, set_current_model
-from config.models import MODEL_ROUTES
+from config.models import MODEL_ROUTES, get_speed_mode
+from config.inference_params import get_inference_params
 from tools import web_search
 from memory import vectordb
 
@@ -45,11 +46,15 @@ async def run(query: str) -> dict:
             "Provide a clear, well-structured summary. "
             "Cite specific sources when making claims."
         )
+        params = get_inference_params("chat", get_speed_mode())
         summary = await ollama_client.generate_full(
             model=config.model,
             prompt=summary_prompt,
             system="You are a research assistant. Summarize findings clearly and cite sources.",
             temperature=0.5,
+            num_ctx=params.get("num_ctx"),
+            num_predict=params.get("num_predict"),
+            num_batch=params.get("num_batch"),
         )
     elif search_results:
         # Fall back to summarizing snippets

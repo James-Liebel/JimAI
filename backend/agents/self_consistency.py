@@ -42,6 +42,7 @@ async def self_consistent_math(question: str) -> dict:
             stream=True,
             temperature=0.05,
             num_ctx=8192,
+            num_batch=512,
         ):
             response += chunk
         return {
@@ -65,6 +66,7 @@ async def self_consistent_math(question: str) -> dict:
             stream=True,
             temperature=temps[i],
             num_ctx=16384 if mode == SpeedMode.BALANCED else 32768,
+            num_batch=1024 if mode == SpeedMode.BALANCED else 2048,
         ):
             response += chunk
         solutions.append(response)

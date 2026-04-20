@@ -2,6 +2,12 @@ $root = Split-Path $PSScriptRoot -Parent
 
 Write-Host "Starting Private AI System..." -ForegroundColor Cyan
 
+# Ollama performance env vars — must be set before ollama serve starts
+$env:OLLAMA_FLASH_ATTENTION  = "1"    # Flash Attention 2: faster long-context inference
+$env:OLLAMA_KV_CACHE_TYPE    = "q8_0" # Quantize KV cache: frees VRAM, more layers on GPU
+$env:OLLAMA_NUM_PARALLEL     = "1"    # Single-user: no VRAM thrashing from concurrent requests
+$env:OLLAMA_MAX_LOADED_MODELS = "1"   # Never silently split a model across GPU/CPU
+
 # Check Ollama
 try {
     Invoke-RestMethod -Uri "http://localhost:11434/api/tags" | Out-Null
@@ -14,16 +20,17 @@ try {
 
 # ── Model verification ─────────────────────────────────────────────
 $requiredModels = @(
-    "deepseek-r1:14b",
+    "qwen3:14b",
     "qwen2.5-coder:14b",
     "qwen3:8b",
     "qwen2.5vl:7b",
     "qwen2-math:7b-instruct",
     "qwen2.5-coder:7b",
+    "qwen2.5-coder:3b",
     "nomic-embed-text"
 )
 
-$optionalModels = @("qwen2.5:32b")
+$optionalModels = @("qwen2.5:32b-instruct-q3_k_s")
 
 try {
     $installedModels = (ollama list 2>$null) -join " "

@@ -5,7 +5,8 @@ import re
 
 from models import ollama_client
 from models.router import get_current_model, set_current_model
-from config.models import MODEL_ROUTES
+from config.models import MODEL_ROUTES, get_speed_mode
+from config.inference_params import get_inference_params
 from tools import math_tool
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,17 @@ async def run(task: str) -> dict:
         await ollama_client.unload_model(current)
     set_current_model(config.model)
 
+    params = get_inference_params("math", get_speed_mode())
     steps.append("Sending task to math model")
     response = await ollama_client.generate_full(
         model=config.model,
         prompt=task,
         system=config.system_prompt,
-        temperature=config.temperature,
+        temperature=params.get("temperature", config.temperature),
+        num_ctx=params.get("num_ctx"),
+        num_predict=params.get("num_predict"),
+        num_batch=params.get("num_batch"),
+        repeat_penalty=params.get("repeat_penalty", 1.05),
     )
     steps.append("Received model response")
 
@@ -75,7 +81,11 @@ async def run(task: str) -> dict:
                 model=config.model,
                 prompt=retry_prompt,
                 system=config.system_prompt,
-                temperature=config.temperature,
+                temperature=params.get("temperature", config.temperature),
+                num_ctx=params.get("num_ctx"),
+                num_predict=params.get("num_predict"),
+                num_batch=params.get("num_batch"),
+                repeat_penalty=params.get("repeat_penalty", 1.05),
             )
             steps.append(f"Retry {attempt + 2} complete")
             break  # Accept the retry

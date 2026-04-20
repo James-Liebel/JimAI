@@ -5,7 +5,8 @@ import logging
 from models import ollama_client
 from models.router import get_current_model, set_current_model
 from models.prompts import load_style_profile, build_style_system_prompt
-from config.models import MODEL_ROUTES
+from config.models import MODEL_ROUTES, get_speed_mode
+from config.inference_params import get_inference_params
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ async def run(task: str) -> dict:
     profile = load_style_profile()
     system_prompt = build_style_system_prompt(profile)
 
+    params = get_inference_params("writing", get_speed_mode())
+
     # Estimate if task requires sectioned output
     word_estimate = len(task.split()) * 10  # rough heuristic
 
@@ -41,6 +44,9 @@ async def run(task: str) -> dict:
             prompt=planning_prompt,
             system=system_prompt,
             temperature=0.5,
+            num_ctx=params.get("num_ctx"),
+            num_batch=params.get("num_batch"),
+            repeat_penalty=params.get("repeat_penalty", 1.15),
         )
         sections = [s.strip() for s in plan.strip().split("\n") if s.strip()]
 
@@ -55,7 +61,11 @@ async def run(task: str) -> dict:
                 model=config.model,
                 prompt=section_prompt,
                 system=system_prompt,
-                temperature=config.temperature,
+                temperature=params.get("temperature", config.temperature),
+                num_ctx=params.get("num_ctx"),
+                num_predict=params.get("num_predict"),
+                num_batch=params.get("num_batch"),
+                repeat_penalty=params.get("repeat_penalty", 1.15),
             )
             draft_parts.append(part)
 
@@ -65,7 +75,11 @@ async def run(task: str) -> dict:
             model=config.model,
             prompt=task,
             system=system_prompt,
-            temperature=config.temperature,
+            temperature=params.get("temperature", config.temperature),
+            num_ctx=params.get("num_ctx"),
+            num_predict=params.get("num_predict"),
+            num_batch=params.get("num_batch"),
+            repeat_penalty=params.get("repeat_penalty", 1.15),
         )
 
     word_count = len(draft.split())

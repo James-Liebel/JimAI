@@ -5,7 +5,8 @@ import re
 
 from models import ollama_client
 from models.router import get_current_model, set_current_model
-from config.models import MODEL_ROUTES
+from config.models import MODEL_ROUTES, get_speed_mode
+from config.inference_params import get_inference_params
 from tools import python_exec, git_tool, file_tool
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,16 @@ async def run(task: str, file_context: str = "", commit: bool = False) -> dict:
     if file_context:
         prompt = f"File context:\n```\n{file_context}\n```\n\nTask: {task}"
 
+    params = get_inference_params("code", get_speed_mode())
     response = await ollama_client.generate_full(
         model=config.model,
         prompt=prompt,
         system=config.system_prompt,
-        temperature=config.temperature,
+        temperature=params.get("temperature", config.temperature),
+        num_ctx=params.get("num_ctx"),
+        num_predict=params.get("num_predict"),
+        num_batch=params.get("num_batch"),
+        repeat_penalty=params.get("repeat_penalty", 1.1),
     )
     iterations += 1
 
@@ -66,7 +72,11 @@ async def run(task: str, file_context: str = "", commit: bool = False) -> dict:
                 model=config.model,
                 prompt=fix_prompt,
                 system=config.system_prompt,
-                temperature=config.temperature,
+                temperature=params.get("temperature", config.temperature),
+                num_ctx=params.get("num_ctx"),
+                num_predict=params.get("num_predict"),
+                num_batch=params.get("num_batch"),
+                repeat_penalty=params.get("repeat_penalty", 1.1),
             )
             new_blocks = re.findall(
                 r"```(?:python|py)?\n(.*?)```", fix_response, re.DOTALL

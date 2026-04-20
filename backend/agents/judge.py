@@ -148,6 +148,8 @@ async def judge_response(
         stream=True,
         temperature=0.1,
         num_ctx=8192,
+        num_predict=1024,
+        num_batch=1024,
     ):
         raw += chunk
 

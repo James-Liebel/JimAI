@@ -1095,13 +1095,18 @@ async def _stream_chat(
 
             yield f"data: {json.dumps({'text': '', 'step': step_idx + 1, 'total_steps': len(pipeline_roles) + 1, 'step_model': step_config.model, 'done': False})}\n\n"
 
+            step_params = get_inference_params(step_role, speed_mode)
             step_parts: list[str] = []
             async for chunk in ollama_client.generate(
                 model=step_config.model,
                 prompt=step_prompt,
                 system=step_system,
                 stream=True,
-                temperature=step_config.temperature,
+                temperature=step_params.get("temperature", step_config.temperature),
+                num_ctx=step_params.get("num_ctx"),
+                num_predict=step_params.get("num_predict"),
+                num_batch=step_params.get("num_batch"),
+                repeat_penalty=step_params.get("repeat_penalty", 1.1),
             ):
                 step_parts.append(chunk)
                 yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': step_config.model})}\n\n"
@@ -1125,6 +1130,7 @@ async def _stream_chat(
 
         yield f"data: {json.dumps({'text': '\\n\\n---\\n*Synthesized response:*\\n\\n', 'done': False, 'model': synth_config.model})}\n\n"
 
+        synth_params = get_inference_params("chat", speed_mode)
         full_response: list[str] = []
         async for chunk in ollama_client.generate(
             model=synth_config.model,
@@ -1132,6 +1138,10 @@ async def _stream_chat(
             system="Combine the specialist analyses into a clear, unified answer.",
             stream=True,
             temperature=0.5,
+            num_ctx=synth_params.get("num_ctx"),
+            num_predict=synth_params.get("num_predict"),
+            num_batch=synth_params.get("num_batch"),
+            repeat_penalty=synth_params.get("repeat_penalty", 1.1),
         ):
             full_response.append(chunk)
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': synth_config.model})}\n\n"
@@ -1192,8 +1202,11 @@ async def _stream_chat(
         set_current_model(judge_config.model)
         yield f"data: {json.dumps({'text': '', 'compare': True, 'model_a': cfg_a.model, 'model_b': cfg_b.model, 'done': False})}\n\n"
         full_response_list: list[str] = []
+        judge_params = get_inference_params("chat", speed_mode)
         async for chunk in ollama_client.chat_stream(
-            model=judge_config.model, messages=judge_messages, stream=True, temperature=0.4
+            model=judge_config.model, messages=judge_messages, stream=True, temperature=0.4,
+            num_ctx=judge_params.get("num_ctx"),
+            num_batch=judge_params.get("num_batch"),
         ):
             full_response_list.append(chunk)
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': judge_config.model})}\n\n"

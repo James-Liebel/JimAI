@@ -5,7 +5,8 @@ import re
 
 from models import ollama_client
 from models.router import get_current_model, set_current_model
-from config.models import MODEL_ROUTES
+from config.models import MODEL_ROUTES, get_speed_mode
+from config.inference_params import get_inference_params
 from config.ds_context import DATA_SCIENCE_CONTEXT, DS_CODE_STANDARDS
 from tools import python_exec
 
@@ -35,11 +36,16 @@ async def run(task: str, session_id: str = "default") -> dict:
         "and print the path."
     )
 
+    params = get_inference_params("data", get_speed_mode())
     response = await ollama_client.generate_full(
         model=config.model,
         prompt=task,
         system=system,
-        temperature=0.1,
+        temperature=params.get("temperature", 0.1),
+        num_ctx=params.get("num_ctx"),
+        num_predict=params.get("num_predict"),
+        num_batch=params.get("num_batch"),
+        repeat_penalty=params.get("repeat_penalty", 1.1),
     )
 
     code_blocks = re.findall(r"```(?:python|py)?\n(.*?)```", response, re.DOTALL)

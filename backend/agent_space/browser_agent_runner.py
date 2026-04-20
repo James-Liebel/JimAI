@@ -24,11 +24,13 @@ MAX_STEPS_DEFAULT = 20
 # Small, fast model — no vision needed
 AGENT_MODEL = "qwen3:8b"
 
-# Atlas chat panel: two-tier model selection
-# Executor handles per-step mechanical actions (click/type/navigate) — must be fast.
-# Planner handles the first step and error recovery — needs stronger reasoning.
-BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:7b"
-BROWSER_PLANNER_MODEL = "qwen3:8b"
+# Atlas chat panel — CPU-only inference, no GPU heat.
+# Both tiers use qwen2.5-coder:3b (smallest installed model) with num_gpu=0 so
+# the browser agent never competes with the main chat models for VRAM.
+BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:3b"
+BROWSER_PLANNER_MODEL = "qwen2.5-coder:3b"
+BROWSER_NUM_GPU = 0        # CPU-only: no VRAM, no heat
+BROWSER_KEEP_ALIVE = "3m"  # unload quickly when idle
 
 _ACTION_SYSTEM = """\
 You are a browser automation agent. You receive the current page's URL, title, \
@@ -401,6 +403,8 @@ async def chat_browser_step(
         num_batch=num_batch,
         repeat_penalty=1.05,
         think=False,
+        num_gpu=BROWSER_NUM_GPU,
+        keep_alive=BROWSER_KEEP_ALIVE,
     )
 
     parsed = _parse_action(raw)

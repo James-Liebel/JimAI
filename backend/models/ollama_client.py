@@ -143,6 +143,7 @@ async def chat_stream(
     num_batch: int | None = None,
     repeat_penalty: float = 1.1,
     think: bool | None = None,
+    num_gpu: int | None = None,
     keep_alive: str = "30m",
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -156,6 +157,8 @@ async def chat_stream(
         options["num_batch"] = num_batch
     if think is not None:
         options["think"] = think
+    if num_gpu is not None:
+        options["num_gpu"] = num_gpu
     payload: dict = {
         "model": model,
         "messages": messages,
@@ -183,6 +186,7 @@ async def chat_full(
     num_batch: int | None = None,
     repeat_penalty: float = 1.1,
     think: bool | None = None,
+    num_gpu: int | None = None,
     keep_alive: str = "30m",
     base_url: str | None = None,
 ) -> str:
@@ -198,6 +202,7 @@ async def chat_full(
         num_batch=num_batch,
         repeat_penalty=repeat_penalty,
         think=think,
+        num_gpu=num_gpu,
         keep_alive=keep_alive,
         base_url=base_url,
     ):

@@ -14,13 +14,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 ALL_LOADABLE_MODELS = [
-    "deepseek-r1:14b",
+    "qwen3:14b",
     "qwen2.5-coder:14b",
     "qwen3:8b",
     "qwen2.5vl:7b",
     "qwen2-math:7b-instruct",
     "qwen2.5-coder:7b",
-    "qwen2.5:32b",
+    "qwen2.5-coder:3b",
+    "qwen2.5:32b-instruct-q3_k_s",
 ]
 
 
@@ -59,14 +60,14 @@ async def update_speed_mode(req: SpeedModeRequest):
         logger.info("Switching to DEEP mode — unloading all models first")
         await ollama_client.prepare_for_deep_mode()
         warning = (
-            "Deep mode loads qwen2.5:32b (~20GB VRAM). "
+            "Deep mode loads qwen2.5:32b-instruct-q3_k_s (~14GB VRAM). "
             "Other models unloaded. Responses will be slower but more thorough."
         )
 
     if old_mode == SpeedMode.DEEP and mode != SpeedMode.DEEP:
         logger.info("Leaving DEEP mode — unloading 32B model")
         try:
-            await ollama_client.unload_model("qwen2.5:32b")
+            await ollama_client.unload_model("qwen2.5:32b-instruct-q3_k_s")
         except Exception:
             pass
 

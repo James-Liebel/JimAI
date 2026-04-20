@@ -11,7 +11,7 @@ from models import ollama_client
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["completion"])
 
-COMPLETION_MODEL = "qwen2.5-coder:7b"
+COMPLETION_MODEL = "qwen2.5-coder:3b"
 
 
 class CompletionRequest(BaseModel):

@@ -353,7 +353,7 @@ def score_relevance(query: str, rows: list[dict[str, Any]]) -> list[tuple[float,
     return scored
 
 
-_HEAVY_MODELS = {"qwen2.5:32b", "qwen2.5:32b-instruct"}
+_HEAVY_MODELS = {"qwen2.5:32b", "qwen2.5:32b-instruct", "qwen2.5:32b-instruct-q3_k_s"}
 _REWRITE_FALLBACK_MODEL = "qwen2.5-coder:7b"
 
 

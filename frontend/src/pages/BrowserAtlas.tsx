@@ -4,6 +4,7 @@ import {
     Bot, User, X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { fetchWithTimeout } from '../lib/api';
 
 // ── Webview type (Electron-specific element) ─────────────────────────────────
 interface AtlasWebview extends HTMLElement {
@@ -48,11 +49,15 @@ async function agentStep(
     pageText: string,
     history: { role: string; content: string }[],
 ): Promise<AgentStep> {
-    const res = await fetch(`${BACKEND}/browser/atlas/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, url, title, page_text: pageText, history }),
-    });
+    const res = await fetchWithTimeout(
+        `${BACKEND}/browser/atlas/chat`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, url, title, page_text: pageText, history }),
+        },
+        30000,
+    );
     if (!res.ok) throw new Error(`Backend error ${res.status}`);
     return res.json() as Promise<AgentStep>;
 }

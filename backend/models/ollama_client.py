@@ -140,6 +140,7 @@ async def chat_stream(
     temperature: float = 0.7,
     num_ctx: int | None = None,
     num_predict: int | None = None,
+    num_batch: int | None = None,
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     keep_alive: str = "30m",
@@ -151,6 +152,8 @@ async def chat_stream(
         options["num_ctx"] = num_ctx
     if num_predict is not None:
         options["num_predict"] = num_predict
+    if num_batch is not None:
+        options["num_batch"] = num_batch
     if think is not None:
         options["think"] = think
     payload: dict = {
@@ -177,6 +180,7 @@ async def chat_full(
     temperature: float = 0.7,
     num_ctx: int | None = None,
     num_predict: int | None = None,
+    num_batch: int | None = None,
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     keep_alive: str = "30m",
@@ -191,6 +195,7 @@ async def chat_full(
         temperature=temperature,
         num_ctx=num_ctx,
         num_predict=num_predict,
+        num_batch=num_batch,
         repeat_penalty=repeat_penalty,
         think=think,
         keep_alive=keep_alive,
@@ -208,6 +213,8 @@ async def generate(
     images: list[str] | None = None,
     temperature: float | None = None,
     num_ctx: int | None = None,
+    num_predict: int | None = None,
+    num_batch: int | None = None,
     repeat_penalty: float = 1.1,
     keep_alive: str = "30m",
     base_url: str | None = None,
@@ -218,6 +225,10 @@ async def generate(
         options["temperature"] = temperature
     if num_ctx is not None:
         options["num_ctx"] = num_ctx
+    if num_predict is not None:
+        options["num_predict"] = num_predict
+    if num_batch is not None:
+        options["num_batch"] = num_batch
     payload: dict = {
         "model": model,
         "prompt": prompt,
@@ -246,6 +257,10 @@ async def generate_full(
     system: str = "",
     images: list[str] | None = None,
     temperature: float = 0.7,
+    num_ctx: int | None = None,
+    num_predict: int | None = None,
+    num_batch: int | None = None,
+    repeat_penalty: float = 1.1,
 ) -> str:
     """Non-streaming convenience wrapper — returns the full response as a string."""
     parts: list[str] = []
@@ -256,6 +271,10 @@ async def generate_full(
         stream=True,
         images=images,
         temperature=temperature,
+        num_ctx=num_ctx,
+        num_predict=num_predict,
+        num_batch=num_batch,
+        repeat_penalty=repeat_penalty,
     ):
         parts.append(chunk)
     return "".join(parts)
@@ -303,14 +322,18 @@ async def unload_model(model: str) -> None:
 
 
 async def unload_all_models() -> None:
-    """Unload all models to free VRAM before loading qwen2.5:32b."""
+    """Unload all models to free VRAM before loading the 32B deep model."""
     for model in [
-        "deepseek-r1:14b",
+        "qwen3:14b",
         "qwen2.5-coder:14b",
         "qwen3:8b",
         "qwen2.5vl:7b",
         "qwen2-math:7b-instruct",
         "qwen2.5-coder:7b",
+        "qwen2.5-coder:3b",
+        # legacy names — harmless if not loaded
+        "deepseek-r1:14b",
+        "qwen2.5:32b",
     ]:
         try:
             await unload_model(model)
@@ -319,9 +342,9 @@ async def unload_all_models() -> None:
 
 
 async def prepare_for_deep_mode() -> None:
-    """Must be called before any qwen2.5:32b request."""
+    """Must be called before any qwen2.5:32b-instruct-q3_k_s request."""
     await unload_all_models()
-    await asyncio.sleep(1.0)  # give VRAM time to free
+    await asyncio.sleep(0.5)  # give VRAM time to free
 
 
 async def close() -> None:

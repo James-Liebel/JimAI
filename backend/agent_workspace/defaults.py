@@ -69,7 +69,7 @@ def default_agents_list() -> list[Agent]:
         make_default_agent("planner", "Planner", "Strategic Planner", "📋", "qwen3:8b"),
         make_default_agent("coder", "Coder", "Software Engineer", "💻", "qwen2.5-coder:14b"),
         make_default_agent("researcher", "Researcher", "Research Analyst", "🔍", "qwen3:8b"),
-        make_default_agent("verifier", "Verifier", "Quality Gate", "✓", "deepseek-r1:14b"),
+        make_default_agent("verifier", "Verifier", "Quality Gate", "✓", "qwen3:14b"),
         make_default_agent("orchestrator", "Orchestrator", "Team Lead", "🎯", "qwen3:8b"),
         make_default_agent("tester", "Tester", "Test Engineer", "🧪", "qwen2.5-coder:14b"),
     ]

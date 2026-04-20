@@ -1273,6 +1273,7 @@ async def _stream_chat(
             temperature=params.get("temperature", config.temperature),
             num_ctx=params.get("num_ctx"),
             num_predict=params.get("num_predict"),
+            num_batch=params.get("num_batch"),
             repeat_penalty=params.get("repeat_penalty", 1.1),
             think=params.get("think"),
         ):

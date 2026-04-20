@@ -1,14 +1,15 @@
 """Model routing configuration — three-tier speed modes with per-role model configs.
 
 ALL INSTALLED MODELS (exact strings):
-  deepseek-r1:14b          — primary math, stats, reasoning, finance
-  qwen2.5-coder:14b        — primary code, data science
-  qwen3:8b                 — primary chat, orchestration, writing
-  qwen2.5vl:7b             — vision (all modes — no faster alternative)
-  qwen2-math:7b-instruct   — fast math fallback + tab completion fallback
-  qwen2.5-coder:7b         — fast code fallback + tab completion (ALWAYS for completions)
-  qwen2.5:32b              — deep mode only, explicit invocation, never auto-routed
-  nomic-embed-text         — embeddings, runs on NPU/CPU, never on GPU
+  qwen3:14b                        — primary math, stats, reasoning, finance (upgraded from deepseek-r1:14b)
+  qwen2.5-coder:14b                — primary code, data science
+  qwen3:8b                         — primary chat, orchestration, writing
+  qwen2.5vl:7b                     — vision (all modes — no faster alternative)
+  qwen2-math:7b-instruct           — fast math fallback
+  qwen2.5-coder:7b                 — fast code fallback
+  qwen2.5-coder:3b                 — tab completion only (speed > quality)
+  qwen2.5:32b-instruct-q3_k_s     — deep mode only, explicit invocation, fits in 16GB VRAM
+  nomic-embed-text                 — embeddings, runs on NPU/CPU, never on GPU
 """
 
 from dataclasses import dataclass
@@ -267,11 +268,11 @@ VISION_PROMPT_FAST = "Analyze and describe concisely. Extract all equations in L
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 BALANCED_CONFIGS: dict[str, ModelConfig] = {
-    "math": ModelConfig(model="deepseek-r1:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=MATH_PROMPT_BALANCED),
+    "math": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=MATH_PROMPT_BALANCED),
     "code": ModelConfig(model="qwen2.5-coder:14b", temperature=0.05, speed_mode=SpeedMode.BALANCED, system_prompt=CODE_PROMPT_BALANCED),
     "chat": ModelConfig(model="qwen3:8b", temperature=0.7, speed_mode=SpeedMode.BALANCED, system_prompt=CHAT_PROMPT_BALANCED),
     "vision": ModelConfig(model="qwen2.5vl:7b", temperature=0.2, speed_mode=SpeedMode.BALANCED, system_prompt=VISION_PROMPT),
-    "finance": ModelConfig(model="deepseek-r1:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=FINANCE_PROMPT),
+    "finance": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=FINANCE_PROMPT),
     "writing": ModelConfig(model="qwen3:8b", temperature=0.75, speed_mode=SpeedMode.BALANCED, system_prompt=""),  # dynamic from style_profile.json
     "data": ModelConfig(model="qwen2.5-coder:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=CODE_PROMPT_BALANCED),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.BALANCED, system_prompt=""),
@@ -289,13 +290,13 @@ FAST_CONFIGS: dict[str, ModelConfig] = {
 }
 
 DEEP_CONFIGS: dict[str, ModelConfig] = {
-    "math": ModelConfig(model="qwen2.5:32b", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "code": ModelConfig(model="qwen2.5:32b", temperature=0.05, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "chat": ModelConfig(model="qwen2.5:32b", temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "math": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "code": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.05, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "chat": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "vision": ModelConfig(model="qwen2.5vl:7b", temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),   # no 32B vision
-    "finance": ModelConfig(model="qwen2.5:32b", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "writing": ModelConfig(model="qwen2.5:32b", temperature=0.75, speed_mode=SpeedMode.DEEP, system_prompt=""),
-    "data": ModelConfig(model="qwen2.5:32b", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "finance": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "writing": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.75, speed_mode=SpeedMode.DEEP, system_prompt=""),
+    "data": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.DEEP, system_prompt=""),
 }
 
@@ -333,12 +334,16 @@ MODEL_ROUTES = BALANCED_CONFIGS
 
 # UI display metadata per model string
 MODEL_DISPLAY: dict[str, dict] = {
-    "deepseek-r1:14b": {"label": "R1·14B", "color": "blue"},
+    "qwen3:14b": {"label": "Qwen3·14B", "color": "blue"},
     "qwen2.5-coder:14b": {"label": "Coder·14B", "color": "green"},
     "qwen3:8b": {"label": "Qwen3·8B", "color": "gray"},
     "qwen2.5vl:7b": {"label": "VL·7B", "color": "purple"},
     "qwen2-math:7b-instruct": {"label": "Math·7B", "color": "blue"},
     "qwen2.5-coder:7b": {"label": "Coder·7B", "color": "green"},
-    "qwen2.5:32b": {"label": "32B", "color": "amber"},
+    "qwen2.5-coder:3b": {"label": "Coder·3B", "color": "green"},
+    "qwen2.5:32b-instruct-q3_k_s": {"label": "32B·Q3", "color": "amber"},
     "nomic-embed-text": {"label": "Embed", "color": "gray"},
+    # legacy — kept for display if old model name appears in history
+    "deepseek-r1:14b": {"label": "R1·14B", "color": "blue"},
+    "qwen2.5:32b": {"label": "32B", "color": "amber"},
 }

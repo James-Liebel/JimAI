@@ -110,14 +110,14 @@ Be strict. "passed: true, confidence: high" means a domain expert finds no signi
 
 def _select_judge_model(response_model: str, use_deep: bool) -> str:
     """Select judge model — never same as response model."""
-    if response_model in ("deepseek-r1:14b", "qwen2-math:7b-instruct"):
+    if response_model in ("qwen3:14b", "deepseek-r1:14b", "qwen2-math:7b-instruct"):
         return "qwen2.5-coder:14b" if use_deep else "qwen3:8b"
-    elif response_model in ("qwen2.5-coder:14b", "qwen2.5-coder:7b"):
-        return "deepseek-r1:14b" if use_deep else "qwen3:8b"
+    elif response_model in ("qwen2.5-coder:14b", "qwen2.5-coder:7b", "qwen2.5-coder:3b"):
+        return "qwen3:14b" if use_deep else "qwen3:8b"
     elif response_model == "qwen3:8b":
-        return "qwen2.5-coder:14b" if use_deep else "deepseek-r1:14b"
-    elif response_model == "qwen2.5:32b":
-        return "deepseek-r1:14b"
+        return "qwen2.5-coder:14b" if use_deep else "qwen3:14b"
+    elif response_model == "qwen2.5:32b-instruct-q3_k_s":
+        return "qwen3:14b"
     else:
         return "qwen3:8b"
 

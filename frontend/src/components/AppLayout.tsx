@@ -59,6 +59,7 @@ export default function AppLayout() {
     const location = useLocation();
     const [searchParams] = useSearchParams();
     const builderFullChrome = location.pathname === '/builder' && searchParams.get('full') === '1';
+    const isAtlasTab = location.pathname === '/browser';
     const [speedMode, setSpeedMode] = useState<SpeedMode>('balanced');
     const [deepWarning, setDeepWarning] = useState('');
     const [phoneNotificationsEnabled, setPhoneNotificationsEnabled] = useState(false);
@@ -391,7 +392,7 @@ export default function AppLayout() {
                 </button>
             )}
             {isMobile && <MobileNav />}
-            <AppAssistDock hidden={builderFullChrome} />
+            <AppAssistDock hidden={builderFullChrome || isAtlasTab} />
         </div>
     );
 }

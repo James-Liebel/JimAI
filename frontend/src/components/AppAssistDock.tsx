@@ -115,18 +115,16 @@ export function AppAssistDock({ hidden }: { hidden?: boolean }) {
                     if (panelOpen) stopStream();
                 }}
                 className={cn(
-                    'fixed z-[60] flex items-center gap-2 rounded-full border border-accent/35 bg-surface-1 px-3 py-2 text-xs font-semibold text-text-primary shadow-lg transition-colors',
-                    'hover:border-accent/50 hover:bg-surface-2',
-                    // Top-right on all screen sizes — clear of the input bar and clip button
-                    'top-[max(3.5rem,calc(env(safe-area-inset-top,0px)+3.5rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
-                    'md:top-20 md:right-4',
+                    'flex items-center gap-1.5 rounded-btn border border-accent/30 bg-accent/8 px-2.5 py-1 text-xs font-medium text-accent transition-colors',
+                    'hover:border-accent/50 hover:bg-accent/15',
+                    panelOpen && 'border-accent/50 bg-accent/15',
                 )}
                 title="Cross-surface assist: app-planned agents for this tab"
                 aria-expanded={panelOpen}
                 aria-label={panelOpen ? 'Close assist panel' : 'Open assist panel'}
             >
-                <Sparkles className="h-4 w-4 text-accent" aria-hidden />
-                <span className="hidden sm:inline">Assist</span>
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                <span>Assist</span>
             </button>
 
             {panelOpen && (
@@ -144,9 +142,8 @@ export function AppAssistDock({ hidden }: { hidden?: boolean }) {
                 <div
                     className={cn(
                         'fixed z-[60] flex max-h-[min(72vh,600px)] w-[min(100vw-1.5rem,420px)] flex-col overflow-hidden rounded-xl border border-surface-5 bg-surface-1 shadow-2xl',
-                        // Panel opens downward from top-right button on all screen sizes
-                        'top-[max(5rem,calc(env(safe-area-inset-top,0px)+5rem))] right-[max(0.75rem,env(safe-area-inset-right,0px))]',
-                        'md:top-[5.5rem] md:right-4 md:max-h-[min(85vh,640px)]',
+                        // Panel drops down from the nav bar on the left side
+                        'top-14 left-4 md:max-h-[min(85vh,640px)]',
                     )}
                     role="dialog"
                     aria-labelledby="app-assist-title"

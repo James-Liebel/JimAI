@@ -65,7 +65,7 @@ async function agentStep(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, url, title, page_text: pageText, history }),
         },
-        60000,
+        90000,
     );
     if (!res.ok) throw new Error(`Backend error ${res.status}`);
     return res.json() as Promise<AgentStep>;
@@ -93,6 +93,11 @@ export default function BrowserAtlas() {
     ]);
     const [input, setInput] = useState('');
     const [agentRunning, setAgentRunning] = useState(false);
+    const [agentStepInfo, setAgentStepInfo] = useState<{
+        step: number;
+        phase: 'thinking' | 'acting';
+        action?: string;
+    } | null>(null);
     const abortRef = useRef(false);
     const historyRef = useRef<{ role: string; content: string }[]>([]);
     const chatRef = useRef<HTMLDivElement>(null);
@@ -365,12 +370,16 @@ export default function BrowserAtlas() {
         for (let step = 0; step < MAX_STEPS; step++) {
             if (abortRef.current) break;
 
+            // Phase 1: model is deciding what to do
+            setAgentStepInfo({ step: step + 1, phase: 'thinking' });
+
             const { url, title, pageText } = await getPageState();
 
             let result: AgentStep;
             try {
                 result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10));
             } catch (err) {
+                setAgentStepInfo(null);
                 addMsg('system', `Connection error: ${err instanceof Error ? err.message : 'unknown'}`);
                 break;
             }
@@ -378,6 +387,9 @@ export default function BrowserAtlas() {
             if (abortRef.current) break;
 
             const { action = 'talk', params = {}, response = '' } = result;
+
+            // Phase 2: browser is executing the action
+            setAgentStepInfo({ step: step + 1, phase: 'acting', action });
 
             if (response) {
                 addMsg('agent', response, action === 'talk' || action === 'done' ? undefined : action);
@@ -389,6 +401,7 @@ export default function BrowserAtlas() {
             await executeAction(action, params as Record<string, unknown>);
         }
 
+        setAgentStepInfo(null);
         setAgentRunning(false);
         setTimeout(() => inputRef.current?.focus(), 50);
     }, [getPageState, executeAction, addMsg]);
@@ -404,6 +417,7 @@ export default function BrowserAtlas() {
     const stopAgent = useCallback(() => {
         abortRef.current = true;
         setAgentRunning(false);
+        setAgentStepInfo(null);
     }, []);
 
     const clearChat = useCallback(() => {
@@ -504,9 +518,16 @@ export default function BrowserAtlas() {
                         <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wide flex-1">
                             AI Agent
                         </span>
-                        {agentRunning && (
-                            <span className="text-[10px] text-accent-blue animate-pulse">running…</span>
-                        )}
+                        {agentStepInfo && (
+                        <span className={cn(
+                            'text-[10px] font-mono animate-pulse',
+                            agentStepInfo.phase === 'thinking' ? 'text-accent-amber' : 'text-accent-green',
+                        )}>
+                            {agentStepInfo.phase === 'thinking'
+                                ? `step ${agentStepInfo.step} · thinking`
+                                : `step ${agentStepInfo.step} · ${agentStepInfo.action}`}
+                        </span>
+                    )}
                         <button
                             onClick={clearChat}
                             disabled={agentRunning}
@@ -559,15 +580,38 @@ export default function BrowserAtlas() {
                             </div>
                         ))}
 
-                        {agentRunning && (
+                        {agentStepInfo && (
                             <div className="flex gap-2 items-start">
-                                <div className="shrink-0 w-5 h-5 rounded-full bg-accent-blue/15 flex items-center justify-center mt-0.5">
-                                    <Bot size={10} className="text-accent-blue" />
+                                <div className={cn(
+                                    'shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5',
+                                    agentStepInfo.phase === 'thinking' ? 'bg-accent-amber/15' : 'bg-accent-green/15',
+                                )}>
+                                    <Bot size={10} className={agentStepInfo.phase === 'thinking' ? 'text-accent-amber' : 'text-accent-green'} />
                                 </div>
-                                <div className="bg-surface-2 rounded-lg px-2.5 py-1.5 text-[12px] text-text-muted flex gap-1">
-                                    <span className="animate-bounce [animation-delay:0ms]">·</span>
-                                    <span className="animate-bounce [animation-delay:150ms]">·</span>
-                                    <span className="animate-bounce [animation-delay:300ms]">·</span>
+                                <div className="bg-surface-2 rounded-lg px-2.5 py-1.5 text-[11px] text-text-muted">
+                                    {agentStepInfo.phase === 'thinking' ? (
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="text-accent-amber font-mono">step {agentStepInfo.step}</span>
+                                            <span>planning next action</span>
+                                            <span className="flex gap-0.5">
+                                                <span className="animate-bounce [animation-delay:0ms]">·</span>
+                                                <span className="animate-bounce [animation-delay:150ms]">·</span>
+                                                <span className="animate-bounce [animation-delay:300ms]">·</span>
+                                            </span>
+                                        </span>
+                                    ) : (
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="text-accent-green font-mono">step {agentStepInfo.step}</span>
+                                            <span className="text-accent-green/80 font-mono text-[10px] bg-accent-green/10 px-1 py-0.5 rounded">
+                                                {agentStepInfo.action}
+                                            </span>
+                                            <span className="flex gap-0.5">
+                                                <span className="animate-bounce [animation-delay:0ms]">·</span>
+                                                <span className="animate-bounce [animation-delay:150ms]">·</span>
+                                                <span className="animate-bounce [animation-delay:300ms]">·</span>
+                                            </span>
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         )}

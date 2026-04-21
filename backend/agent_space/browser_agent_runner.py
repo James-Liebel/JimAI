@@ -515,16 +515,31 @@ async def chat_browser_step(
     # Model selection: planner for first step + error recovery, executor for everything else.
     # Planner (qwen3:8b) reasons about the goal and recovers from failures.
     # Executor (qwen2.5-coder:7b) is fast and accurate for mechanical click/type/navigate steps.
-    user_turns = [h for h in history if str(h.get("role", "")) == "user"]
-    recent_contents = " ".join(str(h.get("content", "")) for h in history[-4:]).lower()
-    is_first_step = len(user_turns) <= 1
+    recent_contents = " ".join(str(h.get("content", "")) for h in history[-6:]).lower()
+
+    # Detect repeated actions — same [action] tag 3+ times in last 5 agent turns
+    agent_turns = [h for h in history if str(h.get("role", "")) in ("agent", "assistant")]
+    recent_actions = [
+        m.group(1)
+        for h in agent_turns[-5:]
+        for m in [re.search(r"^\[(\w+)\]", str(h.get("content", "")))]
+        if m
+    ]
+    action_loop = len(recent_actions) >= 3 and len(set(recent_actions[-3:])) == 1
+
     is_stuck = (
-        recent_contents.count("could not parse") >= 1
+        action_loop
+        or recent_contents.count("could not parse") >= 1
         or recent_contents.count("error") >= 2
-        or recent_contents.count("searching google for") >= 2
     )
 
-    use_planner = is_stuck
+    # Always use planner on auth / login pages — small executor model loses the thread
+    url_lower = (url or "").lower()
+    is_auth_page = any(kw in url_lower for kw in [
+        "signin", "login", "auth", "myap.collegeboard", "accounts.google", "account.",
+    ])
+
+    use_planner = is_stuck or is_auth_page
     model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
     system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
     num_ctx = 3072 if use_planner else 2048
@@ -546,7 +561,17 @@ async def chat_browser_step(
         f"Page content:\n{(page_text or '(empty)').strip()[:2000 if not use_planner else 2500]}"
     )
 
+    retry_note = ""
+    if action_loop:
+        looped = recent_actions[-1]
+        retry_note = (
+            f"WARNING: You have repeated [{looped}] multiple times with no progress. "
+            "The page has NOT changed. You MUST try a completely different action — "
+            "scroll down to find more elements, try different coordinates, or wait.\n\n"
+        )
+
     user_prompt = (
+        f"{retry_note}"
         f"{url_hint_block}"
         f"Page state:\n{page_block}\n\n"
         f"User instruction: {message}\n\n"

@@ -24,12 +24,12 @@ MAX_STEPS_DEFAULT = 20
 # Small, fast model — no vision needed
 AGENT_MODEL = "qwen3:8b"
 
-# Atlas chat panel — CPU-only inference, no GPU heat.
-# Both tiers use qwen2.5-coder:3b (smallest installed model) with num_gpu=0 so
-# the browser agent never competes with the main chat models for VRAM.
+# Atlas chat panel — CPU-only inference (num_gpu=0), no VRAM competition with main models.
+# json_format=True (constrained decoding) guarantees valid JSON output from any model size,
+# so 3b is sufficient and fast (~5-15s on CPU vs 30-60s for 7b).
 BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:3b"
 BROWSER_PLANNER_MODEL = "qwen2.5-coder:3b"
-BROWSER_NUM_GPU = 0        # CPU-only: no VRAM, no heat
+BROWSER_NUM_GPU = 0        # CPU-only: no VRAM, no GPU heat
 BROWSER_KEEP_ALIVE = "3m"  # unload quickly when idle
 
 _ACTION_SYSTEM = """\
@@ -73,6 +73,120 @@ def _parse_action(raw: str) -> dict[str, Any]:
         return dict(json.loads(text))
     except Exception:
         return {"action": "talk", "thought": f"Could not parse model output: {raw[:120]}", "response": "I had trouble understanding that page. Could you describe what you see or try again?"}
+
+
+def _parse_action_strict(raw: str) -> dict[str, Any] | None:
+    """Best-effort JSON parsing for atlas browser chat actions."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text).strip()
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    candidates: list[str] = [text]
+    brace = re.search(r"\{[\s\S]*\}", text)
+    if brace:
+        candidates.append(brace.group(0))
+
+    for cand in candidates:
+        fixed = (
+            cand.replace("“", '"')
+            .replace("”", '"')
+            .replace("’", "'")
+            .replace("\u00a0", " ")
+            .strip()
+        )
+        # Remove trailing commas before } or ] which models often emit.
+        fixed = re.sub(r",\s*([}\]])", r"\1", fixed)
+        try:
+            parsed = json.loads(fixed)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
+def _normalize_chat_action(
+    parsed: dict[str, Any] | None,
+    *,
+    message: str,
+    url: str,
+    page_text: str,
+) -> dict[str, Any]:
+    """Normalize model output into a safe single browser action."""
+    safe: dict[str, Any] = dict(parsed or {})
+    action = str(safe.get("action", "wait")).strip().lower()
+    response = str(safe.get("response", "")).strip()
+    thought = str(safe.get("thought", "")).strip()
+    params_obj = safe.get("params")
+    params: dict[str, Any] = params_obj if isinstance(params_obj, dict) else {}
+
+    allowed = {
+        "navigate",
+        "click_selector",
+        "trigger_autofill",
+        "type",
+        "type_and_submit",
+        "press_key",
+        "scroll",
+        "js",
+        "wait",
+        "talk",
+        "done",
+    }
+    if action not in allowed:
+        action = "wait"
+
+    # If we're already on Google results, repeated search submissions often loop.
+    # Nudge toward opening a result instead of searching again.
+    url_l = (url or "").lower()
+    if action == "type_and_submit" and "google." in url_l and "/search" in url_l:
+        action = "click_selector"
+        params = {"selector": "a h3"}
+        if not response:
+            response = "Opening the top search result."
+
+    # Fill in minimal defaults so frontend executor always has valid params.
+    if action in {"type", "type_and_submit"}:
+        params.setdefault("selector", 'textarea[name="q"],input[name="q"]')
+        params.setdefault("text", "")
+    elif action == "click_selector":
+        params.setdefault("selector", "button[type='submit']")
+    elif action == "navigate":
+        params.setdefault("url", "")
+    elif action == "press_key":
+        params.setdefault("key", "Enter")
+    elif action == "scroll":
+        params.setdefault("dy", 400)
+
+    # If parse failed, do not expose raw parser error to users; recover gracefully.
+    if parsed is None:
+        action = "wait"
+        params = {}
+        if not thought:
+            thought = "Model output was malformed; waiting and retrying."
+        if not response:
+            response = "Let me retry that step."
+
+    if not response:
+        response = thought or "Working on it."
+    if not thought:
+        thought = response
+
+    # Prevent mega-responses from polluting turn history.
+    response = response[:260]
+    thought = thought[:260]
+
+    return {
+        "thought": thought,
+        "action": action,
+        "params": params,
+        "response": response,
+    }
 
 
 def _build_page_context(
@@ -349,7 +463,8 @@ Rules:
 - Use "done" when the user's goal is fully achieved.
 - For login forms: use trigger_autofill on the email field, then click_selector #identifierNext, then trigger_autofill on the password field, then click_selector #passwordNext. The user's Google account has saved passwords — always try autofill first.
 - Prefer navigate over clicking links when you know the URL.
-- Always fill "response" with a plain-English description of what you are doing."""
+- Always fill "response" with a plain-English description of what you are doing.
+- Never repeat the exact same action+params more than once in a row; if previous attempt did not change the page, choose a different action (click result, navigate directly, or wait)."""
 
 
 async def chat_browser_step(
@@ -369,14 +484,18 @@ async def chat_browser_step(
     user_turns = [h for h in history if str(h.get("role", "")) == "user"]
     recent_contents = " ".join(str(h.get("content", "")) for h in history[-4:]).lower()
     is_first_step = len(user_turns) <= 1
-    is_stuck = recent_contents.count("could not parse") >= 1 or recent_contents.count("error") >= 2
+    is_stuck = (
+        recent_contents.count("could not parse") >= 1
+        or recent_contents.count("error") >= 2
+        or recent_contents.count("searching google for") >= 2
+    )
 
     use_planner = is_first_step or is_stuck
     model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
     system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
-    num_ctx = 8192 if use_planner else 4096
-    num_predict = 512 if use_planner else 256
-    num_batch = 1024 if use_planner else 512
+    num_ctx = 4096
+    num_predict = 192   # single JSON action is ~50-100 tokens; constrained decoding stops at }
+    num_batch = 512
 
     page_block = (
         f"Current URL: {url or '(unknown)'}\n"
@@ -401,19 +520,16 @@ async def chat_browser_step(
     raw = await ollama_client.chat_full(
         model=model,
         messages=messages,
-        temperature=0.1 if not use_planner else 0.15,
+        temperature=0.1,
         num_ctx=num_ctx,
         num_predict=num_predict,
         num_batch=num_batch,
         repeat_penalty=1.05,
         think=False,
         num_gpu=BROWSER_NUM_GPU,
+        json_format=True,   # constrained decoding — guaranteed valid JSON, no parse failures
         keep_alive=BROWSER_KEEP_ALIVE,
     )
 
-    parsed = _parse_action(raw)
-    if "response" not in parsed:
-        parsed["response"] = parsed.get("thought", raw.strip()[:300])
-    if "params" not in parsed:
-        parsed["params"] = {}
-    return parsed
+    parsed = _parse_action_strict(raw)
+    return _normalize_chat_action(parsed, message=message, url=url, page_text=page_text)

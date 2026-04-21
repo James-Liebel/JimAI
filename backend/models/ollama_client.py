@@ -144,6 +144,7 @@ async def chat_stream(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
+    json_format: bool = False,
     keep_alive: str = "5m",
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -166,6 +167,8 @@ async def chat_stream(
         "keep_alive": keep_alive,
         "options": options,
     }
+    if json_format:
+        payload["format"] = "json"
     try:
         async for chunk in _stream_json_lines("/api/chat", payload=payload, base_url=base_url):
             msg = chunk.get("message") or {}
@@ -187,6 +190,7 @@ async def chat_full(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
+    json_format: bool = False,
     keep_alive: str = "5m",
     base_url: str | None = None,
 ) -> str:
@@ -203,6 +207,7 @@ async def chat_full(
         repeat_penalty=repeat_penalty,
         think=think,
         num_gpu=num_gpu,
+        json_format=json_format,
         keep_alive=keep_alive,
         base_url=base_url,
     ):

@@ -65,7 +65,7 @@ async function agentStep(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message, url, title, page_text: pageText, history }),
         },
-        30000,
+        60000,
     );
     if (!res.ok) throw new Error(`Backend error ${res.status}`);
     return res.json() as Promise<AgentStep>;

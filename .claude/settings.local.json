@@ -57,7 +57,8 @@
       "Bash(wmic path *)",
       "Bash(nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader)",
       "WebFetch(domain:ollama.com)",
-      "Bash(ollama pull *)"
+      "Bash(ollama pull *)",
+      "Bash(python3 -c \"import sys,json; [print\\(m['name']\\) for m in json.load\\(sys.stdin\\).get\\('models',[]\\)]\")"
     ]
   }
 }

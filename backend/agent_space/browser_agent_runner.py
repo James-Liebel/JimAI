@@ -34,6 +34,7 @@ BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:3b"
 BROWSER_PLANNER_MODEL = "qwen3:8b"
 BROWSER_NUM_GPU: int | None = None  # balanced GPU+CPU — Ollama decides layer split
 BROWSER_KEEP_ALIVE = "3m"           # unload quickly when idle
+BROWSER_VISION_MODEL = "qwen2.5vl:7b"  # multimodal — only called when planner is active
 
 # Known service → URL lookup. Injected into the prompt so the model never guesses.
 _SERVICE_URLS: dict[str, str] = {
@@ -449,11 +450,16 @@ on every site, including React/Angular SPAs where CSS selectors break.
 
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
+The Visible elements list annotates each element's kind:
+  input[text], input[email], textarea  → standard form fields
+  div[editable], div[role=textbox]     → contenteditable rich text (titles, comment boxes)
+  div, div[role=presentation]          → may be a canvas/custom editor body
+
 Actions (prefer top ones):
   navigate          {"url":"https://..."}
   click_xy          {"x":300,"y":450}                     ← click element by screen coordinates
-  type_xy           {"x":300,"y":450,"text":"value"}       ← focus field at coords, then type (standard inputs & titles)
-  type_chars        {"text":"value"}                       ← send real keystrokes (Google Docs body, rich-text/canvas editors)
+  type_xy           {"x":300,"y":450,"text":"value"}       ← click to focus then type; auto-handles all element types
+  type_chars        {"text":"value"}                       ← type at the already-focused element using raw keystrokes
   press_key         {"key":"Enter"}                        ← key to focused element (Enter, Tab, Escape)
   scroll            {"dy":400}                             ← positive=down, negative=up
   wait              {}
@@ -462,12 +468,11 @@ Actions (prefer top ones):
   trigger_autofill  {"selector":"css"}                     ← trigger saved-password autofill popup
 
 Rules:
-- ALWAYS use click_xy and type_xy — read the (x,y) from the Visible elements list.
+- Use type_xy for ALL text entry — it automatically detects standard inputs, contenteditable fields, and canvas editors.
 - To search Google: navigate {"url":"https://www.google.com/search?q=your+query"} — never type in search box.
 - After clicking a button that loads a new page, use wait to let it settle.
 - For login forms: type_xy the email field, click_xy the Next/Continue button, type_xy the password, click_xy Sign In.
-- For Google Docs or any rich-text / canvas editor BODY: first click_xy to focus the document area, then use type_chars — NOT type_xy. type_xy will not work in the document body.
-- For the Google Docs TITLE bar: use type_xy (it is a standard contenteditable div, not a canvas).
+- For document or code editor bodies (elements shown as bare div or div[role=presentation]): click_xy to focus first, then type_chars to type text.
 - Never guess what element to click — read the Visible elements list for exact coordinates."""
 
 _PLANNER_SYSTEM = """\
@@ -483,31 +488,71 @@ Do NOT output markdown, code fences, or explanation — ONLY the JSON object.
 
 Required keys: "thought", "action", "params", "response"
 
+The Visible elements list annotates each element's kind:
+  input[text], textarea            → standard form fields → use type_xy
+  div[editable], [role=textbox]    → contenteditable rich text → use type_xy
+  div, div[role=presentation]      → possible canvas/custom editor body → click_xy then type_chars
+
 Actions (prefer top ones):
   navigate         -> {"url": "https://..."}
-  click_xy         -> {"x": 300, "y": 450}                            ← click by screen coordinates
-  type_xy          -> {"x": 300, "y": 450, "text": "value"}           ← focus field at coords, then type (standard inputs & titles)
-  type_chars       -> {"text": "value"}                               ← send real keystrokes (Google Docs body, rich-text/canvas editors)
-  press_key        -> {"key": "Enter"}                                 ← key sent to focused element
-  scroll           -> {"dy": 400}                                      ← positive=down, negative=up
+  click_xy         -> {"x": 300, "y": 450}                       ← click by screen coordinates
+  type_xy          -> {"x": 300, "y": 450, "text": "value"}      ← click to focus then type; auto-handles all element kinds
+  type_chars       -> {"text": "value"}                          ← raw keystrokes at already-focused element (canvas/custom editors)
+  press_key        -> {"key": "Enter"}                            ← key sent to focused element
+  scroll           -> {"dy": 400}                                 ← positive=down, negative=up
   wait             -> {}
   talk             -> {}
   done             -> {}
-  click_selector   -> {"selector": "css"}                              ← fallback only
-  trigger_autofill -> {"selector": "css"}                              ← trigger saved-password autofill
+  click_selector   -> {"selector": "css"}                         ← fallback only
+  trigger_autofill -> {"selector": "css"}                         ← trigger saved-password autofill
 
 Rules:
-- Always look at the Visible elements list to find what to click — read the (x,y) coordinates and use click_xy / type_xy.
+- Always look at the Visible elements list to find what to click — read the (x,y) coordinates.
+- Use type_xy for ALL text entry — it auto-detects the element kind and handles it correctly.
+- For bare div or div[role=presentation] elements that are editor bodies: click_xy to focus, then type_chars.
 - To search Google: navigate {"url": "https://www.google.com/search?q=your+query"} — never type in the search box.
 - If you don't know a site's URL, navigate to a Google search URL for it.
 - For login forms: type_xy the email, click_xy Next, type_xy the password, click_xy Sign In.
 - After clicking a button that navigates or opens content, use wait to let the page load.
-- For Google Docs or any rich-text / canvas editor BODY: click_xy to focus the document area first, then use type_chars. type_xy does NOT work in the document body.
-- For the Google Docs TITLE: use type_xy (it is a standard contenteditable field).
 - Use "talk" only for greetings or questions needing no browser action.
 - Use "done" when the goal is fully achieved.
 - Never repeat the same action+params twice in a row — if stuck, scroll to find more elements or wait.
 - Always fill "response" with plain English describing what you are doing."""
+
+
+async def _vision_analyze(screenshot_b64: str, url: str, title: str) -> str:
+    """Describe visible interactive elements from a screenshot.
+
+    Only called when the planner is active (stuck or auth page) to supplement
+    DOM-extracted context with what the model can actually see on screen.
+    """
+    if not screenshot_b64:
+        return ""
+    prompt = (
+        f"Web page — URL: {url!r}, title: {title!r}.\n"
+        "Identify the interactive elements visible on screen. "
+        "For each: element type (button/input/link/etc.), rough position "
+        "(top-left / top-center / middle-left / center / etc.), and its visible label or text. "
+        "Max 15 items, one per line. Be concise."
+    )
+    try:
+        raw = await asyncio.wait_for(
+            ollama_client.chat_full(
+                model=BROWSER_VISION_MODEL,
+                messages=[{"role": "user", "content": prompt, "images": [screenshot_b64]}],
+                temperature=0.1,
+                num_ctx=2048,
+                num_predict=300,
+                think=False,
+                num_gpu=BROWSER_NUM_GPU,
+                keep_alive=BROWSER_KEEP_ALIVE,
+            ),
+            timeout=35.0,
+        )
+        return raw.strip()
+    except Exception as exc:
+        logger.debug("Vision analysis skipped: %s", exc)
+        return ""
 
 
 async def chat_browser_step(
@@ -516,6 +561,7 @@ async def chat_browser_step(
     title: str,
     page_text: str,
     history: list[dict],
+    screenshot: str = "",
 ) -> dict:
     """Single-step browser agent for the Atlas chat panel.
 
@@ -564,9 +610,18 @@ async def chat_browser_step(
     ]
     url_hint_block = ("Known URLs (use exactly):\n" + "\n".join(f"  {h}" for h in url_hints) + "\n\n") if url_hints else ""
 
+    # Vision pass — only when the planner is active (stuck or auth), since the
+    # vision model requires a model swap under OLLAMA_MAX_LOADED_MODELS=1.
+    vision_block = ""
+    if use_planner and screenshot:
+        vision_desc = await _vision_analyze(screenshot, url, title)
+        if vision_desc:
+            vision_block = f"\nVisual observation (screenshot):\n{vision_desc}\n"
+
     page_block = (
         f"Current URL: {url or '(unknown)'}\n"
-        f"Page title:  {title or '(unknown)'}\n\n"
+        f"Page title:  {title or '(unknown)'}\n"
+        f"{vision_block}\n"
         f"Page content:\n{(page_text or '(empty)').strip()[:2000 if not use_planner else 2500]}"
     )
 

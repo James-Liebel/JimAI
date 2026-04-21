@@ -271,12 +271,15 @@ export default function AppLayout() {
         )}>
             {!isMobile && !builderFullChrome && (
                 <nav className="flex h-12 shrink-0 items-center justify-between border-b border-surface-5 bg-surface-1 px-4 md:px-5">
-                    {/* Logo */}
-                    <div className="flex shrink-0 items-center gap-2.5">
-                        <div className="flex h-6 w-6 items-center justify-center rounded-badge border border-accent/30 bg-accent/10 text-[10px] font-bold tracking-tight text-accent">
-                            jA
+                    {/* Logo + Assist trigger */}
+                    <div className="flex shrink-0 items-center gap-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-badge border border-accent/30 bg-accent/10 text-[10px] font-bold tracking-tight text-accent">
+                                jA
+                            </div>
+                            <span className="text-sm font-semibold tracking-tight text-text-primary">jimAI</span>
                         </div>
-                        <span className="text-sm font-semibold tracking-tight text-text-primary">jimAI</span>
+                        <AppAssistDock hidden={builderFullChrome || isAtlasTab} />
                     </div>
 
                     {/* Center underline-style tabs */}
@@ -392,7 +395,6 @@ export default function AppLayout() {
                 </button>
             )}
             {isMobile && <MobileNav />}
-            <AppAssistDock hidden={builderFullChrome || isAtlasTab} />
         </div>
     );
 }

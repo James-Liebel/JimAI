@@ -107,6 +107,7 @@ class AtlasChatRequest(BaseModel):
     title: str = ""
     page_text: str = ""
     history: list[dict] = []
+    screenshot: str = ""
 
 
 def register_browser_routes(
@@ -280,6 +281,7 @@ def register_browser_routes(
             title=req.title,
             page_text=req.page_text,
             history=req.history,
+            screenshot=req.screenshot,
         )
 
     @router.get("/browser/agent/run")

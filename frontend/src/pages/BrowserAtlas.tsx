@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
-    Bot, User, X, Plus,
+    Bot, User, X, Plus, MousePointer2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchWithTimeout, logIssue } from '../lib/api';
@@ -28,6 +28,7 @@ interface AtlasWebview extends HTMLElement {
     canGoBack(): boolean;
     canGoForward(): boolean;
     isLoading(): boolean;
+    capturePage(rect?: { x: number; y: number; width: number; height: number }): Promise<{ toDataURL(): string }>;
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -58,6 +59,9 @@ const isElectron = navigator.userAgent.includes('Electron');
 let _tabSeq = 1;
 const newTabId = () => `tab-${++_tabSeq}`;
 
+const WELCOME_CONTENT = 'I can control this browser for you. Try: "Go to Amazon and search for wireless headphones" or "Open GitHub and find the qwen3 repo".';
+const freshWelcome = (key = 'welcome'): ChatMessage => ({ id: key, role: 'agent', content: WELCOME_CONTENT });
+
 // ── Backend call ─────────────────────────────────────────────────────────────
 async function agentStep(
     message: string,
@@ -65,13 +69,14 @@ async function agentStep(
     title: string,
     pageText: string,
     history: { role: string; content: string }[],
+    screenshot?: string,
 ): Promise<AgentStep> {
     const res = await fetchWithTimeout(
         `${BACKEND}/browser/atlas/chat`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, url, title, page_text: pageText, history }),
+            body: JSON.stringify({ message, url, title, page_text: pageText, history, screenshot: screenshot ?? '' }),
         },
         90000,
     );
@@ -97,15 +102,16 @@ export default function BrowserAtlas() {
     const [pageTitle, setPageTitle] = useState('');
 
     // ── Chat state ───────────────────────────────────────────────────────────
-    const [messages, setMessages] = useState<ChatMessage[]>([
-        {
-            id: 'welcome',
-            role: 'agent',
-            content: 'I can control this browser for you. Try: "Go to Amazon and search for wireless headphones" or "Open GitHub and find the qwen3 repo".',
-        },
-    ]);
+    const _initMsg = freshWelcome('welcome');
+    const [messages, setMessages] = useState<ChatMessage[]>([_initMsg]);
+    // messagesRef mirrors messages state synchronously so tab-switch callbacks always read current value
+    const messagesRef = useRef<ChatMessage[]>([_initMsg]);
+    // Persists each tab's chat messages + agent history when switching away from it
+    const tabChatsRef = useRef<Map<string, { messages: ChatMessage[]; history: { role: string; content: string }[] }>>(new Map());
+
     const [input, setInput] = useState('');
     const [agentRunning, setAgentRunning] = useState(false);
+    const [manualMode, setManualMode] = useState(false);
     const [agentStepInfo, setAgentStepInfo] = useState<{
         step: number;
         phase: 'thinking' | 'acting';
@@ -131,6 +137,16 @@ export default function BrowserAtlas() {
     // ── Tab operations ───────────────────────────────────────────────────────
     const openNewTab = useCallback((url = 'https://www.google.com') => {
         const id = newTabId();
+        // Save current tab's chat before switching away
+        tabChatsRef.current.set(activeTabIdRef.current, {
+            messages: messagesRef.current,
+            history: [...historyRef.current],
+        });
+        // New tab gets a fresh chat
+        const welcome = freshWelcome(`welcome-${id}`);
+        messagesRef.current = [welcome];
+        setMessages([welcome]);
+        historyRef.current = [];
         setTabs(prev => [...prev, { id, url, title: '', loading: false }]);
         setActiveTabId(id);
         activeTabIdRef.current = id;
@@ -143,14 +159,33 @@ export default function BrowserAtlas() {
             const next = prev.filter(t => t.id !== id);
             if (id === activeTabIdRef.current) {
                 const newActive = next[next.length - 1].id;
+                // Load the new active tab's stored chat (closing tab's chat is discarded)
+                const stored = tabChatsRef.current.get(newActive);
+                const newMsgs = stored?.messages ?? [freshWelcome(`welcome-${newActive}`)];
+                messagesRef.current = newMsgs;
+                setMessages(newMsgs);
+                historyRef.current = stored?.history ?? [];
                 setActiveTabId(newActive);
                 activeTabIdRef.current = newActive;
             }
+            tabChatsRef.current.delete(id);
             return next;
         });
     }, []);
 
     const switchTab = useCallback((id: string) => {
+        if (id === activeTabIdRef.current) return;
+        // Persist current tab's live chat state before leaving
+        tabChatsRef.current.set(activeTabIdRef.current, {
+            messages: messagesRef.current,
+            history: [...historyRef.current],
+        });
+        // Restore target tab's chat state
+        const stored = tabChatsRef.current.get(id);
+        const newMsgs = stored?.messages ?? [freshWelcome(`welcome-${id}`)];
+        messagesRef.current = newMsgs;
+        setMessages(newMsgs);
+        historyRef.current = stored?.history ?? [];
         setActiveTabId(id);
         activeTabIdRef.current = id;
         // Sync nav bar to the newly active webview
@@ -215,9 +250,9 @@ export default function BrowserAtlas() {
     }, [navInput, getWv]);
 
     // ── Page state extraction ────────────────────────────────────────────────
-    const getPageState = useCallback(async (): Promise<{ url: string; title: string; pageText: string }> => {
+    const getPageState = useCallback(async (): Promise<{ url: string; title: string; pageText: string; screenshot: string }> => {
         const wv = getWv();
-        if (!wv) return { url: '', title: '', pageText: '' };
+        if (!wv) return { url: '', title: '', pageText: '', screenshot: '' };
 
         const url = wv.getURL();
         const title = wv.getTitle();
@@ -242,6 +277,7 @@ export default function BrowserAtlas() {
                         const y = Math.round(r.top + r.height / 2);
                         const tag = el.tagName.toLowerCase();
                         const type = el.getAttribute('type') || '';
+                        const role = el.getAttribute('role') || '';
                         const label = (
                             (el.innerText || '').trim().replace(/\\s+/g,' ') ||
                             el.getAttribute('aria-label') ||
@@ -250,7 +286,11 @@ export default function BrowserAtlas() {
                             el.getAttribute('title') || ''
                         ).slice(0, 60);
                         const href = el.getAttribute('href') || '';
-                        return (type ? tag+'['+type+']' : tag) + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
+                        // Annotate element kind so model can reason about interaction
+                        let kind = type ? tag+'['+type+']' : tag;
+                        if (role && role !== tag) kind += '[role='+role+']';
+                        if (el.isContentEditable && tag !== 'input' && tag !== 'textarea') kind += '[editable]';
+                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
                     });
                     const bodyText = document.body ? document.body.innerText.slice(0, 2000) : '';
                     return JSON.stringify({ bodyText, elems });
@@ -262,7 +302,17 @@ export default function BrowserAtlas() {
                 + parsed.elems.join('\n');
         } catch { /* cross-origin or CSP — proceed without page text */ }
 
-        return { url, title, pageText };
+        // Capture screenshot for vision analysis (used by backend when agent is stuck or on auth pages).
+        // Errors are silently swallowed — agent continues without vision if capture fails.
+        let screenshot = '';
+        try {
+            const img = await wv.capturePage();
+            const dataUrl = img.toDataURL();
+            // Strip "data:image/...;base64," prefix to get raw base64
+            screenshot = dataUrl.replace(/^data:[^;]+;base64,/, '');
+        } catch { /* capturePage not available in this context */ }
+
+        return { url, title, pageText, screenshot };
     }, [getWv]);
 
     // ── Execute an agent action on the active webview ────────────────────────
@@ -309,17 +359,20 @@ export default function BrowserAtlas() {
                     wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
                     await new Promise((r) => setTimeout(r, 200));
                     await new Promise((r) => setTimeout(r, 50));
-                    await wv.executeJavaScript(`
+                    // Detect element kind and type accordingly.
+                    // Returns 'typed' for standard elements, 'canvas' when the active
+                    // element is a custom/canvas editor that needs sendInputEvent chars.
+                    const typeResult = await wv.executeJavaScript(`
                         (function() {
                             const el = document.activeElement;
                             if (!el) return 'no_focus';
                             el.focus();
+                            const isStandard = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+                            if (!isStandard) return 'canvas';
                             if (el.isContentEditable) {
-                                // contenteditable (e.g. Google Docs title): select-all then insertText
                                 document.execCommand('selectAll', false);
                                 const ok = document.execCommand('insertText', false, ${JSON.stringify(text)});
                                 if (!ok) {
-                                    // Fallback: set textContent and fire InputEvent
                                     el.textContent = ${JSON.stringify(text)};
                                     el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
                                 }
@@ -329,7 +382,14 @@ export default function BrowserAtlas() {
                             }
                             return 'typed';
                         })()
-                    `).catch(() => {});
+                    `).catch(() => 'error') as string;
+
+                    if (typeResult === 'canvas') {
+                        // Active element is a canvas / custom editor — send real char events
+                        for (const ch of text) {
+                            wv.sendInputEvent({ type: 'char', keyCode: ch });
+                        }
+                    }
                     await new Promise((r) => setTimeout(r, 300));
                 }
                 break;
@@ -516,7 +576,11 @@ export default function BrowserAtlas() {
 
     // ── Chat helpers ─────────────────────────────────────────────────────────
     const addMsg = useCallback((role: ChatMessage['role'], content: string, actionLabel?: string) => {
-        setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel }]);
+        setMessages(prev => {
+            const next = [...prev, { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel }];
+            messagesRef.current = next;
+            return next;
+        });
     }, []);
 
     // ── Agent loop ───────────────────────────────────────────────────────────
@@ -529,11 +593,11 @@ export default function BrowserAtlas() {
             if (abortRef.current) break;
 
             setAgentStepInfo({ step: step + 1, phase: 'thinking' });
-            const { url, title, pageText } = await getPageState();
+            const { url, title, pageText, screenshot } = await getPageState();
 
             let result: AgentStep;
             try {
-                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10));
+                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10), screenshot);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : 'unknown';
                 setAgentStepInfo(null);
@@ -569,7 +633,7 @@ export default function BrowserAtlas() {
 
         if (!abortRef.current) {
             // Reached MAX_STEPS without done/talk — log for self-improvement review
-            const { url } = await getPageState();
+            const { url } = await getPageState().catch(() => ({ url: '' }));
             logIssue('browser_agent', 'max_steps_reached', `Task did not complete in ${MAX_STEPS} steps`, {
                 task: userMessage, url, tab: activeTabId,
                 last_actions: historyRef.current.slice(-6).map(h => h.content),
@@ -596,8 +660,11 @@ export default function BrowserAtlas() {
     }, []);
 
     const clearChat = useCallback(() => {
-        setMessages([{ id: 'welcome-reset', role: 'agent', content: 'Chat cleared. What would you like me to do?' }]);
+        const reset: ChatMessage = { id: 'welcome-reset', role: 'agent', content: 'Chat cleared. What would you like me to do?' };
+        messagesRef.current = [reset];
+        setMessages([reset]);
         historyRef.current = [];
+        tabChatsRef.current.delete(activeTabIdRef.current);
     }, []);
 
     // ── Non-Electron fallback ─────────────────────────────────────────────────
@@ -721,10 +788,24 @@ export default function BrowserAtlas() {
                             }}
                         />
                     ))}
+                    {/* Manual mode overlay — shows when agent panel is hidden */}
+                    {manualMode && (
+                        <button
+                            onClick={() => setManualMode(false)}
+                            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full border border-accent-blue/40 bg-surface-1/90 backdrop-blur-sm px-3 py-1.5 text-[11px] font-medium text-accent-blue shadow-lg hover:bg-surface-2 transition-colors"
+                            title="Return to AI agent"
+                        >
+                            <Bot size={11} />
+                            Resume agent
+                        </button>
+                    )}
                 </div>
 
-                {/* ── Agent chat panel ────────────────────────────────────── */}
-                <div className="flex w-72 shrink-0 flex-col border-l border-surface-3 bg-surface-1 min-h-0">
+                {/* ── Agent chat panel (hidden in manual mode) ─────────────── */}
+                <div className={cn(
+                    'flex shrink-0 flex-col border-l border-surface-3 bg-surface-1 min-h-0 transition-all duration-200',
+                    manualMode ? 'w-0 overflow-hidden border-l-0' : 'w-72',
+                )}>
 
                     {/* Header */}
                     <div className="border-b border-surface-3 px-3 py-2 flex items-center gap-2 shrink-0">
@@ -742,6 +823,14 @@ export default function BrowserAtlas() {
                                     : `step ${agentStepInfo.step} · ${agentStepInfo.action}`}
                             </span>
                         )}
+                        <button
+                            onClick={() => { if (!agentRunning) setManualMode(true); }}
+                            disabled={agentRunning}
+                            className="p-1 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                            title="Manual mode — browse freely, AI panel hides"
+                        >
+                            <MousePointer2 size={11} />
+                        </button>
                         <button
                             onClick={clearChat}
                             disabled={agentRunning}

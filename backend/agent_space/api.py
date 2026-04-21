@@ -1749,6 +1749,25 @@ async def metrics() -> dict[str, Any]:
     return log_store.get_metrics()
 
 
+class IssueReport(BaseModel):
+    source: str                      # e.g. "browser_agent", "chat", "ui"
+    type: str                        # e.g. "action_loop", "connection_error", "action_failed"
+    message: str
+    context: dict[str, Any] = {}
+
+
+@router.post("/issues")
+async def report_issue(req: IssueReport) -> dict[str, Any]:
+    """Receive a UI or agent issue and persist it to the self-improvement log."""
+    log_store.log_issue(req.source, req.type, req.message, req.context)
+    return {"ok": True}
+
+
+@router.get("/issues")
+async def list_issues(limit: int = Query(default=100, ge=1, le=1000)) -> list[dict[str, Any]]:
+    return log_store.list_issues(limit=limit)
+
+
 @router.get("/logs/actions")
 async def action_logs(
     limit: int = Query(default=200, ge=1, le=2000),

@@ -10,11 +10,12 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from .paths import LOGS_DIR, ensure_layout
+from .paths import LOGS_DIR, SELF_IMPROVEMENT_DIR, ensure_layout
 
 ACTIONS_LOG_FILE = LOGS_DIR / "actions.jsonl"
 EVENTS_LOG_FILE = LOGS_DIR / "events.jsonl"
 METRICS_FILE = LOGS_DIR / "metrics.json"
+ISSUES_FILE = SELF_IMPROVEMENT_DIR / "issues.jsonl"
 
 DEFAULT_METRICS = {
     "runs_started": 0,
@@ -129,6 +130,37 @@ class LogStore:
         except Exception:
             logger.warning("Failed to read metrics file; falling back to in-memory values", exc_info=True)
         return dict(self._metrics_override)
+
+    def log_issue(
+        self,
+        source: str,
+        issue_type: str,
+        message: str,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        """Append a UI/agent issue to self-improvement log for later review."""
+        entry = {
+            "ts": time.time(),
+            "source": source,
+            "type": issue_type,
+            "message": message,
+            "context": context or {},
+        }
+        with self._lock:
+            self._append_jsonl(ISSUES_FILE, entry)
+
+    def list_issues(self, limit: int = 200) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        if ISSUES_FILE.exists():
+            try:
+                for line in ISSUES_FILE.read_text(encoding="utf-8").splitlines()[-limit:]:
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        return rows
 
     def list_action_logs(self, limit: int = 200, run_id: str | None = None) -> list[dict[str, Any]]:
         lines: list[str] = []

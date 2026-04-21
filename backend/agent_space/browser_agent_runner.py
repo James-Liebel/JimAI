@@ -147,6 +147,7 @@ def _normalize_chat_action(
         "navigate",
         "click_xy",
         "type_xy",
+        "type_chars",
         "click_selector",
         "trigger_autofill",
         "type",
@@ -185,6 +186,8 @@ def _normalize_chat_action(
     if action == "click_xy":
         params.setdefault("x", 0)
         params.setdefault("y", 0)
+    elif action == "type_chars":
+        params.setdefault("text", "")
     elif action == "type_xy":
         params.setdefault("x", 0)
         params.setdefault("y", 0)
@@ -447,21 +450,24 @@ on every site, including React/Angular SPAs where CSS selectors break.
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
 Actions (prefer top ones):
-  navigate    {"url":"https://..."}
-  click_xy    {"x":300,"y":450}                         ← click element by screen coordinates
-  type_xy     {"x":300,"y":450,"text":"value"}           ← focus field at coords, then type
-  press_key   {"key":"Enter"}                            ← key to focused element (Enter, Tab, Escape)
-  scroll      {"dy":400}                                 ← positive=down, negative=up
-  wait        {}
-  done        {}
-  click_selector  {"selector":"css"}                    ← fallback when no coords available
-  trigger_autofill {"selector":"css"}                   ← trigger saved-password autofill popup
+  navigate          {"url":"https://..."}
+  click_xy          {"x":300,"y":450}                     ← click element by screen coordinates
+  type_xy           {"x":300,"y":450,"text":"value"}       ← focus field at coords, then type (standard inputs & titles)
+  type_chars        {"text":"value"}                       ← send real keystrokes (Google Docs body, rich-text/canvas editors)
+  press_key         {"key":"Enter"}                        ← key to focused element (Enter, Tab, Escape)
+  scroll            {"dy":400}                             ← positive=down, negative=up
+  wait              {}
+  done              {}
+  click_selector    {"selector":"css"}                     ← fallback when no coords available
+  trigger_autofill  {"selector":"css"}                     ← trigger saved-password autofill popup
 
 Rules:
 - ALWAYS use click_xy and type_xy — read the (x,y) from the Visible elements list.
 - To search Google: navigate {"url":"https://www.google.com/search?q=your+query"} — never type in search box.
 - After clicking a button that loads a new page, use wait to let it settle.
 - For login forms: type_xy the email field, click_xy the Next/Continue button, type_xy the password, click_xy Sign In.
+- For Google Docs or any rich-text / canvas editor BODY: first click_xy to focus the document area, then use type_chars — NOT type_xy. type_xy will not work in the document body.
+- For the Google Docs TITLE bar: use type_xy (it is a standard contenteditable div, not a canvas).
 - Never guess what element to click — read the Visible elements list for exact coordinates."""
 
 _PLANNER_SYSTEM = """\
@@ -479,15 +485,16 @@ Required keys: "thought", "action", "params", "response"
 
 Actions (prefer top ones):
   navigate         -> {"url": "https://..."}
-  click_xy         -> {"x": 300, "y": 450}                       ← click by screen coordinates
-  type_xy          -> {"x": 300, "y": 450, "text": "value"}      ← focus field at coords, then type
-  press_key        -> {"key": "Enter"}                            ← key sent to focused element
-  scroll           -> {"dy": 400}                                 ← positive=down, negative=up
+  click_xy         -> {"x": 300, "y": 450}                            ← click by screen coordinates
+  type_xy          -> {"x": 300, "y": 450, "text": "value"}           ← focus field at coords, then type (standard inputs & titles)
+  type_chars       -> {"text": "value"}                               ← send real keystrokes (Google Docs body, rich-text/canvas editors)
+  press_key        -> {"key": "Enter"}                                 ← key sent to focused element
+  scroll           -> {"dy": 400}                                      ← positive=down, negative=up
   wait             -> {}
   talk             -> {}
   done             -> {}
-  click_selector   -> {"selector": "css"}                         ← fallback only
-  trigger_autofill -> {"selector": "css"}                         ← trigger saved-password autofill
+  click_selector   -> {"selector": "css"}                              ← fallback only
+  trigger_autofill -> {"selector": "css"}                              ← trigger saved-password autofill
 
 Rules:
 - Always look at the Visible elements list to find what to click — read the (x,y) coordinates and use click_xy / type_xy.
@@ -495,6 +502,8 @@ Rules:
 - If you don't know a site's URL, navigate to a Google search URL for it.
 - For login forms: type_xy the email, click_xy Next, type_xy the password, click_xy Sign In.
 - After clicking a button that navigates or opens content, use wait to let the page load.
+- For Google Docs or any rich-text / canvas editor BODY: click_xy to focus the document area first, then use type_chars. type_xy does NOT work in the document body.
+- For the Google Docs TITLE: use type_xy (it is a standard contenteditable field).
 - Use "talk" only for greetings or questions needing no browser action.
 - Use "done" when the goal is fully achieved.
 - Never repeat the same action+params twice in a row — if stuck, scroll to find more elements or wait.

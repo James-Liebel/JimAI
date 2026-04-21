@@ -303,3 +303,17 @@ export async function saveChat(
 export async function deleteChat(chatId: string): Promise<void> {
     await fetchWithTimeout(`${BASE}/api/chat/sessions/${chatId}`, { method: 'DELETE' });
 }
+
+// ── Issue logging (fire-and-forget, never throws) ────────────────────
+export function logIssue(
+    source: string,
+    type: string,
+    message: string,
+    context: Record<string, unknown> = {},
+): void {
+    fetchWithTimeout(`${BASE}/api/agent-space/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, type, message, context }),
+    }, 8000).catch(() => { /* never let logging break the caller */ });
+}

@@ -24,13 +24,30 @@ MAX_STEPS_DEFAULT = 20
 # Small, fast model — no vision needed
 AGENT_MODEL = "qwen3:8b"
 
-# Atlas chat panel — CPU-only inference (num_gpu=0), no VRAM competition with main models.
-# json_format=True (constrained decoding) guarantees valid JSON output from any model size,
-# so 3b is sufficient and fast (~5-15s on CPU vs 30-60s for 7b).
+# Atlas chat panel — two-tier model selection.
+# Executor: qwen2.5-coder:3b — fast mechanical actions (click/type/navigate).
+# Planner:  qwen3:8b — first step + error recovery, better world knowledge.
+# num_gpu=None lets Ollama split layers across GPU+CPU automatically (balanced load).
+# OLLAMA_MAX_LOADED_MODELS=1 handles VRAM contention between browser agent and chat models.
 BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:3b"
-BROWSER_PLANNER_MODEL = "qwen2.5-coder:3b"
-BROWSER_NUM_GPU = 0        # CPU-only: no VRAM, no GPU heat
-BROWSER_KEEP_ALIVE = "3m"  # unload quickly when idle
+BROWSER_PLANNER_MODEL = "qwen3:8b"
+BROWSER_NUM_GPU: int | None = None  # balanced GPU+CPU — Ollama decides layer split
+BROWSER_KEEP_ALIVE = "3m"           # unload quickly when idle
+
+# Known service → URL lookup. Injected into the prompt so the model never guesses.
+_SERVICE_URLS: dict[str, str] = {
+    "ap classroom": "https://myap.collegeboard.org",
+    "college board": "https://www.collegeboard.org",
+    "google classroom": "https://classroom.google.com",
+    "canvas": "https://canvas.instructure.com",
+    "schoology": "https://app.schoology.com",
+    "blackboard": "https://blackboard.com",
+    "khan academy": "https://www.khanacademy.org",
+    "duolingo": "https://www.duolingo.com",
+    "quizlet": "https://quizlet.com",
+    "chegg": "https://www.chegg.com",
+    "turnitin": "https://www.turnitin.com",
+}
 
 _ACTION_SYSTEM = """\
 You are a browser automation agent. You receive the current page's URL, title, \
@@ -424,7 +441,9 @@ Key selectors:
   Google search       : textarea[name="q"],input[name="q"]
   Generic submit      : button[type="submit"]
 
-Login rule: ALWAYS use trigger_autofill on email and password fields — the browser has saved credentials from the user's Google account. Only fall back to type if autofill finds nothing."""
+Rules:
+- If you are not 100% certain of a site's exact URL, navigate to Google and search for it first — never guess a URL.
+- Login: ALWAYS use trigger_autofill on email and password fields. Fall back to type only if autofill finds nothing."""
 
 _PLANNER_SYSTEM = """\
 You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
@@ -453,7 +472,7 @@ CSS selector reference (prefer specific):
   Google login password:  input[type="password"], input[name="Passwd"]
   Google "Next" button:   #identifierNext, #passwordNext, button[jsname="LgbsSe"]
   Google search box:      textarea[name="q"], input[name="q"]
-  AP Classroom login:     navigate to classroom.google.com then sign in with Google
+  AP Classroom:           navigate to myap.collegeboard.org (College Board — NOT Google Classroom)
   Generic submit:         button[type="submit"], input[type="submit"]
   Generic search:         input[type="search"], input[aria-label*="earch" i]
 
@@ -461,7 +480,9 @@ Rules:
 - Use "talk" only for greetings or clarifications requiring no browser action.
 - Use "wait" when you need the page to finish loading.
 - Use "done" when the user's goal is fully achieved.
-- For login forms: use trigger_autofill on the email field, then click_selector #identifierNext, then trigger_autofill on the password field, then click_selector #passwordNext. The user's Google account has saved passwords — always try autofill first.
+- If you are not 100% certain of a site's exact URL, navigate to Google and search for it first. Never guess or assume a URL — wrong URLs cause the wrong site to open.
+- AP Classroom is at myap.collegeboard.org (College Board). Google Classroom is classroom.google.com. These are completely different products.
+- For login forms: use trigger_autofill on the email field, then click Next/Continue, then trigger_autofill on the password field, then submit.
 - Prefer navigate over clicking links when you know the URL.
 - Always fill "response" with a plain-English description of what you are doing.
 - Never repeat the exact same action+params more than once in a row; if previous attempt did not change the page, choose a different action (click result, navigate directly, or wait)."""
@@ -493,9 +514,18 @@ async def chat_browser_step(
     use_planner = is_first_step or is_stuck
     model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
     system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
-    num_ctx = 4096
-    num_predict = 192   # single JSON action is ~50-100 tokens; constrained decoding stops at }
+    num_ctx = 6144 if use_planner else 4096
+    num_predict = 256 if use_planner else 192
     num_batch = 512
+
+    # Inject confirmed URL for any known service mentioned in the message
+    msg_lower = message.lower()
+    url_hints: list[str] = [
+        f'"{name}" is at {target_url}'
+        for name, target_url in _SERVICE_URLS.items()
+        if name in msg_lower
+    ]
+    url_hint_block = ("Known URLs (use exactly):\n" + "\n".join(f"  {h}" for h in url_hints) + "\n\n") if url_hints else ""
 
     page_block = (
         f"Current URL: {url or '(unknown)'}\n"
@@ -504,6 +534,7 @@ async def chat_browser_step(
     )
 
     user_prompt = (
+        f"{url_hint_block}"
         f"Page state:\n{page_block}\n\n"
         f"User instruction: {message}\n\n"
         "Output JSON only:"
@@ -526,8 +557,8 @@ async def chat_browser_step(
         num_batch=num_batch,
         repeat_penalty=1.05,
         think=False,
-        num_gpu=BROWSER_NUM_GPU,
-        json_format=True,   # constrained decoding — guaranteed valid JSON, no parse failures
+        num_gpu=BROWSER_NUM_GPU,  # None = Ollama splits layers across GPU+CPU automatically
+        json_format=True,         # constrained decoding — guaranteed valid JSON, no parse failures
         keep_alive=BROWSER_KEEP_ALIVE,
     )
 

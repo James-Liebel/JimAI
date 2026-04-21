@@ -164,26 +164,43 @@ export default function BrowserAtlas() {
         try {
             const raw = await wv.executeJavaScript(`
                 (function() {
-                    const text = (document.body && document.body.innerText) ? document.body.innerText.slice(0, 3500) : '';
-                    const links = [...document.querySelectorAll('a[href]')]
-                        .slice(0, 40)
-                        .map(a => (a.innerText || '').trim().slice(0, 60) + ' → ' + a.href)
-                        .filter(Boolean)
-                        .join('\\n');
-                    const inputs = [...document.querySelectorAll('input,select,textarea,button')]
-                        .slice(0, 30)
-                        .map(el => {
-                            const tag = el.tagName.toLowerCase();
-                            const name = el.id ? '#' + el.id : (el.name ? '[name="' + el.name + '"]' : '');
-                            const label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.innerText || '';
-                            return tag + (name ? name : '') + (label ? ' "' + label.slice(0,40) + '"' : '');
-                        })
-                        .join(', ');
-                    return JSON.stringify({ text, links, inputs });
+                    // Visible interactive elements with screen coordinates for click_xy / type_xy
+                    const W = window.innerWidth, H = window.innerHeight;
+                    const elems = [...document.querySelectorAll(
+                        'a[href], button, input:not([type="hidden"]), select, textarea, ' +
+                        '[role="button"], [role="link"], [role="tab"], [role="menuitem"], ' +
+                        '[role="option"], [role="checkbox"], [role="radio"]'
+                    )].filter(el => {
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 2 || r.height < 2) return false;
+                        if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) return false;
+                        const s = window.getComputedStyle(el);
+                        return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
+                    }).slice(0, 50).map(el => {
+                        const r = el.getBoundingClientRect();
+                        const x = Math.round(r.left + r.width / 2);
+                        const y = Math.round(r.top + r.height / 2);
+                        const tag = el.tagName.toLowerCase();
+                        const type = el.getAttribute('type') || '';
+                        const label = (
+                            (el.innerText || '').trim().replace(/\\s+/g,' ') ||
+                            el.getAttribute('aria-label') ||
+                            el.getAttribute('placeholder') ||
+                            el.getAttribute('value') ||
+                            el.getAttribute('title') || ''
+                        ).slice(0, 60);
+                        const href = el.getAttribute('href') || '';
+                        return (type ? tag+'['+type+']' : tag) + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
+                    });
+
+                    const bodyText = document.body ? document.body.innerText.slice(0, 2000) : '';
+                    return JSON.stringify({ bodyText, elems });
                 })()
             `) as string;
-            const parsed = JSON.parse(raw) as { text: string; links: string; inputs: string };
-            pageText = `${parsed.text}\n\n--- Links ---\n${parsed.links}\n\n--- Interactive ---\n${parsed.inputs}`;
+            const parsed = JSON.parse(raw) as { bodyText: string; elems: string[] };
+            pageText = parsed.bodyText
+                + '\n\n--- Visible elements (tag (x,y) "label") ---\n'
+                + parsed.elems.join('\n');
         } catch { /* cross-origin or CSP block — proceed without page text */ }
 
         return { url, title, pageText };
@@ -210,19 +227,93 @@ export default function BrowserAtlas() {
                 break;
             }
 
+            case 'click_xy': {
+                const x = Number(params.x ?? 0);
+                const y = Number(params.y ?? 0);
+                if (x > 0 && y > 0) {
+                    wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+                    wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
+                    await new Promise<void>((res) => {
+                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
+                        wv.addEventListener('did-stop-loading', done);
+                        setTimeout(res, 3000);
+                    });
+                }
+                break;
+            }
+
+            case 'type_xy': {
+                const x = Number(params.x ?? 0);
+                const y = Number(params.y ?? 0);
+                const text = String(params.text ?? '');
+                if (x > 0 && y > 0 && text) {
+                    // Click to focus via real events
+                    wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+                    wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
+                    await new Promise((r) => setTimeout(r, 200));
+                    // Select-all + delete to clear, then set value via native setter
+                    wv.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
+                    wv.sendInputEvent({ type: 'keyUp',   keyCode: 'A', modifiers: ['control'] });
+                    wv.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' });
+                    wv.sendInputEvent({ type: 'keyUp',   keyCode: 'Delete' });
+                    await new Promise((r) => setTimeout(r, 100));
+                    await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.activeElement;
+                            if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return 'no_active_input';
+                            const proto = el instanceof HTMLTextAreaElement
+                                ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
+                            else el.value = ${JSON.stringify(text)};
+                            el.dispatchEvent(new Event('input',  { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            return 'typed';
+                        })()
+                    `).catch(() => {});
+                    await new Promise((r) => setTimeout(r, 300));
+                }
+                break;
+            }
+
             case 'click_selector': {
                 const sel = String(params.selector ?? '');
                 if (sel) {
-                    await wv.executeJavaScript(`
+                    // Scroll element into view, then use real Chromium input events.
+                    // sendInputEvent goes through the native pipeline — works on React/SPAs
+                    // where JS el.click() misses hover states and synthetic event handlers.
+                    const rect = await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
-                            if (!el) return 'not_found';
-                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            el.click();
-                            return 'clicked';
+                            if (!el) return null;
+                            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            const r = el.getBoundingClientRect();
+                            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
                         })()
-                    `).catch(() => {});
-                    await new Promise((r) => setTimeout(r, 1200));
+                    `).catch(() => null) as { x: number; y: number } | null;
+
+                    if (rect && rect.x > 0 && rect.y > 0) {
+                        wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                    } else {
+                        // Fallback for elements that aren't in the viewport
+                        await wv.executeJavaScript(`
+                            (function() {
+                                const el = document.querySelector(${JSON.stringify(sel)});
+                                if (!el) return 'not_found';
+                                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                                el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
+                                el.click();
+                                return 'clicked';
+                            })()
+                        `).catch(() => {});
+                    }
+                    // Wait for any navigation triggered by the click
+                    await new Promise<void>((res) => {
+                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
+                        wv.addEventListener('did-stop-loading', done);
+                        setTimeout(res, 3000);
+                    });
                 }
                 break;
             }
@@ -230,26 +321,47 @@ export default function BrowserAtlas() {
             case 'type': {
                 const sel = String(params.selector ?? '');
                 const text = String(params.text ?? '');
-                if (sel) {
+                if (sel && text) {
+                    // Click the field first via real input event to focus it properly
+                    const rect = await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return null;
+                            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            const r = el.getBoundingClientRect();
+                            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                        })()
+                    `).catch(() => null) as { x: number; y: number } | null;
+
+                    if (rect && rect.x > 0 && rect.y > 0) {
+                        wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        await new Promise((r) => setTimeout(r, 150));
+                    }
+
+                    // Clear field and set value via native React-compatible setter
                     await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            // React/framework-compatible value setter
-                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
-                                || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-                            if (nativeSetter && nativeSetter.set) {
-                                nativeSetter.set.call(el, ${JSON.stringify(text)});
-                            } else {
-                                el.value = ${JSON.stringify(text)};
-                            }
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            // Select all then delete so React state resets cleanly
+                            el.select && el.select();
+                            document.execCommand('selectAll');
+                            document.execCommand('delete');
+                            // Set via native prototype setter so React picks up the change
+                            const proto = el instanceof HTMLTextAreaElement
+                                ? window.HTMLTextAreaElement.prototype
+                                : window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
+                            else el.value = ${JSON.stringify(text)};
+                            el.dispatchEvent(new Event('input',  { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                             return 'typed';
                         })()
                     `).catch(() => {});
-                    await new Promise((r) => setTimeout(r, 500));
+                    await new Promise((r) => setTimeout(r, 400));
                 }
                 break;
             }
@@ -257,24 +369,42 @@ export default function BrowserAtlas() {
             case 'type_and_submit': {
                 const sel = String(params.selector ?? '');
                 const text = String(params.text ?? '');
-                if (sel) {
+                if (sel && text) {
+                    const rect = await wv.executeJavaScript(`
+                        (function() {
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return null;
+                            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            const r = el.getBoundingClientRect();
+                            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                        })()
+                    `).catch(() => null) as { x: number; y: number } | null;
+
+                    if (rect && rect.x > 0 && rect.y > 0) {
+                        wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        await new Promise((r) => setTimeout(r, 150));
+                    }
+
                     await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
-                                || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
-                            if (nativeSetter && nativeSetter.set) {
-                                nativeSetter.set.call(el, ${JSON.stringify(text)});
-                            } else {
-                                el.value = ${JSON.stringify(text)};
-                            }
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.select && el.select();
+                            document.execCommand('selectAll');
+                            document.execCommand('delete');
+                            const proto = el instanceof HTMLTextAreaElement
+                                ? window.HTMLTextAreaElement.prototype
+                                : window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
+                            else el.value = ${JSON.stringify(text)};
+                            el.dispatchEvent(new Event('input',  { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
-                            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keydown',  { key: 'Enter', keyCode: 13, bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
-                            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keyup',    { key: 'Enter', keyCode: 13, bubbles: true }));
                             return 'submitted';
                         })()
                     `).catch(() => {});
@@ -289,16 +419,10 @@ export default function BrowserAtlas() {
 
             case 'press_key': {
                 const key = String(params.key ?? 'Enter');
-                await wv.executeJavaScript(`
-                    (function() {
-                        const el = document.activeElement || document.body;
-                        el.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
-                        el.dispatchEvent(new KeyboardEvent('keypress', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
-                        el.dispatchEvent(new KeyboardEvent('keyup', { key: ${JSON.stringify(key)}, keyCode: ${key === 'Enter' ? 13 : 0}, bubbles: true }));
-                        return 'key_pressed';
-                    })()
-                `).catch(() => {});
-                await new Promise((r) => setTimeout(r, 1000));
+                // Send real key events through Chromium for reliable form submission
+                wv.sendInputEvent({ type: 'keyDown', keyCode: key });
+                wv.sendInputEvent({ type: 'keyUp',   keyCode: key });
+                await new Promise((r) => setTimeout(r, 800));
                 break;
             }
 

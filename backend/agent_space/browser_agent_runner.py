@@ -145,6 +145,8 @@ def _normalize_chat_action(
 
     allowed = {
         "navigate",
+        "click_xy",
+        "type_xy",
         "click_selector",
         "trigger_autofill",
         "type",
@@ -180,7 +182,14 @@ def _normalize_chat_action(
             response = "Opening the top search result."
 
     # Fill in minimal defaults so frontend executor always has valid params.
-    if action in {"type", "type_and_submit"}:
+    if action == "click_xy":
+        params.setdefault("x", 0)
+        params.setdefault("y", 0)
+    elif action == "type_xy":
+        params.setdefault("x", 0)
+        params.setdefault("y", 0)
+        params.setdefault("text", "")
+    elif action in {"type", "type_and_submit"}:
         params.setdefault("selector", 'textarea[name="q"],input[name="q"]')
         params.setdefault("text", "")
     elif action == "click_selector":
@@ -431,76 +440,65 @@ async def run_browser_agent(
 _EXECUTOR_SYSTEM = """\
 Browser automation executor. Output ONE action as JSON — no markdown, no extra text.
 
+The page context includes a "Visible elements" list showing every clickable/typeable element \
+with its screen coordinates: tag (x,y) "label". Use these coordinates to interact — they work \
+on every site, including React/Angular SPAs where CSS selectors break.
+
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
-Actions:
-  navigate         {"url":"https://..."}
-  click_selector   {"selector":"css"}
-  trigger_autofill {"selector":"css"}  ← use this for email/password fields to fill from saved passwords
-  type             {"selector":"css","text":"value"}
-  type_and_submit  {"selector":"css","text":"value"}
-  press_key        {"key":"Enter"}
-  scroll           {"dy":400}
-  js               {"code":"js expression"}
-  wait             {}
-  done             {}
-
-Key selectors:
-  Google email input  : input[name="identifier"]
-  Google email Next   : #identifierNext
-  Google password     : input[name="Passwd"],input[type="password"]
-  Google password Next: #passwordNext
-  Google search       : textarea[name="q"],input[name="q"]
-  Generic submit      : button[type="submit"]
+Actions (prefer top ones):
+  navigate    {"url":"https://..."}
+  click_xy    {"x":300,"y":450}                         ← click element by screen coordinates
+  type_xy     {"x":300,"y":450,"text":"value"}           ← focus field at coords, then type
+  press_key   {"key":"Enter"}                            ← key to focused element (Enter, Tab, Escape)
+  scroll      {"dy":400}                                 ← positive=down, negative=up
+  wait        {}
+  done        {}
+  click_selector  {"selector":"css"}                    ← fallback when no coords available
+  trigger_autofill {"selector":"css"}                   ← trigger saved-password autofill popup
 
 Rules:
-- To search Google, ALWAYS use navigate with a direct URL: {"url":"https://www.google.com/search?q=your+query+here"}. Never navigate to google.com and type — go straight to the search URL.
-- If you are not 100% certain of a site's exact URL, use a Google search navigate action to find it first — never guess a URL.
-- Login: ALWAYS use trigger_autofill on email and password fields. Fall back to type only if autofill finds nothing."""
+- ALWAYS use click_xy and type_xy — read the (x,y) from the Visible elements list.
+- To search Google: navigate {"url":"https://www.google.com/search?q=your+query"} — never type in search box.
+- After clicking a button that loads a new page, use wait to let it settle.
+- For login forms: type_xy the email field, click_xy the Next/Continue button, type_xy the password, click_xy Sign In.
+- Never guess what element to click — read the Visible elements list for exact coordinates."""
 
 _PLANNER_SYSTEM = """\
 You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
-running inside Electron. The user can also browse manually alongside you.
+running inside Electron. The user can browse manually alongside you.
 
-First, identify what the user actually wants to accomplish (the real goal, not just the literal words). \
-Then output ONE action as valid JSON to make progress toward that goal.
-Do NOT output any markdown, code fences, comments, or explanation — ONLY the JSON object.
+The page context includes a "Visible elements" section listing every interactive element currently \
+on screen with its coordinates: tag (x,y) "label". These coordinates are exact pixel positions — \
+use them to click and type. This works on every site regardless of framework.
+
+First understand what the user wants. Then output ONE action as valid JSON.
+Do NOT output markdown, code fences, or explanation — ONLY the JSON object.
 
 Required keys: "thought", "action", "params", "response"
 
-Actions and their params objects:
+Actions (prefer top ones):
   navigate         -> {"url": "https://..."}
-  click_selector   -> {"selector": "css_selector"}
-  trigger_autofill -> {"selector": "css_selector"}   ← preferred for email/password fields
-  type             -> {"selector": "css_selector", "text": "text to type"}
-  type_and_submit  -> {"selector": "css_selector", "text": "text to type"}
-  press_key        -> {"key": "Enter"}
-  scroll           -> {"dy": 400}
-  js               -> {"code": "javascript expression"}
+  click_xy         -> {"x": 300, "y": 450}                       ← click by screen coordinates
+  type_xy          -> {"x": 300, "y": 450, "text": "value"}      ← focus field at coords, then type
+  press_key        -> {"key": "Enter"}                            ← key sent to focused element
+  scroll           -> {"dy": 400}                                 ← positive=down, negative=up
   wait             -> {}
   talk             -> {}
   done             -> {}
-
-CSS selector reference (prefer specific):
-  Google login email:     input[type="email"], input[name="identifier"]
-  Google login password:  input[type="password"], input[name="Passwd"]
-  Google "Next" button:   #identifierNext, #passwordNext, button[jsname="LgbsSe"]
-  Google search box:      textarea[name="q"], input[name="q"]
-  AP Classroom:           navigate to myap.collegeboard.org (College Board — NOT Google Classroom)
-  Generic submit:         button[type="submit"], input[type="submit"]
-  Generic search:         input[type="search"], input[aria-label*="earch" i]
+  click_selector   -> {"selector": "css"}                         ← fallback only
+  trigger_autofill -> {"selector": "css"}                         ← trigger saved-password autofill
 
 Rules:
-- To search Google, ALWAYS navigate directly to the search URL: {"url": "https://www.google.com/search?q=your+query"} — never go to google.com and type. URL-encode spaces as +.
-- If you are not 100% certain of a site's exact URL, use a direct Google search navigate action to find it. Never guess or assume a URL.
-- AP Classroom is at myap.collegeboard.org (College Board). Google Classroom is classroom.google.com. These are completely different products.
-- For login forms: use trigger_autofill on the email field, then click Next/Continue, then trigger_autofill on the password field, then submit.
-- Prefer navigate over clicking links when you know the URL.
-- Use "talk" only for greetings or clarifications requiring no browser action.
-- Use "wait" when you need the page to finish loading.
-- Use "done" when the user's goal is fully achieved.
-- Always fill "response" with a plain-English description of what you are doing.
-- Never repeat the exact same action+params more than once in a row; if previous attempt did not change the page, choose a different action (click result, navigate directly, or wait)."""
+- Always look at the Visible elements list to find what to click — read the (x,y) coordinates and use click_xy / type_xy.
+- To search Google: navigate {"url": "https://www.google.com/search?q=your+query"} — never type in the search box.
+- If you don't know a site's URL, navigate to a Google search URL for it.
+- For login forms: type_xy the email, click_xy Next, type_xy the password, click_xy Sign In.
+- After clicking a button that navigates or opens content, use wait to let the page load.
+- Use "talk" only for greetings or questions needing no browser action.
+- Use "done" when the goal is fully achieved.
+- Never repeat the same action+params twice in a row — if stuck, scroll to find more elements or wait.
+- Always fill "response" with plain English describing what you are doing."""
 
 
 async def chat_browser_step(

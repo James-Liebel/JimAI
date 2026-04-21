@@ -4,7 +4,7 @@ import {
     Bot, User, X, Plus,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { fetchWithTimeout } from '../lib/api';
+import { fetchWithTimeout, logIssue } from '../lib/api';
 
 // ── Webview type (Electron-specific element) ─────────────────────────────────
 interface AtlasWebview extends HTMLElement {
@@ -122,9 +122,11 @@ export default function BrowserAtlas() {
     }, [messages]);
 
     // ── Get active webview ───────────────────────────────────────────────────
+    // Uses activeTabIdRef (not state) so async agent loops always see the
+    // current tab even after a new-window event switches the active tab mid-run.
     const getWv = useCallback((): AtlasWebview | null =>
-        webviewRefs.current.get(activeTabId) ?? null,
-    [activeTabId]);
+        webviewRefs.current.get(activeTabIdRef.current) ?? null,
+    []);
 
     // ── Tab operations ───────────────────────────────────────────────────────
     const openNewTab = useCallback((url = 'https://www.google.com') => {
@@ -312,10 +314,19 @@ export default function BrowserAtlas() {
                             const el = document.activeElement;
                             if (!el) return 'no_focus';
                             el.focus();
-                            // selectAll + insertText fires the full beforeinput→input→change
-                            // chain that React controlled inputs and custom frameworks rely on
-                            document.execCommand('selectAll', false);
-                            document.execCommand('insertText', false, ${JSON.stringify(text)});
+                            if (el.isContentEditable) {
+                                // contenteditable (e.g. Google Docs title): select-all then insertText
+                                document.execCommand('selectAll', false);
+                                const ok = document.execCommand('insertText', false, ${JSON.stringify(text)});
+                                if (!ok) {
+                                    // Fallback: set textContent and fire InputEvent
+                                    el.textContent = ${JSON.stringify(text)};
+                                    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
+                                }
+                            } else {
+                                document.execCommand('selectAll', false);
+                                document.execCommand('insertText', false, ${JSON.stringify(text)});
+                            }
                             return 'typed';
                         })()
                     `).catch(() => {});
@@ -436,6 +447,18 @@ export default function BrowserAtlas() {
                 break;
             }
 
+            case 'type_chars': {
+                // Send real char events through Chromium's input pipeline.
+                // Required for Google Docs body and any canvas/custom editor
+                // that doesn't expose a standard input element to execCommand.
+                const text = String(params.text ?? '');
+                for (const ch of text) {
+                    wv.sendInputEvent({ type: 'char', keyCode: ch });
+                }
+                await new Promise((r) => setTimeout(r, 300));
+                break;
+            }
+
             case 'press_key': {
                 const key = String(params.key ?? 'Enter');
                 wv.sendInputEvent({ type: 'keyDown', keyCode: key });
@@ -512,8 +535,12 @@ export default function BrowserAtlas() {
             try {
                 result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10));
             } catch (err) {
+                const msg = err instanceof Error ? err.message : 'unknown';
                 setAgentStepInfo(null);
-                addMsg('system', `Connection error: ${err instanceof Error ? err.message : 'unknown'}`);
+                addMsg('system', `Connection error: ${msg}`);
+                logIssue('browser_agent', 'connection_error', msg, {
+                    step, url, task: userMessage, tab: activeTabId,
+                });
                 break;
             }
 
@@ -528,15 +555,31 @@ export default function BrowserAtlas() {
                 historyRef.current = [...historyRef.current, { role: 'agent', content: `[${action}] ${response}` }];
             }
 
+            // Log when the agent signals it cannot complete the task
+            if (action === 'done' && response.toLowerCase().includes('cannot')) {
+                logIssue('browser_agent', 'task_failed', response, {
+                    step, url, task: userMessage, tab: activeTabId,
+                });
+            }
+
             if (action === 'done' || action === 'talk') break;
 
             await executeAction(action, params as Record<string, unknown>);
         }
 
+        if (!abortRef.current) {
+            // Reached MAX_STEPS without done/talk — log for self-improvement review
+            const { url } = await getPageState();
+            logIssue('browser_agent', 'max_steps_reached', `Task did not complete in ${MAX_STEPS} steps`, {
+                task: userMessage, url, tab: activeTabId,
+                last_actions: historyRef.current.slice(-6).map(h => h.content),
+            });
+        }
+
         setAgentStepInfo(null);
         setAgentRunning(false);
         setTimeout(() => inputRef.current?.focus(), 50);
-    }, [getPageState, executeAction, addMsg]);
+    }, [getPageState, executeAction, addMsg, activeTabId]);
 
     const sendMessage = useCallback(() => {
         const msg = input.trim();

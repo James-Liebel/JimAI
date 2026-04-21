@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
-    Bot, User, X,
+    Bot, User, X, Plus,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchWithTimeout } from '../lib/api';
@@ -30,8 +30,14 @@ interface AtlasWebview extends HTMLElement {
     isLoading(): boolean;
 }
 
-
 // ── Types ────────────────────────────────────────────────────────────────────
+interface Tab {
+    id: string;
+    url: string;
+    title: string;
+    loading: boolean;
+}
+
 interface ChatMessage {
     id: string;
     role: 'user' | 'agent' | 'system';
@@ -49,6 +55,8 @@ interface AgentStep {
 const BACKEND = 'http://127.0.0.1:8000/api/agent-space';
 const MAX_STEPS = 15;
 const isElectron = navigator.userAgent.includes('Electron');
+let _tabSeq = 1;
+const newTabId = () => `tab-${++_tabSeq}`;
 
 // ── Backend call ─────────────────────────────────────────────────────────────
 async function agentStep(
@@ -73,22 +81,27 @@ async function agentStep(
 
 // ── Component ────────────────────────────────────────────────────────────────
 export default function BrowserAtlas() {
-    const webviewRef = useRef<AtlasWebview>(null);
+    // ── Tab state ────────────────────────────────────────────────────────────
+    const [tabs, setTabs] = useState<Tab[]>([
+        { id: 'tab-1', url: 'https://www.google.com', title: '', loading: false },
+    ]);
+    const [activeTabId, setActiveTabId] = useState('tab-1');
+    const activeTabIdRef = useRef('tab-1');
+    const webviewRefs = useRef<Map<string, AtlasWebview>>(new Map());
 
-    // Navigation state
+    // ── Navigation state (active tab) ────────────────────────────────────────
     const [navInput, setNavInput] = useState('https://www.google.com');
-    const [pageTitle, setPageTitle] = useState('');
     const [canGoBack, setCanGoBack] = useState(false);
     const [canGoForward, setCanGoForward] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [pageTitle, setPageTitle] = useState('');
 
-    // Chat state
+    // ── Chat state ───────────────────────────────────────────────────────────
     const [messages, setMessages] = useState<ChatMessage[]>([
         {
             id: 'welcome',
             role: 'agent',
-            content:
-                'I can control this browser for you. Try: "Go to Amazon and search for wireless headphones" or "Open GitHub and find the qwen3 repo".',
+            content: 'I can control this browser for you. Try: "Go to Amazon and search for wireless headphones" or "Open GitHub and find the qwen3 repo".',
         },
     ]);
     const [input, setInput] = useState('');
@@ -101,61 +114,107 @@ export default function BrowserAtlas() {
     const abortRef = useRef(false);
     const historyRef = useRef<{ role: string; content: string }[]>([]);
     const chatRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef = useRef<HTMLTextAreaElement>(null);
 
     // Scroll chat to bottom whenever messages change
     useEffect(() => {
         chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages]);
 
-    // ── Wire webview events ──────────────────────────────────────────────────
-    useEffect(() => {
-        const wv = webviewRef.current;
-        if (!wv || !isElectron) return;
+    // ── Get active webview ───────────────────────────────────────────────────
+    const getWv = useCallback((): AtlasWebview | null =>
+        webviewRefs.current.get(activeTabId) ?? null,
+    [activeTabId]);
 
-        const updateNav = () => {
-            const url = wv.getURL();
-            setNavInput(url);
+    // ── Tab operations ───────────────────────────────────────────────────────
+    const openNewTab = useCallback((url = 'https://www.google.com') => {
+        const id = newTabId();
+        setTabs(prev => [...prev, { id, url, title: '', loading: false }]);
+        setActiveTabId(id);
+        activeTabIdRef.current = id;
+    }, []);
+
+    const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
+        e?.stopPropagation();
+        setTabs(prev => {
+            if (prev.length === 1) return prev;
+            const next = prev.filter(t => t.id !== id);
+            if (id === activeTabIdRef.current) {
+                const newActive = next[next.length - 1].id;
+                setActiveTabId(newActive);
+                activeTabIdRef.current = newActive;
+            }
+            return next;
+        });
+    }, []);
+
+    const switchTab = useCallback((id: string) => {
+        setActiveTabId(id);
+        activeTabIdRef.current = id;
+        // Sync nav bar to the newly active webview
+        const wv = webviewRefs.current.get(id);
+        if (wv) {
+            setNavInput(wv.getURL() || '');
+            setCanGoBack(wv.canGoBack());
+            setCanGoForward(wv.canGoForward());
+            setLoading(wv.isLoading());
+            setPageTitle(wv.getTitle() || '');
+        }
+    }, []);
+
+    // ── Bind webview events (called once per webview via callback ref) ────────
+    const bindWebview = useCallback((id: string, el: HTMLElement | null) => {
+        if (!el) { webviewRefs.current.delete(id); return; }
+        if (webviewRefs.current.get(id) === el) return; // already bound
+        const wv = el as AtlasWebview;
+        webviewRefs.current.set(id, wv);
+
+        const syncActiveNav = () => {
+            if (id !== activeTabIdRef.current) return;
+            setNavInput(wv.getURL());
             setCanGoBack(wv.canGoBack());
             setCanGoForward(wv.canGoForward());
         };
 
-        const onTitleUpdated = (e: unknown) => {
-            setPageTitle((e as { title: string }).title || '');
-        };
-
-        const onStartLoading = () => setLoading(true);
-        const onStopLoading = () => { setLoading(false); updateNav(); };
-
-        wv.addEventListener('did-navigate', updateNav);
-        wv.addEventListener('did-navigate-in-page', updateNav);
-        wv.addEventListener('page-title-updated', onTitleUpdated);
-        wv.addEventListener('did-start-loading', onStartLoading);
-        wv.addEventListener('did-stop-loading', onStopLoading);
-
-        return () => {
-            wv.removeEventListener('did-navigate', updateNav);
-            wv.removeEventListener('did-navigate-in-page', updateNav);
-            wv.removeEventListener('page-title-updated', onTitleUpdated);
-            wv.removeEventListener('did-start-loading', onStartLoading);
-            wv.removeEventListener('did-stop-loading', onStopLoading);
-        };
-    }, []);
+        wv.addEventListener('did-navigate', () => {
+            const url = wv.getURL();
+            setTabs(prev => prev.map(t => t.id === id ? { ...t, url } : t));
+            syncActiveNav();
+        });
+        wv.addEventListener('did-navigate-in-page', syncActiveNav);
+        wv.addEventListener('page-title-updated', (e) => {
+            const title = (e as { title: string }).title || '';
+            setTabs(prev => prev.map(t => t.id === id ? { ...t, title } : t));
+            if (id === activeTabIdRef.current) setPageTitle(title);
+        });
+        wv.addEventListener('did-start-loading', () => {
+            setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: true } : t));
+            if (id === activeTabIdRef.current) setLoading(true);
+        });
+        wv.addEventListener('did-stop-loading', () => {
+            setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: false } : t));
+            if (id === activeTabIdRef.current) { setLoading(false); syncActiveNav(); }
+        });
+        wv.addEventListener('new-window', (e) => {
+            const url = (e as { url: string }).url;
+            if (url?.startsWith('http')) openNewTab(url);
+        });
+    }, [openNewTab]);
 
     // ── Navigation helpers ───────────────────────────────────────────────────
     const navigate = useCallback((url?: string) => {
-        const wv = webviewRef.current;
+        const wv = getWv();
         if (!wv) return;
         let target = (url ?? navInput).trim();
         if (!target) return;
         if (!target.startsWith('http')) target = `https://${target}`;
         setNavInput(target);
         wv.loadURL(target).catch(() => {});
-    }, [navInput]);
+    }, [navInput, getWv]);
 
     // ── Page state extraction ────────────────────────────────────────────────
     const getPageState = useCallback(async (): Promise<{ url: string; title: string; pageText: string }> => {
-        const wv = webviewRef.current;
+        const wv = getWv();
         if (!wv) return { url: '', title: '', pageText: '' };
 
         const url = wv.getURL();
@@ -164,7 +223,6 @@ export default function BrowserAtlas() {
         try {
             const raw = await wv.executeJavaScript(`
                 (function() {
-                    // Visible interactive elements with screen coordinates for click_xy / type_xy
                     const W = window.innerWidth, H = window.innerHeight;
                     const elems = [...document.querySelectorAll(
                         'a[href], button, input:not([type="hidden"]), select, textarea, ' +
@@ -192,7 +250,6 @@ export default function BrowserAtlas() {
                         const href = el.getAttribute('href') || '';
                         return (type ? tag+'['+type+']' : tag) + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
                     });
-
                     const bodyText = document.body ? document.body.innerText.slice(0, 2000) : '';
                     return JSON.stringify({ bodyText, elems });
                 })()
@@ -201,14 +258,14 @@ export default function BrowserAtlas() {
             pageText = parsed.bodyText
                 + '\n\n--- Visible elements (tag (x,y) "label") ---\n'
                 + parsed.elems.join('\n');
-        } catch { /* cross-origin or CSP block — proceed without page text */ }
+        } catch { /* cross-origin or CSP — proceed without page text */ }
 
         return { url, title, pageText };
-    }, []);
+    }, [getWv]);
 
-    // ── Execute an agent action on the webview ───────────────────────────────
+    // ── Execute an agent action on the active webview ────────────────────────
     const executeAction = useCallback(async (action: string, params: Record<string, unknown>) => {
-        const wv = webviewRef.current;
+        const wv = getWv();
         if (!wv) return;
 
         switch (action) {
@@ -217,11 +274,10 @@ export default function BrowserAtlas() {
                 if (url) {
                     setNavInput(url);
                     await wv.loadURL(url).catch(() => {});
-                    // Wait for page to settle
                     await new Promise<void>((res) => {
                         const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
                         wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 5000); // fallback timeout
+                        setTimeout(res, 5000);
                     });
                 }
                 break;
@@ -247,27 +303,19 @@ export default function BrowserAtlas() {
                 const y = Number(params.y ?? 0);
                 const text = String(params.text ?? '');
                 if (x > 0 && y > 0 && text) {
-                    // Click to focus via real events
                     wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                     wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
                     await new Promise((r) => setTimeout(r, 200));
-                    // Select-all + delete to clear, then set value via native setter
-                    wv.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
-                    wv.sendInputEvent({ type: 'keyUp',   keyCode: 'A', modifiers: ['control'] });
-                    wv.sendInputEvent({ type: 'keyDown', keyCode: 'Delete' });
-                    wv.sendInputEvent({ type: 'keyUp',   keyCode: 'Delete' });
-                    await new Promise((r) => setTimeout(r, 100));
+                    await new Promise((r) => setTimeout(r, 50));
                     await wv.executeJavaScript(`
                         (function() {
                             const el = document.activeElement;
-                            if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return 'no_active_input';
-                            const proto = el instanceof HTMLTextAreaElement
-                                ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
-                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
-                            else el.value = ${JSON.stringify(text)};
-                            el.dispatchEvent(new Event('input',  { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            if (!el) return 'no_focus';
+                            el.focus();
+                            // selectAll + insertText fires the full beforeinput→input→change
+                            // chain that React controlled inputs and custom frameworks rely on
+                            document.execCommand('selectAll', false);
+                            document.execCommand('insertText', false, ${JSON.stringify(text)});
                             return 'typed';
                         })()
                     `).catch(() => {});
@@ -279,9 +327,6 @@ export default function BrowserAtlas() {
             case 'click_selector': {
                 const sel = String(params.selector ?? '');
                 if (sel) {
-                    // Scroll element into view, then use real Chromium input events.
-                    // sendInputEvent goes through the native pipeline — works on React/SPAs
-                    // where JS el.click() misses hover states and synthetic event handlers.
                     const rect = await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
@@ -296,7 +341,6 @@ export default function BrowserAtlas() {
                         wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                     } else {
-                        // Fallback for elements that aren't in the viewport
                         await wv.executeJavaScript(`
                             (function() {
                                 const el = document.querySelector(${JSON.stringify(sel)});
@@ -308,7 +352,6 @@ export default function BrowserAtlas() {
                             })()
                         `).catch(() => {});
                     }
-                    // Wait for any navigation triggered by the click
                     await new Promise<void>((res) => {
                         const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
                         wv.addEventListener('did-stop-loading', done);
@@ -322,7 +365,6 @@ export default function BrowserAtlas() {
                 const sel = String(params.selector ?? '');
                 const text = String(params.text ?? '');
                 if (sel && text) {
-                    // Click the field first via real input event to focus it properly
                     const rect = await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
@@ -338,26 +380,13 @@ export default function BrowserAtlas() {
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         await new Promise((r) => setTimeout(r, 150));
                     }
-
-                    // Clear field and set value via native React-compatible setter
                     await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            // Select all then delete so React state resets cleanly
-                            el.select && el.select();
-                            document.execCommand('selectAll');
-                            document.execCommand('delete');
-                            // Set via native prototype setter so React picks up the change
-                            const proto = el instanceof HTMLTextAreaElement
-                                ? window.HTMLTextAreaElement.prototype
-                                : window.HTMLInputElement.prototype;
-                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
-                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
-                            else el.value = ${JSON.stringify(text)};
-                            el.dispatchEvent(new Event('input',  { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            document.execCommand('selectAll', false);
+                            document.execCommand('insertText', false, ${JSON.stringify(text)});
                             return 'typed';
                         })()
                     `).catch(() => {});
@@ -385,23 +414,13 @@ export default function BrowserAtlas() {
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         await new Promise((r) => setTimeout(r, 150));
                     }
-
                     await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
                             if (!el) return 'not_found';
                             el.focus();
-                            el.select && el.select();
-                            document.execCommand('selectAll');
-                            document.execCommand('delete');
-                            const proto = el instanceof HTMLTextAreaElement
-                                ? window.HTMLTextAreaElement.prototype
-                                : window.HTMLInputElement.prototype;
-                            const setter = Object.getOwnPropertyDescriptor(proto, 'value');
-                            if (setter && setter.set) setter.set.call(el, ${JSON.stringify(text)});
-                            else el.value = ${JSON.stringify(text)};
-                            el.dispatchEvent(new Event('input',  { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            document.execCommand('selectAll', false);
+                            document.execCommand('insertText', false, ${JSON.stringify(text)});
                             el.dispatchEvent(new KeyboardEvent('keydown',  { key: 'Enter', keyCode: 13, bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
                             el.dispatchEvent(new KeyboardEvent('keyup',    { key: 'Enter', keyCode: 13, bubbles: true }));
@@ -419,7 +438,6 @@ export default function BrowserAtlas() {
 
             case 'press_key': {
                 const key = String(params.key ?? 'Enter');
-                // Send real key events through Chromium for reliable form submission
                 wv.sendInputEvent({ type: 'keyDown', keyCode: key });
                 wv.sendInputEvent({ type: 'keyUp',   keyCode: key });
                 await new Promise((r) => setTimeout(r, 800));
@@ -429,7 +447,6 @@ export default function BrowserAtlas() {
             case 'trigger_autofill': {
                 const sel = String(params.selector ?? '');
                 if (sel) {
-                    // Get real pixel coordinates so sendInputEvent triggers native Chromium autofill
                     const rect = await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
@@ -440,11 +457,9 @@ export default function BrowserAtlas() {
                     `).catch(() => null) as { x: number; y: number } | null;
 
                     if (rect) {
-                        // Real mouse events → Chromium autofill popup appears (same as human click)
                         wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
-                        await new Promise((r) => setTimeout(r, 900)); // wait for popup
-                        // ArrowDown selects first saved credential, Return confirms
+                        await new Promise((r) => setTimeout(r, 900));
                         wv.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
                         wv.sendInputEvent({ type: 'keyUp',   keyCode: 'Down' });
                         await new Promise((r) => setTimeout(r, 200));
@@ -456,10 +471,9 @@ export default function BrowserAtlas() {
                 break;
             }
 
-            case 'wait': {
+            case 'wait':
                 await new Promise((r) => setTimeout(r, 2500));
                 break;
-            }
 
             case 'scroll': {
                 const dy = Number(params.dy ?? 400);
@@ -475,14 +489,11 @@ export default function BrowserAtlas() {
                 break;
             }
         }
-    }, []);
+    }, [getWv]);
 
     // ── Chat helpers ─────────────────────────────────────────────────────────
     const addMsg = useCallback((role: ChatMessage['role'], content: string, actionLabel?: string) => {
-        setMessages((prev) => [
-            ...prev,
-            { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel },
-        ]);
+        setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel }]);
     }, []);
 
     // ── Agent loop ───────────────────────────────────────────────────────────
@@ -494,9 +505,7 @@ export default function BrowserAtlas() {
         for (let step = 0; step < MAX_STEPS; step++) {
             if (abortRef.current) break;
 
-            // Phase 1: model is deciding what to do
             setAgentStepInfo({ step: step + 1, phase: 'thinking' });
-
             const { url, title, pageText } = await getPageState();
 
             let result: AgentStep;
@@ -511,13 +520,12 @@ export default function BrowserAtlas() {
             if (abortRef.current) break;
 
             const { action = 'talk', params = {}, response = '' } = result;
-
-            // Phase 2: browser is executing the action
             setAgentStepInfo({ step: step + 1, phase: 'acting', action });
 
             if (response) {
                 addMsg('agent', response, action === 'talk' || action === 'done' ? undefined : action);
-                historyRef.current = [...historyRef.current, { role: 'agent', content: response }];
+                // Prefix action tag so backend can detect repeated-action loops
+                historyRef.current = [...historyRef.current, { role: 'agent', content: `[${action}] ${response}` }];
             }
 
             if (action === 'done' || action === 'talk') break;
@@ -545,11 +553,7 @@ export default function BrowserAtlas() {
     }, []);
 
     const clearChat = useCallback(() => {
-        setMessages([{
-            id: 'welcome-reset',
-            role: 'agent',
-            content: 'Chat cleared. What would you like me to do?',
-        }]);
+        setMessages([{ id: 'welcome-reset', role: 'agent', content: 'Chat cleared. What would you like me to do?' }]);
         historyRef.current = [];
     }, []);
 
@@ -568,12 +572,51 @@ export default function BrowserAtlas() {
     return (
         <div className="flex h-full flex-col bg-surface-0 overflow-hidden">
 
-            {/* ── Top bar ───────────────────────────────────────────────────── */}
-            <div className="flex items-center gap-1 border-b border-surface-3 bg-surface-1 px-2 py-1.5 shrink-0">
-                <Globe size={13} className="text-accent-blue mx-1 shrink-0" />
-
+            {/* ── Tab bar ───────────────────────────────────────────────────── */}
+            <div className="flex items-end gap-0 border-b border-surface-3 bg-surface-0 px-1 pt-1 shrink-0 overflow-x-auto">
+                {tabs.map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => switchTab(tab.id)}
+                        className={cn(
+                            'group flex items-center gap-1.5 px-3 py-1.5 rounded-t text-[11px] max-w-[160px] min-w-[80px] shrink-0 border border-b-0 transition-colors',
+                            tab.id === activeTabId
+                                ? 'bg-surface-1 border-surface-3 text-text-primary'
+                                : 'bg-surface-0 border-transparent text-text-muted hover:bg-surface-1 hover:text-text-secondary',
+                        )}
+                        title={tab.title || tab.url}
+                    >
+                        {tab.loading
+                            ? <RotateCcw size={9} className="shrink-0 animate-spin text-accent-blue" />
+                            : <Globe size={9} className="shrink-0 opacity-50" />
+                        }
+                        <span className="truncate flex-1 text-left">
+                            {tab.title || new URL(tab.url.startsWith('http') ? tab.url : 'https://new').hostname || 'New tab'}
+                        </span>
+                        {tabs.length > 1 && (
+                            <span
+                                role="button"
+                                onClick={(e) => closeTab(tab.id, e)}
+                                className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-accent-red transition-opacity"
+                            >
+                                <X size={9} />
+                            </span>
+                        )}
+                    </button>
+                ))}
                 <button
-                    onClick={() => webviewRef.current?.goBack()}
+                    onClick={() => openNewTab()}
+                    className="shrink-0 p-1.5 mb-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
+                    title="New tab"
+                >
+                    <Plus size={11} />
+                </button>
+            </div>
+
+            {/* ── Navigation bar ────────────────────────────────────────────── */}
+            <div className="flex items-center gap-1 border-b border-surface-3 bg-surface-1 px-2 py-1.5 shrink-0">
+                <button
+                    onClick={() => getWv()?.goBack()}
                     disabled={!canGoBack}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
                     title="Back"
@@ -581,7 +624,7 @@ export default function BrowserAtlas() {
                     <ArrowLeft size={13} />
                 </button>
                 <button
-                    onClick={() => webviewRef.current?.goForward()}
+                    onClick={() => getWv()?.goForward()}
                     disabled={!canGoForward}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
                     title="Forward"
@@ -589,7 +632,7 @@ export default function BrowserAtlas() {
                     <ArrowRight size={13} />
                 </button>
                 <button
-                    onClick={() => loading ? webviewRef.current?.stop() : webviewRef.current?.reload()}
+                    onClick={() => loading ? getWv()?.stop() : getWv()?.reload()}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
                     title={loading ? 'Stop' : 'Reload'}
                 >
@@ -619,19 +662,23 @@ export default function BrowserAtlas() {
             {/* ── Main area ─────────────────────────────────────────────────── */}
             <div className="flex flex-1 overflow-hidden min-h-0">
 
-                {/* ── Webview ─────────────────────────────────────────────── */}
-                <webview
-                    ref={webviewRef as React.RefObject<HTMLElement>}
-                    src="https://www.google.com"
-                    partition="persist:atlas"
-                    allowpopups
-                    style={{
-                        flex: 1,
-                        minWidth: 0,
-                        height: '100%',
-                        display: 'flex',
-                    }}
-                />
+                {/* ── Webviews (all mounted, active one visible) ───────────── */}
+                <div className="flex-1 min-w-0 relative">
+                    {tabs.map(tab => (
+                        <webview
+                            key={tab.id}
+                            ref={(el) => bindWebview(tab.id, el as HTMLElement | null)}
+                            src={tab.url}
+                            partition="persist:atlas"
+                            allowpopups
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                display: tab.id === activeTabId ? 'flex' : 'none',
+                            }}
+                        />
+                    ))}
+                </div>
 
                 {/* ── Agent chat panel ────────────────────────────────────── */}
                 <div className="flex w-72 shrink-0 flex-col border-l border-surface-3 bg-surface-1 min-h-0">
@@ -643,15 +690,15 @@ export default function BrowserAtlas() {
                             AI Agent
                         </span>
                         {agentStepInfo && (
-                        <span className={cn(
-                            'text-[10px] font-mono animate-pulse',
-                            agentStepInfo.phase === 'thinking' ? 'text-accent-amber' : 'text-accent-green',
-                        )}>
-                            {agentStepInfo.phase === 'thinking'
-                                ? `step ${agentStepInfo.step} · thinking`
-                                : `step ${agentStepInfo.step} · ${agentStepInfo.action}`}
-                        </span>
-                    )}
+                            <span className={cn(
+                                'text-[10px] font-mono animate-pulse',
+                                agentStepInfo.phase === 'thinking' ? 'text-accent-amber' : 'text-accent-green',
+                            )}>
+                                {agentStepInfo.phase === 'thinking'
+                                    ? `step ${agentStepInfo.step} · thinking`
+                                    : `step ${agentStepInfo.step} · ${agentStepInfo.action}`}
+                            </span>
+                        )}
                         <button
                             onClick={clearChat}
                             disabled={agentRunning}
@@ -663,19 +710,12 @@ export default function BrowserAtlas() {
                     </div>
 
                     {/* Messages */}
-                    <div
-                        ref={chatRef}
-                        className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0"
-                    >
+                    <div ref={chatRef} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
                         {messages.map((msg) => (
                             <div
                                 key={msg.id}
-                                className={cn(
-                                    'flex gap-2 items-start',
-                                    msg.role === 'user' && 'flex-row-reverse',
-                                )}
+                                className={cn('flex gap-2 items-start', msg.role === 'user' && 'flex-row-reverse')}
                             >
-                                {/* Avatar */}
                                 <div className={cn(
                                     'shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5',
                                     msg.role === 'agent' && 'bg-accent-blue/15',
@@ -686,8 +726,6 @@ export default function BrowserAtlas() {
                                     {msg.role === 'user' && <User size={10} className="text-text-muted" />}
                                     {msg.role === 'system' && <span className="text-[8px] text-accent-amber">!</span>}
                                 </div>
-
-                                {/* Bubble */}
                                 <div className={cn(
                                     'rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed max-w-[200px]',
                                     msg.role === 'agent' && 'bg-surface-2 text-text-secondary',
@@ -742,34 +780,37 @@ export default function BrowserAtlas() {
                     </div>
 
                     {/* Input */}
-                    <div className="border-t border-surface-3 p-2 flex gap-1.5 shrink-0">
-                        <input
+                    <div className="border-t border-surface-3 p-2 flex flex-col gap-1 shrink-0">
+                        <textarea
                             ref={inputRef}
-                            className="flex-1 border border-surface-4 bg-surface-2 rounded px-2.5 py-1.5 text-[12px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors min-w-0"
+                            rows={4}
+                            className="w-full resize-none border border-surface-4 bg-surface-2 rounded px-2.5 py-1.5 text-[12px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors leading-relaxed"
                             placeholder={agentRunning ? 'Agent running…' : 'Tell the agent what to do…'}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !agentRunning) sendMessage(); }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !agentRunning) { e.preventDefault(); sendMessage(); } }}
                             disabled={agentRunning}
                         />
-                        {agentRunning ? (
-                            <button
-                                onClick={stopAgent}
-                                className="shrink-0 p-1.5 rounded border border-accent-red/40 bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
-                                title="Stop agent"
-                            >
-                                <Square size={13} />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={sendMessage}
-                                disabled={!input.trim()}
-                                className="shrink-0 p-1.5 rounded border border-accent-blue/50 bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                title="Send (Enter)"
-                            >
-                                <Send size={13} />
-                            </button>
-                        )}
+                        <div className="flex justify-end">
+                            {agentRunning ? (
+                                <button
+                                    onClick={stopAgent}
+                                    className="p-1.5 rounded border border-accent-red/40 bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
+                                    title="Stop agent"
+                                >
+                                    <Square size={13} />
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={sendMessage}
+                                    disabled={!input.trim()}
+                                    className="p-1.5 rounded border border-accent-blue/50 bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                    title="Send (Enter)"
+                                >
+                                    <Send size={13} />
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

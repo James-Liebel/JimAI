@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import re
+import urllib.parse
 from typing import Any, AsyncGenerator
 
 from models import ollama_client
@@ -158,9 +159,20 @@ def _normalize_chat_action(
     if action not in allowed:
         action = "wait"
 
+    url_l = (url or "").lower()
+
+    # Convert Google search typing into a direct search URL — faster and avoids UI interaction.
+    if action in {"type", "type_and_submit"}:
+        sel = str(params.get("selector", "")).lower()
+        text = str(params.get("text", "")).strip()
+        if text and ('name="q"' in sel or "name='q'" in sel or sel in {"textarea", "input"}):
+            action = "navigate"
+            params = {"url": f"https://www.google.com/search?q={urllib.parse.quote_plus(text)}"}
+            if not response:
+                response = f'Searching Google for "{text}".'
+
     # If we're already on Google results, repeated search submissions often loop.
     # Nudge toward opening a result instead of searching again.
-    url_l = (url or "").lower()
     if action == "type_and_submit" and "google." in url_l and "/search" in url_l:
         action = "click_selector"
         params = {"selector": "a h3"}
@@ -442,14 +454,16 @@ Key selectors:
   Generic submit      : button[type="submit"]
 
 Rules:
-- If you are not 100% certain of a site's exact URL, navigate to Google and search for it first — never guess a URL.
+- To search Google, ALWAYS use navigate with a direct URL: {"url":"https://www.google.com/search?q=your+query+here"}. Never navigate to google.com and type — go straight to the search URL.
+- If you are not 100% certain of a site's exact URL, use a Google search navigate action to find it first — never guess a URL.
 - Login: ALWAYS use trigger_autofill on email and password fields. Fall back to type only if autofill finds nothing."""
 
 _PLANNER_SYSTEM = """\
 You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
 running inside Electron. The user can also browse manually alongside you.
 
-Given the current page state and the user's instruction, output ONE action as valid JSON.
+First, identify what the user actually wants to accomplish (the real goal, not just the literal words). \
+Then output ONE action as valid JSON to make progress toward that goal.
 Do NOT output any markdown, code fences, comments, or explanation — ONLY the JSON object.
 
 Required keys: "thought", "action", "params", "response"
@@ -477,13 +491,14 @@ CSS selector reference (prefer specific):
   Generic search:         input[type="search"], input[aria-label*="earch" i]
 
 Rules:
-- Use "talk" only for greetings or clarifications requiring no browser action.
-- Use "wait" when you need the page to finish loading.
-- Use "done" when the user's goal is fully achieved.
-- If you are not 100% certain of a site's exact URL, navigate to Google and search for it first. Never guess or assume a URL — wrong URLs cause the wrong site to open.
+- To search Google, ALWAYS navigate directly to the search URL: {"url": "https://www.google.com/search?q=your+query"} — never go to google.com and type. URL-encode spaces as +.
+- If you are not 100% certain of a site's exact URL, use a direct Google search navigate action to find it. Never guess or assume a URL.
 - AP Classroom is at myap.collegeboard.org (College Board). Google Classroom is classroom.google.com. These are completely different products.
 - For login forms: use trigger_autofill on the email field, then click Next/Continue, then trigger_autofill on the password field, then submit.
 - Prefer navigate over clicking links when you know the URL.
+- Use "talk" only for greetings or clarifications requiring no browser action.
+- Use "wait" when you need the page to finish loading.
+- Use "done" when the user's goal is fully achieved.
 - Always fill "response" with a plain-English description of what you are doing.
 - Never repeat the exact same action+params more than once in a row; if previous attempt did not change the page, choose a different action (click result, navigate directly, or wait)."""
 
@@ -511,12 +526,12 @@ async def chat_browser_step(
         or recent_contents.count("searching google for") >= 2
     )
 
-    use_planner = is_first_step or is_stuck
+    use_planner = is_stuck
     model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
     system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
-    num_ctx = 6144 if use_planner else 4096
-    num_predict = 256 if use_planner else 192
-    num_batch = 512
+    num_ctx = 3072 if use_planner else 2048
+    num_predict = 128 if use_planner else 80
+    num_batch = 256
 
     # Inject confirmed URL for any known service mentioned in the message
     msg_lower = message.lower()
@@ -530,7 +545,7 @@ async def chat_browser_step(
     page_block = (
         f"Current URL: {url or '(unknown)'}\n"
         f"Page title:  {title or '(unknown)'}\n\n"
-        f"Page content:\n{(page_text or '(empty)').strip()[:3000 if not use_planner else 4000]}"
+        f"Page content:\n{(page_text or '(empty)').strip()[:2000 if not use_planner else 2500]}"
     )
 
     user_prompt = (
@@ -541,7 +556,7 @@ async def chat_browser_step(
     )
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
-    for turn in history[-6:]:
+    for turn in history[-(4 if not use_planner else 6):]:
         role = str(turn.get("role", "user"))
         content = str(turn.get("content", "")).strip()
         if content and role in ("user", "agent", "assistant"):

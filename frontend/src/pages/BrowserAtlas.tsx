@@ -254,6 +254,7 @@ export default function BrowserAtlas() {
         const wv = getWv();
         if (!wv) return { url: '', title: '', pageText: '', screenshot: '' };
 
+
         const url = wv.getURL();
         const title = wv.getTitle();
         let pageText = '';
@@ -271,7 +272,7 @@ export default function BrowserAtlas() {
                         if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) return false;
                         const s = window.getComputedStyle(el);
                         return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
-                    }).slice(0, 50).map(el => {
+                    }).slice(0, 25).map(el => {
                         const r = el.getBoundingClientRect();
                         const x = Math.round(r.left + r.width / 2);
                         const y = Math.round(r.top + r.height / 2);
@@ -284,15 +285,14 @@ export default function BrowserAtlas() {
                             el.getAttribute('placeholder') ||
                             el.getAttribute('value') ||
                             el.getAttribute('title') || ''
-                        ).slice(0, 60);
+                        ).slice(0, 40);
                         const href = el.getAttribute('href') || '';
-                        // Annotate element kind so model can reason about interaction
                         let kind = type ? tag+'['+type+']' : tag;
                         if (role && role !== tag) kind += '[role='+role+']';
                         if (el.isContentEditable && tag !== 'input' && tag !== 'textarea') kind += '[editable]';
-                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
+                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,50) : '');
                     });
-                    const bodyText = document.body ? document.body.innerText.slice(0, 2000) : '';
+                    const bodyText = document.body ? document.body.innerText.slice(0, 1200) : '';
                     return JSON.stringify({ bodyText, elems });
                 })()
             `) as string;
@@ -302,17 +302,9 @@ export default function BrowserAtlas() {
                 + parsed.elems.join('\n');
         } catch { /* cross-origin or CSP — proceed without page text */ }
 
-        // Capture screenshot for vision analysis (used by backend when agent is stuck or on auth pages).
-        // Errors are silently swallowed — agent continues without vision if capture fails.
-        let screenshot = '';
-        try {
-            const img = await wv.capturePage();
-            const dataUrl = img.toDataURL();
-            // Strip "data:image/...;base64," prefix to get raw base64
-            screenshot = dataUrl.replace(/^data:[^;]+;base64,/, '');
-        } catch { /* capturePage not available in this context */ }
-
-        return { url, title, pageText, screenshot };
+        // Screenshots are only captured when BROWSER_VISION_ENABLED=True on the backend.
+        // Skipping here keeps the step lightweight (no PNG encoding + base64 overhead).
+        return { url, title, pageText, screenshot: '' };
     }, [getWv]);
 
     // ── Execute an agent action on the active webview ────────────────────────

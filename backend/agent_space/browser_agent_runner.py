@@ -22,19 +22,17 @@ from models import ollama_client
 logger = logging.getLogger(__name__)
 
 MAX_STEPS_DEFAULT = 20
-# Small, fast model — no vision needed
-AGENT_MODEL = "qwen3:8b"
+# Legacy run_browser_agent model (unused by Atlas chat panel)
+AGENT_MODEL = "qwen2.5-coder:1.5b"
 
-# Atlas chat panel — two-tier model selection.
-# Executor: qwen2.5-coder:3b — fast mechanical actions (click/type/navigate).
-# Planner:  qwen3:8b — first step + error recovery, better world knowledge.
-# num_gpu=None lets Ollama split layers across GPU+CPU automatically (balanced load).
-# OLLAMA_MAX_LOADED_MODELS=1 handles VRAM contention between browser agent and chat models.
-BROWSER_EXECUTOR_MODEL = "qwen2.5-coder:3b"
-BROWSER_PLANNER_MODEL = "qwen3:8b"
-BROWSER_NUM_GPU: int | None = None  # balanced GPU+CPU — Ollama decides layer split
-BROWSER_KEEP_ALIVE = "3m"           # unload quickly when idle
-BROWSER_VISION_MODEL = "qwen2.5vl:7b"  # multimodal — only called when planner is active
+# Atlas chat panel — single lightweight model, no swapping.
+# Using one model eliminates the load/unload cycle between executor and planner,
+# which was the main source of fan spin-up. Pull with: ollama pull qwen2.5-coder:1.5b
+# Fallback if you prefer the already-installed version: qwen2.5-coder:3b
+BROWSER_MODEL = "qwen2.5-coder:1.5b"
+BROWSER_NUM_GPU = 99          # push all layers to GPU — faster and far less CPU heat
+BROWSER_KEEP_ALIVE = "5m"     # stay warm between steps so there is no reload cost
+BROWSER_VISION_ENABLED = False  # vision adds heavy model swaps; enable only if needed
 
 # Known service → URL lookup. Injected into the prompt so the model never guesses.
 _SERVICE_URLS: dict[str, str] = {
@@ -441,83 +439,23 @@ async def run_browser_agent(
             logger.warning("browser_agent: failed to close session %s", session_id, exc_info=True)
 
 
-_EXECUTOR_SYSTEM = """\
-Browser automation executor. Output ONE action as JSON — no markdown, no extra text.
-
-The page context includes a "Visible elements" list showing every clickable/typeable element \
-with its screen coordinates: tag (x,y) "label". Use these coordinates to interact — they work \
-on every site, including React/Angular SPAs where CSS selectors break.
-
+_BROWSER_SYSTEM = """\
+Browser automation agent. Output ONE JSON action — no markdown, no extra text.
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
-The Visible elements list annotates each element's kind:
-  input[text], input[email], textarea  → standard form fields
-  div[editable], div[role=textbox]     → contenteditable rich text (titles, comment boxes)
-  div, div[role=presentation]          → may be a canvas/custom editor body
+Actions: navigate {"url":"..."} | click_xy {"x":N,"y":N} | type_xy {"x":N,"y":N,"text":"..."} \
+| type_chars {"text":"..."} | press_key {"key":"Enter"} | scroll {"dy":400} | \
+wait {} | done {} | talk {} | click_selector {"selector":"css"} | trigger_autofill {"selector":"css"}
 
-Actions (prefer top ones):
-  navigate          {"url":"https://..."}
-  click_xy          {"x":300,"y":450}                     ← click element by screen coordinates
-  type_xy           {"x":300,"y":450,"text":"value"}       ← click to focus then type; auto-handles all element types
-  type_chars        {"text":"value"}                       ← type at the already-focused element using raw keystrokes
-  press_key         {"key":"Enter"}                        ← key to focused element (Enter, Tab, Escape)
-  scroll            {"dy":400}                             ← positive=down, negative=up
-  wait              {}
-  done              {}
-  click_selector    {"selector":"css"}                     ← fallback when no coords available
-  trigger_autofill  {"selector":"css"}                     ← trigger saved-password autofill popup
-
+Page context includes "Visible elements": tag (x,y) "label" — use these coordinates to click/type.
 Rules:
-- Use type_xy for ALL text entry — it automatically detects standard inputs, contenteditable fields, and canvas editors.
-- To search Google: navigate {"url":"https://www.google.com/search?q=your+query"} — never type in search box.
-- After clicking a button that loads a new page, use wait to let it settle.
-- For login forms: type_xy the email field, click_xy the Next/Continue button, type_xy the password, click_xy Sign In.
-- For document or code editor bodies (elements shown as bare div or div[role=presentation]): click_xy to focus first, then type_chars to type text.
-- Never guess what element to click — read the Visible elements list for exact coordinates."""
-
-_PLANNER_SYSTEM = """\
-You are a browser agent embedded in an AI desktop app (JimAI). You control a real Chrome browser \
-running inside Electron. The user can browse manually alongside you.
-
-The page context includes a "Visible elements" section listing every interactive element currently \
-on screen with its coordinates: tag (x,y) "label". These coordinates are exact pixel positions — \
-use them to click and type. This works on every site regardless of framework.
-
-First understand what the user wants. Then output ONE action as valid JSON.
-Do NOT output markdown, code fences, or explanation — ONLY the JSON object.
-
-Required keys: "thought", "action", "params", "response"
-
-The Visible elements list annotates each element's kind:
-  input[text], textarea            → standard form fields → use type_xy
-  div[editable], [role=textbox]    → contenteditable rich text → use type_xy
-  div, div[role=presentation]      → possible canvas/custom editor body → click_xy then type_chars
-
-Actions (prefer top ones):
-  navigate         -> {"url": "https://..."}
-  click_xy         -> {"x": 300, "y": 450}                       ← click by screen coordinates
-  type_xy          -> {"x": 300, "y": 450, "text": "value"}      ← click to focus then type; auto-handles all element kinds
-  type_chars       -> {"text": "value"}                          ← raw keystrokes at already-focused element (canvas/custom editors)
-  press_key        -> {"key": "Enter"}                            ← key sent to focused element
-  scroll           -> {"dy": 400}                                 ← positive=down, negative=up
-  wait             -> {}
-  talk             -> {}
-  done             -> {}
-  click_selector   -> {"selector": "css"}                         ← fallback only
-  trigger_autofill -> {"selector": "css"}                         ← trigger saved-password autofill
-
-Rules:
-- Always look at the Visible elements list to find what to click — read the (x,y) coordinates.
-- Use type_xy for ALL text entry — it auto-detects the element kind and handles it correctly.
-- For bare div or div[role=presentation] elements that are editor bodies: click_xy to focus, then type_chars.
-- To search Google: navigate {"url": "https://www.google.com/search?q=your+query"} — never type in the search box.
-- If you don't know a site's URL, navigate to a Google search URL for it.
-- For login forms: type_xy the email, click_xy Next, type_xy the password, click_xy Sign In.
-- After clicking a button that navigates or opens content, use wait to let the page load.
-- Use "talk" only for greetings or questions needing no browser action.
-- Use "done" when the goal is fully achieved.
-- Never repeat the same action+params twice in a row — if stuck, scroll to find more elements or wait.
-- Always fill "response" with plain English describing what you are doing."""
+- type_xy handles all element types (inputs, contenteditable, canvas editors).
+- canvas/editor body (bare div): click_xy to focus, then type_chars.
+- Google search: navigate https://www.google.com/search?q=query — never type in search box.
+- Login: type_xy email → click_xy Next → type_xy password → click_xy Sign In.
+- After navigation/click that loads a page: use wait.
+- If stuck: scroll to reveal more elements, try different coords, or wait.
+- Never repeat the same action+params twice in a row."""
 
 
 async def _vision_analyze(screenshot_b64: str, url: str, title: str) -> str:
@@ -565,13 +503,9 @@ async def chat_browser_step(
 ) -> dict:
     """Single-step browser agent for the Atlas chat panel.
 
-    The frontend handles the execution loop; this function only generates the next action.
+    Uses a single small model with minimal context to keep CPU/GPU load low.
+    The frontend handles the execution loop; this function only picks the next action.
     """
-    # Model selection: planner for first step + error recovery, executor for everything else.
-    # Planner (qwen3:8b) reasons about the goal and recovers from failures.
-    # Executor (qwen2.5-coder:7b) is fast and accurate for mechanical click/type/navigate steps.
-    recent_contents = " ".join(str(h.get("content", "")) for h in history[-6:]).lower()
-
     # Detect repeated actions — same [action] tag 3+ times in last 5 agent turns
     agent_turns = [h for h in history if str(h.get("role", "")) in ("agent", "assistant")]
     recent_actions = [
@@ -582,68 +516,47 @@ async def chat_browser_step(
     ]
     action_loop = len(recent_actions) >= 3 and len(set(recent_actions[-3:])) == 1
 
-    is_stuck = (
-        action_loop
-        or recent_contents.count("could not parse") >= 1
-        or recent_contents.count("error") >= 2
-    )
-
-    # Always use planner on auth / login pages — small executor model loses the thread
-    url_lower = (url or "").lower()
-    is_auth_page = any(kw in url_lower for kw in [
-        "signin", "login", "auth", "myap.collegeboard", "accounts.google", "account.",
-    ])
-
-    use_planner = is_stuck or is_auth_page
-    model = BROWSER_PLANNER_MODEL if use_planner else BROWSER_EXECUTOR_MODEL
-    system_prompt = _PLANNER_SYSTEM if use_planner else _EXECUTOR_SYSTEM
-    num_ctx = 3072 if use_planner else 2048
-    num_predict = 128 if use_planner else 80
-    num_batch = 256
-
     # Inject confirmed URL for any known service mentioned in the message
     msg_lower = message.lower()
     url_hints: list[str] = [
-        f'"{name}" is at {target_url}'
+        f'"{name}" → {target_url}'
         for name, target_url in _SERVICE_URLS.items()
         if name in msg_lower
     ]
-    url_hint_block = ("Known URLs (use exactly):\n" + "\n".join(f"  {h}" for h in url_hints) + "\n\n") if url_hints else ""
+    url_hint_block = ("URLs: " + " | ".join(url_hints) + "\n") if url_hints else ""
 
-    # Vision pass — only when the planner is active (stuck or auth), since the
-    # vision model requires a model swap under OLLAMA_MAX_LOADED_MODELS=1.
+    # Optional vision pass — disabled by default (heavy model swap)
     vision_block = ""
-    if use_planner and screenshot:
+    if BROWSER_VISION_ENABLED and screenshot and action_loop:
         vision_desc = await _vision_analyze(screenshot, url, title)
         if vision_desc:
-            vision_block = f"\nVisual observation (screenshot):\n{vision_desc}\n"
-
-    page_block = (
-        f"Current URL: {url or '(unknown)'}\n"
-        f"Page title:  {title or '(unknown)'}\n"
-        f"{vision_block}\n"
-        f"Page content:\n{(page_text or '(empty)').strip()[:2000 if not use_planner else 2500]}"
-    )
+            vision_block = f"Visual observation:\n{vision_desc}\n"
 
     retry_note = ""
     if action_loop:
         looped = recent_actions[-1]
         retry_note = (
-            f"WARNING: You have repeated [{looped}] multiple times with no progress. "
-            "The page has NOT changed. You MUST try a completely different action — "
-            "scroll down to find more elements, try different coordinates, or wait.\n\n"
+            f"WARNING: [{looped}] repeated with no change. Try something different — "
+            "scroll, different coords, or wait.\n"
         )
+
+    page_block = (
+        f"URL: {url or '(unknown)'}\n"
+        f"Title: {title or '(unknown)'}\n"
+        f"{vision_block}"
+        f"Page:\n{(page_text or '(empty)').strip()[:1200]}"
+    )
 
     user_prompt = (
         f"{retry_note}"
         f"{url_hint_block}"
-        f"Page state:\n{page_block}\n\n"
-        f"User instruction: {message}\n\n"
-        "Output JSON only:"
+        f"{page_block}\n\n"
+        f"Task: {message}\nJSON:"
     )
 
-    messages: list[dict] = [{"role": "system", "content": system_prompt}]
-    for turn in history[-(4 if not use_planner else 6):]:
+    messages: list[dict] = [{"role": "system", "content": _BROWSER_SYSTEM}]
+    # Include last 2 agent turns for minimal but useful context
+    for turn in history[-4:]:
         role = str(turn.get("role", "user"))
         content = str(turn.get("content", "")).strip()
         if content and role in ("user", "agent", "assistant"):
@@ -651,16 +564,16 @@ async def chat_browser_step(
     messages.append({"role": "user", "content": user_prompt})
 
     raw = await ollama_client.chat_full(
-        model=model,
+        model=BROWSER_MODEL,
         messages=messages,
         temperature=0.1,
-        num_ctx=num_ctx,
-        num_predict=num_predict,
-        num_batch=num_batch,
+        num_ctx=1024,       # small context — actions are short, page text is trimmed
+        num_predict=80,     # JSON action fits in ~30-60 tokens
+        num_batch=128,
         repeat_penalty=1.05,
         think=False,
-        num_gpu=BROWSER_NUM_GPU,  # None = Ollama splits layers across GPU+CPU automatically
-        json_format=True,         # constrained decoding — guaranteed valid JSON, no parse failures
+        num_gpu=BROWSER_NUM_GPU,   # 99 = all layers on GPU → low CPU heat
+        json_format=True,          # constrained JSON — no parse failures
         keep_alive=BROWSER_KEEP_ALIVE,
     )
 

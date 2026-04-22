@@ -27,9 +27,8 @@ AGENT_MODEL = "qwen2.5-coder:1.5b"
 
 # Atlas chat panel — single lightweight model, no swapping.
 # Using one model eliminates the load/unload cycle between executor and planner,
-# which was the main source of fan spin-up. Pull with: ollama pull qwen2.5-coder:1.5b
-# Fallback if you prefer the already-installed version: qwen2.5-coder:3b
-BROWSER_MODEL = "qwen2.5-coder:1.5b"
+# which was the main source of fan spin-up.
+BROWSER_MODEL = "qwen2.5-coder:3b"
 BROWSER_NUM_GPU = 99          # push all layers to GPU — faster and far less CPU heat
 BROWSER_KEEP_ALIVE = "5m"     # stay warm between steps so there is no reload cost
 BROWSER_VISION_ENABLED = False  # vision adds heavy model swaps; enable only if needed
@@ -443,19 +442,26 @@ _BROWSER_SYSTEM = """\
 Browser automation agent. Output ONE JSON action — no markdown, no extra text.
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
-Actions: navigate {"url":"..."} | click_xy {"x":N,"y":N} | type_xy {"x":N,"y":N,"text":"..."} \
-| type_chars {"text":"..."} | press_key {"key":"Enter"} | scroll {"dy":400} | \
-wait {} | done {} | talk {} | click_selector {"selector":"css"} | trigger_autofill {"selector":"css"}
+Actions: navigate {"url":"..."} | click_selector {"selector":"css"} | click_xy {"x":N,"y":N} \
+| type_xy {"x":N,"y":N,"text":"..."} | type_chars {"text":"..."} | press_key {"key":"Enter"} \
+| scroll {"dy":400} | wait {} | done {} | talk {}
 
-Page context includes "Visible elements": tag (x,y) "label" — use these coordinates to click/type.
-Rules:
-- type_xy handles all element types (inputs, contenteditable, canvas editors).
-- canvas/editor body (bare div): click_xy to focus, then type_chars.
-- Google search: navigate https://www.google.com/search?q=query — never type in search box.
-- Login: type_xy email → click_xy Next → type_xy password → click_xy Sign In.
-- After navigation/click that loads a page: use wait.
-- If stuck: scroll to reveal more elements, try different coords, or wait.
-- Never repeat the same action+params twice in a row."""
+General strategy:
+1. Navigate to the right URL first. If you are not on the right site, navigate there.
+2. Prefer click_selector over click_xy — it finds elements by structure not pixel position.
+3. After any navigate or click that loads a page, use wait before the next action.
+4. If FEEDBACK says last action had no effect: try the same goal with a different method.
+   - click failed → try click_selector with a different CSS selector
+   - click_selector failed → try navigate directly to the target URL
+   - page won't load → wait, then retry
+5. To create a new file/document: look for a "New", "Create", "Blank", or "+" button.
+   If clicking it fails, try constructing a direct URL (many services support /create or /new).
+6. For text input: click_selector or type_xy to focus, then type_chars for rich editors.
+7. For search boxes: type_xy into the field then press_key Enter, or navigate with ?q=query.
+8. For login: fill email → submit/Next → fill password → submit. Use click_selector for buttons.
+9. If a page element is not visible, scroll down to reveal it.
+10. Never repeat the exact same action+params twice — change approach each retry.
+11. Use done when the goal is achieved or definitively cannot be achieved."""
 
 
 async def _vision_analyze(screenshot_b64: str, url: str, title: str) -> str:
@@ -500,6 +506,7 @@ async def chat_browser_step(
     page_text: str,
     history: list[dict],
     screenshot: str = "",
+    action_feedback: str = "",
 ) -> dict:
     """Single-step browser agent for the Atlas chat panel.
 
@@ -532,23 +539,26 @@ async def chat_browser_step(
         if vision_desc:
             vision_block = f"Visual observation:\n{vision_desc}\n"
 
-    retry_note = ""
-    if action_loop:
+    # Build feedback block — action_feedback (from frontend page-diff) takes priority,
+    # fall back to loop detection if the frontend didn't send feedback yet.
+    feedback_note = ""
+    if action_feedback:
+        feedback_note = f"{action_feedback}\n"
+    elif action_loop:
         looped = recent_actions[-1]
-        retry_note = (
-            f"WARNING: [{looped}] repeated with no change. Try something different — "
-            "scroll, different coords, or wait.\n"
+        feedback_note = (
+            f"FEEDBACK: [{looped}] repeated with no page change. Try a different approach.\n"
         )
 
     page_block = (
         f"URL: {url or '(unknown)'}\n"
         f"Title: {title or '(unknown)'}\n"
         f"{vision_block}"
-        f"Page:\n{(page_text or '(empty)').strip()[:1200]}"
+        f"Page:\n{(page_text or '(empty)').strip()[:1500]}"
     )
 
     user_prompt = (
-        f"{retry_note}"
+        f"{feedback_note}"
         f"{url_hint_block}"
         f"{page_block}\n\n"
         f"Task: {message}\nJSON:"
@@ -567,8 +577,8 @@ async def chat_browser_step(
         model=BROWSER_MODEL,
         messages=messages,
         temperature=0.1,
-        num_ctx=1024,       # small context — actions are short, page text is trimmed
-        num_predict=80,     # JSON action fits in ~30-60 tokens
+        num_ctx=2048,       # enough for system prompt + page context + history
+        num_predict=120,    # JSON action + response field
         num_batch=128,
         repeat_penalty=1.05,
         think=False,

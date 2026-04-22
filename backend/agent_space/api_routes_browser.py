@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -108,6 +110,19 @@ class AtlasChatRequest(BaseModel):
     page_text: str = ""
     history: list[dict] = []
     screenshot: str = ""
+    action_feedback: str = ""
+
+
+class BenchmarkResultRequest(BaseModel):
+    taskId: str
+    status: str
+    stepsUsed: int = 0
+    finalUrl: str = ""
+    finalPageText: str = ""
+    agentFinalResponse: str = ""
+    agentSaidDone: bool = False
+    gradeReason: str = ""
+    timestamp: float = 0.0
 
 
 def register_browser_routes(
@@ -282,7 +297,42 @@ def register_browser_routes(
             page_text=req.page_text,
             history=req.history,
             screenshot=req.screenshot,
+            action_feedback=req.action_feedback,
         )
+
+    @router.post("/benchmark/results")
+    async def benchmark_save_result(req: BenchmarkResultRequest) -> dict[str, Any]:
+        from .paths import SELF_IMPROVEMENT_DIR
+        results_file = SELF_IMPROVEMENT_DIR / "benchmark_results.jsonl"
+        entry = req.model_dump()
+        entry["saved_at"] = datetime.now(timezone.utc).isoformat()
+        with results_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return {"ok": True}
+
+    @router.get("/benchmark/results")
+    async def benchmark_get_results() -> list[dict[str, Any]]:
+        from .paths import SELF_IMPROVEMENT_DIR
+        results_file = SELF_IMPROVEMENT_DIR / "benchmark_results.jsonl"
+        if not results_file.exists():
+            return []
+        results = []
+        for line in results_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    results.append(json.loads(line))
+                except Exception:
+                    pass
+        return results
+
+    @router.delete("/benchmark/results")
+    async def benchmark_clear_results() -> dict[str, Any]:
+        from .paths import SELF_IMPROVEMENT_DIR
+        results_file = SELF_IMPROVEMENT_DIR / "benchmark_results.jsonl"
+        if results_file.exists():
+            results_file.unlink()
+        return {"ok": True}
 
     @router.get("/browser/agent/run")
     async def browser_agent_run(

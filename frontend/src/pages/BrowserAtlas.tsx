@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
-    Bot, User, X, Plus, MousePointer2,
+    Bot, User, X, Plus, MousePointer2, ListChecks, ChevronRight, FlaskConical,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchWithTimeout, logIssue } from '../lib/api';
+import { ATLAS_TASK_CATEGORIES } from '../data/atlasTasks';
+import AtlasBenchmarkPanel from '../components/AtlasBenchmarkPanel';
 
 // ── Webview type (Electron-specific element) ─────────────────────────────────
 interface AtlasWebview extends HTMLElement {
@@ -19,6 +21,8 @@ interface AtlasWebview extends HTMLElement {
         keyCode?: string;
         modifiers?: string[];
     }): void;
+    // focus() is required before sendInputEvent — events are silently dropped otherwise
+    focus(): void;
     goBack(): void;
     goForward(): void;
     reload(): void;
@@ -70,13 +74,18 @@ async function agentStep(
     pageText: string,
     history: { role: string; content: string }[],
     screenshot?: string,
+    actionFeedback?: string,
 ): Promise<AgentStep> {
     const res = await fetchWithTimeout(
         `${BACKEND}/browser/atlas/chat`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message, url, title, page_text: pageText, history, screenshot: screenshot ?? '' }),
+            body: JSON.stringify({
+                message, url, title, page_text: pageText, history,
+                screenshot: screenshot ?? '',
+                action_feedback: actionFeedback ?? '',
+            }),
         },
         90000,
     );
@@ -112,6 +121,10 @@ export default function BrowserAtlas() {
     const [input, setInput] = useState('');
     const [agentRunning, setAgentRunning] = useState(false);
     const [manualMode, setManualMode] = useState(false);
+    const [benchmarkMode, setBenchmarkMode] = useState(false);
+    const [taskPanelOpen, setTaskPanelOpen] = useState(false);
+    const [taskSearch, setTaskSearch] = useState('');
+    const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
     const [agentStepInfo, setAgentStepInfo] = useState<{
         step: number;
         phase: 'thinking' | 'acting';
@@ -220,7 +233,7 @@ export default function BrowserAtlas() {
         });
         wv.addEventListener('did-navigate-in-page', syncActiveNav);
         wv.addEventListener('page-title-updated', (e) => {
-            const title = (e as { title: string }).title || '';
+            const title = (e as unknown as { title: string }).title || '';
             setTabs(prev => prev.map(t => t.id === id ? { ...t, title } : t));
             if (id === activeTabIdRef.current) setPageTitle(title);
         });
@@ -233,7 +246,7 @@ export default function BrowserAtlas() {
             if (id === activeTabIdRef.current) { setLoading(false); syncActiveNav(); }
         });
         wv.addEventListener('new-window', (e) => {
-            const url = (e as { url: string }).url;
+            const url = (e as unknown as { url: string }).url;
             if (url?.startsWith('http')) openNewTab(url);
         });
     }, [openNewTab]);
@@ -265,14 +278,15 @@ export default function BrowserAtlas() {
                     const elems = [...document.querySelectorAll(
                         'a[href], button, input:not([type="hidden"]), select, textarea, ' +
                         '[role="button"], [role="link"], [role="tab"], [role="menuitem"], ' +
-                        '[role="option"], [role="checkbox"], [role="radio"]'
+                        '[role="option"], [role="checkbox"], [role="radio"], ' +
+                        '[jsaction], [jsname], [data-action], [data-tooltip]'
                     )].filter(el => {
                         const r = el.getBoundingClientRect();
-                        if (r.width < 2 || r.height < 2) return false;
+                        if (r.width < 4 || r.height < 4) return false;
                         if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) return false;
                         const s = window.getComputedStyle(el);
                         return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
-                    }).slice(0, 25).map(el => {
+                    }).slice(0, 35).map(el => {
                         const r = el.getBoundingClientRect();
                         const x = Math.round(r.left + r.width / 2);
                         const y = Math.round(r.top + r.height / 2);
@@ -282,17 +296,20 @@ export default function BrowserAtlas() {
                         const label = (
                             (el.innerText || '').trim().replace(/\\s+/g,' ') ||
                             el.getAttribute('aria-label') ||
+                            el.getAttribute('data-tooltip') ||
+                            el.getAttribute('title') ||
                             el.getAttribute('placeholder') ||
-                            el.getAttribute('value') ||
-                            el.getAttribute('title') || ''
-                        ).slice(0, 40);
+                            el.getAttribute('value') || ''
+                        ).slice(0, 50);
                         const href = el.getAttribute('href') || '';
+                        const jsname = el.getAttribute('jsname') || '';
                         let kind = type ? tag+'['+type+']' : tag;
                         if (role && role !== tag) kind += '[role='+role+']';
+                        if (jsname) kind += '[jsname='+jsname+']';
                         if (el.isContentEditable && tag !== 'input' && tag !== 'textarea') kind += '[editable]';
-                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,50) : '');
+                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
                     });
-                    const bodyText = document.body ? document.body.innerText.slice(0, 1200) : '';
+                    const bodyText = document.body ? document.body.innerText.slice(0, 1500) : '';
                     return JSON.stringify({ bodyText, elems });
                 })()
             `) as string;
@@ -323,6 +340,8 @@ export default function BrowserAtlas() {
                         wv.addEventListener('did-stop-loading', done);
                         setTimeout(res, 5000);
                     });
+                    // Extra settle time for SPAs that render after the load event fires
+                    await new Promise((r) => setTimeout(r, 1500));
                 }
                 break;
             }
@@ -331,6 +350,9 @@ export default function BrowserAtlas() {
                 const x = Number(params.x ?? 0);
                 const y = Number(params.y ?? 0);
                 if (x > 0 && y > 0) {
+                    // Focus the webview first — sendInputEvent is silently dropped without it
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 80));
                     wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                     wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
                     await new Promise<void>((res) => {
@@ -347,10 +369,11 @@ export default function BrowserAtlas() {
                 const y = Number(params.y ?? 0);
                 const text = String(params.text ?? '');
                 if (x > 0 && y > 0 && text) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 80));
                     wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                     wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
                     await new Promise((r) => setTimeout(r, 200));
-                    await new Promise((r) => setTimeout(r, 50));
                     // Detect element kind and type accordingly.
                     // Returns 'typed' for standard elements, 'canvas' when the active
                     // element is a custom/canvas editor that needs sendInputEvent chars.
@@ -390,30 +413,39 @@ export default function BrowserAtlas() {
             case 'click_selector': {
                 const sel = String(params.selector ?? '');
                 if (sel) {
-                    const rect = await wv.executeJavaScript(`
+                    // First try: JS click (works even without Electron focus, handles SPA event systems)
+                    const jsClicked = await wv.executeJavaScript(`
                         (function() {
                             const el = document.querySelector(${JSON.stringify(sel)});
-                            if (!el) return null;
+                            if (!el) return 'not_found';
                             el.scrollIntoView({ behavior: 'instant', block: 'center' });
-                            const r = el.getBoundingClientRect();
-                            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+                            // Dispatch full pointer+mouse event sequence for SPA frameworks
+                            ['pointerdown','mousedown','pointerup','mouseup'].forEach(t =>
+                                el.dispatchEvent(new (t.startsWith('pointer') ? PointerEvent : MouseEvent)(t, { bubbles: true, cancelable: true, view: window }))
+                            );
+                            el.click();
+                            return 'clicked';
                         })()
-                    `).catch(() => null) as { x: number; y: number } | null;
+                    `).catch(() => 'error') as string;
 
-                    if (rect && rect.x > 0 && rect.y > 0) {
-                        wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
-                        wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
-                    } else {
-                        await wv.executeJavaScript(`
+                    // Also send hardware-level events via Electron for elements that require real input
+                    if (jsClicked !== 'not_found') {
+                        const rect = await wv.executeJavaScript(`
                             (function() {
                                 const el = document.querySelector(${JSON.stringify(sel)});
-                                if (!el) return 'not_found';
-                                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                                el.dispatchEvent(new MouseEvent('mouseup',   { bubbles: true, cancelable: true }));
-                                el.click();
-                                return 'clicked';
+                                if (!el) return null;
+                                const r = el.getBoundingClientRect();
+                                return r.width > 0 && r.height > 0
+                                    ? { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+                                    : null;
                             })()
-                        `).catch(() => {});
+                        `).catch(() => null) as { x: number; y: number } | null;
+                        if (rect && rect.x > 0 && rect.y > 0) {
+                            wv.focus();
+                            await new Promise((r) => setTimeout(r, 60));
+                            wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                            wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
+                        }
                     }
                     await new Promise<void>((res) => {
                         const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
@@ -439,6 +471,8 @@ export default function BrowserAtlas() {
                     `).catch(() => null) as { x: number; y: number } | null;
 
                     if (rect && rect.x > 0 && rect.y > 0) {
+                        wv.focus();
+                        await new Promise((r) => setTimeout(r, 60));
                         wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         await new Promise((r) => setTimeout(r, 150));
@@ -473,6 +507,8 @@ export default function BrowserAtlas() {
                     `).catch(() => null) as { x: number; y: number } | null;
 
                     if (rect && rect.x > 0 && rect.y > 0) {
+                        wv.focus();
+                        await new Promise((r) => setTimeout(r, 60));
                         wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         await new Promise((r) => setTimeout(r, 150));
@@ -500,12 +536,13 @@ export default function BrowserAtlas() {
             }
 
             case 'type_chars': {
-                // Send real char events through Chromium's input pipeline.
-                // Required for Google Docs body and any canvas/custom editor
-                // that doesn't expose a standard input element to execCommand.
                 const text = String(params.text ?? '');
-                for (const ch of text) {
-                    wv.sendInputEvent({ type: 'char', keyCode: ch });
+                if (text) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 80));
+                    for (const ch of text) {
+                        wv.sendInputEvent({ type: 'char', keyCode: ch });
+                    }
                 }
                 await new Promise((r) => setTimeout(r, 300));
                 break;
@@ -513,6 +550,8 @@ export default function BrowserAtlas() {
 
             case 'press_key': {
                 const key = String(params.key ?? 'Enter');
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 60));
                 wv.sendInputEvent({ type: 'keyDown', keyCode: key });
                 wv.sendInputEvent({ type: 'keyUp',   keyCode: key });
                 await new Promise((r) => setTimeout(r, 800));
@@ -532,6 +571,8 @@ export default function BrowserAtlas() {
                     `).catch(() => null) as { x: number; y: number } | null;
 
                     if (rect) {
+                        wv.focus();
+                        await new Promise((r) => setTimeout(r, 60));
                         wv.sendInputEvent({ type: 'mouseDown', x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         await new Promise((r) => setTimeout(r, 900));
@@ -576,20 +617,46 @@ export default function BrowserAtlas() {
     }, []);
 
     // ── Agent loop ───────────────────────────────────────────────────────────
-    const runAgentLoop = useCallback(async (userMessage: string) => {
+    const runAgentLoop = useCallback(async (userMessage: string): Promise<{
+        agentSaidDone: boolean;
+        stepsUsed: number;
+        agentFinalResponse: string;
+    }> => {
         abortRef.current = false;
         setAgentRunning(true);
         historyRef.current = [...historyRef.current, { role: 'user', content: userMessage }];
 
+        let agentSaidDone = false;
+        let stepsUsed = 0;
+        let agentFinalResponse = '';
+        // Track page state to detect whether each action had any visible effect
+        let prevUrl = '';
+        let prevPageSnippet = '';
+        let actionFeedback = '';
+
         for (let step = 0; step < MAX_STEPS; step++) {
             if (abortRef.current) break;
+            stepsUsed = step + 1;
 
             setAgentStepInfo({ step: step + 1, phase: 'thinking' });
             const { url, title, pageText, screenshot } = await getPageState();
 
+            // After the first step, detect whether the previous action changed anything
+            if (step > 0) {
+                const urlChanged = url !== prevUrl;
+                const contentChanged = pageText.slice(0, 300) !== prevPageSnippet;
+                if (!urlChanged && !contentChanged) {
+                    actionFeedback = 'FEEDBACK: Last action had no visible effect — URL and page content unchanged. Try a different approach (different selector, direct URL navigate, scroll to reveal more, or wait).';
+                } else {
+                    actionFeedback = '';
+                }
+            }
+            prevUrl = url;
+            prevPageSnippet = pageText.slice(0, 300);
+
             let result: AgentStep;
             try {
-                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10), screenshot);
+                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10), screenshot, actionFeedback);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : 'unknown';
                 setAgentStepInfo(null);
@@ -606,16 +673,18 @@ export default function BrowserAtlas() {
             setAgentStepInfo({ step: step + 1, phase: 'acting', action });
 
             if (response) {
+                agentFinalResponse = response;
                 addMsg('agent', response, action === 'talk' || action === 'done' ? undefined : action);
-                // Prefix action tag so backend can detect repeated-action loops
                 historyRef.current = [...historyRef.current, { role: 'agent', content: `[${action}] ${response}` }];
             }
 
-            // Log when the agent signals it cannot complete the task
-            if (action === 'done' && response.toLowerCase().includes('cannot')) {
-                logIssue('browser_agent', 'task_failed', response, {
-                    step, url, task: userMessage, tab: activeTabId,
-                });
+            if (action === 'done') {
+                agentSaidDone = true;
+                if (response.toLowerCase().includes('cannot')) {
+                    logIssue('browser_agent', 'task_failed', response, {
+                        step, url, task: userMessage, tab: activeTabId,
+                    });
+                }
             }
 
             if (action === 'done' || action === 'talk') break;
@@ -623,8 +692,7 @@ export default function BrowserAtlas() {
             await executeAction(action, params as Record<string, unknown>);
         }
 
-        if (!abortRef.current) {
-            // Reached MAX_STEPS without done/talk — log for self-improvement review
+        if (!abortRef.current && !agentSaidDone) {
             const { url } = await getPageState().catch(() => ({ url: '' }));
             logIssue('browser_agent', 'max_steps_reached', `Task did not complete in ${MAX_STEPS} steps`, {
                 task: userMessage, url, tab: activeTabId,
@@ -635,6 +703,7 @@ export default function BrowserAtlas() {
         setAgentStepInfo(null);
         setAgentRunning(false);
         setTimeout(() => inputRef.current?.focus(), 50);
+        return { agentSaidDone, stepsUsed, agentFinalResponse };
     }, [getPageState, executeAction, addMsg, activeTabId]);
 
     const sendMessage = useCallback(() => {
@@ -644,6 +713,13 @@ export default function BrowserAtlas() {
         addMsg('user', msg);
         void runAgentLoop(msg);
     }, [input, agentRunning, addMsg, runAgentLoop]);
+
+    const runBenchmarkTask = useCallback(async (prompt: string) => {
+        addMsg('user', `[Benchmark] ${prompt}`);
+        const { agentSaidDone, stepsUsed, agentFinalResponse } = await runAgentLoop(prompt);
+        const { url, pageText } = await getPageState();
+        return { url, pageText, agentSaidDone, stepsUsed, agentFinalResponse };
+    }, [addMsg, runAgentLoop, getPageState]);
 
     const stopAgent = useCallback(() => {
         abortRef.current = true;
@@ -816,6 +892,27 @@ export default function BrowserAtlas() {
                             </span>
                         )}
                         <button
+                            onClick={() => { setTaskPanelOpen(o => !o); setTaskSearch(''); }}
+                            className={cn(
+                                'p-1 rounded hover:bg-surface-2 transition-colors',
+                                taskPanelOpen ? 'text-accent-blue' : 'text-text-muted hover:text-accent-blue',
+                            )}
+                            title="Task library — 100 pre-built tasks"
+                        >
+                            <ListChecks size={11} />
+                        </button>
+                        <button
+                            onClick={() => setBenchmarkMode(o => !o)}
+                            disabled={agentRunning}
+                            className={cn(
+                                'p-1 rounded hover:bg-surface-2 transition-colors disabled:opacity-30',
+                                benchmarkMode ? 'text-accent-amber' : 'text-text-muted hover:text-accent-amber',
+                            )}
+                            title="Benchmark mode — run and grade all 100 tasks"
+                        >
+                            <FlaskConical size={11} />
+                        </button>
+                        <button
                             onClick={() => { if (!agentRunning) setManualMode(true); }}
                             disabled={agentRunning}
                             className="p-1 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 disabled:opacity-30 transition-colors"
@@ -833,8 +930,17 @@ export default function BrowserAtlas() {
                         </button>
                     </div>
 
+                    {/* Benchmark panel (replaces chat when benchmarkMode=true) */}
+                    {benchmarkMode && (
+                        <AtlasBenchmarkPanel
+                            onRunTask={runBenchmarkTask}
+                            isAgentRunning={agentRunning}
+                            onStop={stopAgent}
+                        />
+                    )}
+
                     {/* Messages */}
-                    <div ref={chatRef} className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+                    <div ref={chatRef} className={cn('flex-1 overflow-y-auto p-3 space-y-3 min-h-0', benchmarkMode && 'hidden')}>
                         {messages.map((msg) => (
                             <div
                                 key={msg.id}
@@ -903,8 +1009,83 @@ export default function BrowserAtlas() {
                         )}
                     </div>
 
+                    {/* ── Task library panel ──────────────────────────────── */}
+                    {taskPanelOpen && !benchmarkMode && (
+                        <div className="border-t border-surface-3 flex flex-col shrink-0 max-h-64 min-h-0 bg-surface-0">
+                            <div className="px-2 pt-2 pb-1 shrink-0">
+                                <input
+                                    autoFocus
+                                    className="w-full border border-surface-4 bg-surface-2 rounded px-2 py-1 text-[11px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
+                                    placeholder="Search 100 tasks…"
+                                    value={taskSearch}
+                                    onChange={e => { setTaskSearch(e.target.value); setExpandedCategory(null); }}
+                                />
+                            </div>
+                            <div className="overflow-y-auto flex-1 pb-1">
+                                {taskSearch.trim() ? (
+                                    // Flat filtered results
+                                    ATLAS_TASK_CATEGORIES
+                                        .flatMap(c => c.tasks.map(t => ({ ...t, categoryName: c.name })))
+                                        .filter(t =>
+                                            t.label.toLowerCase().includes(taskSearch.toLowerCase()) ||
+                                            t.prompt.toLowerCase().includes(taskSearch.toLowerCase())
+                                        )
+                                        .slice(0, 20)
+                                        .map(task => (
+                                            <button
+                                                key={task.id}
+                                                onClick={() => {
+                                                    setInput(task.prompt);
+                                                    setTaskPanelOpen(false);
+                                                    setTaskSearch('');
+                                                    setTimeout(() => inputRef.current?.focus(), 50);
+                                                }}
+                                                className="w-full text-left px-2.5 py-1.5 hover:bg-surface-2 transition-colors"
+                                            >
+                                                <span className="block text-[10px] text-text-muted font-mono">{task.categoryName}</span>
+                                                <span className="block text-[11px] text-text-primary leading-snug">{task.label}</span>
+                                            </button>
+                                        ))
+                                ) : (
+                                    // Categorized accordion
+                                    ATLAS_TASK_CATEGORIES.map(cat => (
+                                        <div key={cat.name}>
+                                            <button
+                                                onClick={() => setExpandedCategory(p => p === cat.name ? null : cat.name)}
+                                                className="w-full flex items-center justify-between px-2.5 py-1.5 hover:bg-surface-2 transition-colors"
+                                            >
+                                                <span className="text-[11px] font-semibold text-text-secondary">{cat.name}</span>
+                                                <span className="flex items-center gap-1">
+                                                    <span className="text-[10px] text-text-muted">{cat.tasks.length}</span>
+                                                    <ChevronRight
+                                                        size={9}
+                                                        className={cn('text-text-muted transition-transform', expandedCategory === cat.name && 'rotate-90')}
+                                                    />
+                                                </span>
+                                            </button>
+                                            {expandedCategory === cat.name && cat.tasks.map(task => (
+                                                <button
+                                                    key={task.id}
+                                                    onClick={() => {
+                                                        setInput(task.prompt);
+                                                        setTaskPanelOpen(false);
+                                                        setExpandedCategory(null);
+                                                        setTimeout(() => inputRef.current?.focus(), 50);
+                                                    }}
+                                                    className="w-full text-left px-4 py-1 hover:bg-surface-2 transition-colors"
+                                                >
+                                                    <span className="block text-[11px] text-text-primary leading-snug">{task.label}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Input */}
-                    <div className="border-t border-surface-3 p-2 flex flex-col gap-1 shrink-0">
+                    {!benchmarkMode && <div className="border-t border-surface-3 p-2 flex flex-col gap-1 shrink-0">
                         <textarea
                             ref={inputRef}
                             rows={4}
@@ -935,7 +1116,7 @@ export default function BrowserAtlas() {
                                 </button>
                             )}
                         </div>
-                    </div>
+                    </div>}
                 </div>
             </div>
         </div>

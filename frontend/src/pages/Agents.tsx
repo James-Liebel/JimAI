@@ -12,10 +12,154 @@ import {
     X,
     ChevronUp,
     ChevronDown,
+    CheckCircle2,
+    Circle,
+    ChevronRight,
+    Zap,
+    AlertCircle,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import * as api from '../lib/workspaceAgentsApi';
 import type { WorkspaceAgent, WorkspaceTeam, SkillFileMeta } from '../lib/workspaceAgentsApi';
+
+// ── Pipeline types ────────────────────────────────────────────────────────────
+type StageStatus = 'waiting' | 'running' | 'done' | 'error';
+
+interface PipelineStage {
+    slug: string;
+    name: string;
+    avatar: string;
+    role: string;
+    status: StageStatus;
+    output: string;
+}
+
+interface PipelineRun {
+    stages: PipelineStage[];
+    running: boolean;
+    finalOutput: string;
+}
+
+// ── 9-agent change pipeline template ─────────────────────────────────────────
+const CHANGE_PIPELINE: Array<{ name: string; role: string; avatar: string; prompt: string }> = [
+    {
+        name: 'Analyst',
+        role: 'Change Analyst',
+        avatar: '🔍',
+        prompt: `You are the first stage of a change pipeline. Your job is to read the proposed change and produce a concise scoping document:
+- What exactly is being changed and why
+- Who or what is affected
+- Unknowns that need resolving before implementation
+- A one-paragraph summary for downstream agents
+
+Be thorough but brief. The next agent (Researcher) will use your output.`,
+    },
+    {
+        name: 'Researcher',
+        role: 'Context Researcher',
+        avatar: '📚',
+        prompt: `You are stage 2 of a change pipeline. You receive an analysis from the Analyst.
+Your job: surface the context needed to implement this change well.
+- Relevant existing patterns, files, or conventions already in the codebase
+- Known gotchas or constraints for this type of change
+- Best practices from the wider ecosystem
+- References to watch out for (security, performance, compatibility)
+
+Pass a concise context briefing to the Architect.`,
+    },
+    {
+        name: 'Architect',
+        role: 'Technical Architect',
+        avatar: '🏛️',
+        prompt: `You are stage 3 of a change pipeline. You receive analysis and research context.
+Your job: design the technical approach.
+- Which files/modules need to change
+- Data flow or API contract changes
+- Trade-offs between approaches with your recommendation
+- Any new abstractions or patterns needed
+
+Produce a clear technical design for the Planner.`,
+    },
+    {
+        name: 'Planner',
+        role: 'Implementation Planner',
+        avatar: '📋',
+        prompt: `You are stage 4 of a change pipeline. You receive a technical design.
+Your job: produce a numbered, ordered implementation plan.
+- Each step should be atomic and independently verifiable
+- Include any migration or rollback steps
+- Flag steps that need human confirmation before proceeding
+- Estimate relative effort per step (small/medium/large)
+
+The Coder will follow this plan exactly.`,
+    },
+    {
+        name: 'Coder',
+        role: 'Implementation Engineer',
+        avatar: '💻',
+        prompt: `You are stage 5 of a change pipeline. You receive an implementation plan.
+Your job: write the actual code changes.
+- Follow the plan step by step
+- Show the complete changed file sections (not just diffs) for each change
+- Write clean, idiomatic code with no unnecessary comments
+- If something in the plan is unclear or risky, note it inline
+
+Produce complete, ready-to-apply code. The Security reviewer goes next.`,
+    },
+    {
+        name: 'Security',
+        role: 'Security Reviewer',
+        avatar: '🔒',
+        prompt: `You are stage 6 of a change pipeline. You receive implemented code changes.
+Your job: security review only.
+- Check for injection vulnerabilities, improper auth/authz, secret exposure
+- Identify any inputs that are not validated at the boundary
+- Flag unsafe dependencies or patterns
+- Rate each finding: Critical / High / Medium / Low
+
+List findings with fix suggestions. Pass a summary to the Tester.`,
+    },
+    {
+        name: 'Tester',
+        role: 'QA Engineer',
+        avatar: '🧪',
+        prompt: `You are stage 7 of a change pipeline. You receive code and a security report.
+Your job: write tests and identify edge cases.
+- Unit test cases for new logic (describe inputs and expected outputs)
+- Integration test scenarios for changed flows
+- Edge cases and failure modes to cover
+- Regression risks from this change
+
+Write test code or test specs. Pass to the Code Reviewer.`,
+    },
+    {
+        name: 'Reviewer',
+        role: 'Code Reviewer',
+        avatar: '👁️',
+        prompt: `You are stage 8 of a change pipeline. You receive code, security findings, and tests.
+Your job: final code quality review.
+- Readability and naming
+- Logical correctness — does it actually implement the plan?
+- Performance concerns
+- Missing error handling or edge cases the tester missed
+- Anything the Integrator should fix before shipping
+
+List concrete actionable changes. Be specific about file and line.`,
+    },
+    {
+        name: 'Integrator',
+        role: 'Final Integrator',
+        avatar: '🎯',
+        prompt: `You are the final stage of a change pipeline. You receive outputs from all 8 prior agents.
+Your job: produce the definitive final output.
+- Apply all reviewer and security fixes to the code
+- Produce the complete, ready-to-ship implementation
+- Write a short summary: what changed, why, what was fixed en route
+- List any items that need human sign-off before deploying
+
+This is the deliverable. Make it complete and polished.`,
+    },
+];
 
 const ROLE_DEFAULTS: Record<string, string> = {
     Planner:
@@ -46,8 +190,7 @@ export default function Agents() {
     const [chatInput, setChatInput] = useState('');
     const [streaming, setStreaming] = useState(false);
     const [teamTask, setTeamTask] = useState('');
-    const [teamLog, setTeamLog] = useState<string>('');
-    const [teamRunning, setTeamRunning] = useState(false);
+    const [pipelineRun, setPipelineRun] = useState<PipelineRun | null>(null);
     const [menuOpen, setMenuOpen] = useState<string | null>(null);
     const [modal, setModal] = useState<
         | null
@@ -118,7 +261,7 @@ export default function Agents() {
         setSelectedTeamId(null);
         setSelectedAgentId(id);
         setChatMessages([]);
-        setTeamLog('');
+        setPipelineRun(null);
     };
 
     const selectTeam = (id: string) => {
@@ -127,7 +270,7 @@ export default function Agents() {
         setSkills([]);
         setSelectedTeamId(id);
         setChatMessages([]);
-        setTeamLog('');
+        setPipelineRun(null);
     };
 
     const saveAgentFields = async (patch: Partial<WorkspaceAgent>) => {
@@ -178,30 +321,106 @@ export default function Agents() {
     };
 
     const runTeam = async () => {
-        if (!selectedTeamId || !teamTask.trim() || teamRunning) return;
-        setTeamRunning(true);
-        setTeamLog('');
+        const team = teams.find((t) => t.id === selectedTeamId);
+        if (!team || !teamTask.trim() || pipelineRun?.running) return;
+
+        const roster = team.agent_ids
+            .map((id) => agents.find((a) => a.id === id))
+            .filter(Boolean) as WorkspaceAgent[];
+
+        const initialStages: PipelineStage[] = roster.map((a) => ({
+            slug: a.slug,
+            name: a.name,
+            avatar: a.avatar,
+            role: a.role,
+            status: 'waiting',
+            output: '',
+        }));
+
+        setPipelineRun({ stages: initialStages, running: true, finalOutput: '' });
+
         try {
-            await api.streamTeamRun(selectedTeamId, teamTask.trim(), (ev) => {
-                if (ev.type === 'chunk' && typeof ev.text === 'string') {
-                    setTeamLog((l) => l + ev.text);
-                } else if (ev.type === 'log' && typeof ev.message === 'string') {
-                    setTeamLog((l) => l + `\n[log] ${ev.message}\n`);
+            await api.streamTeamRun(selectedTeamId!, teamTask.trim(), (ev) => {
+                if (ev.type === 'chunk') {
+                    const slug = String(ev.agent ?? '');
+                    setPipelineRun((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            stages: prev.stages.map((s) =>
+                                s.slug === slug
+                                    ? { ...s, status: 'running', output: s.output + String(ev.text ?? '') }
+                                    : s,
+                            ),
+                        };
+                    });
                 } else if (ev.type === 'agent_done') {
-                    setTeamLog((l) => l + `\n--- agent ${String(ev.agent)} done ---\n`);
-                } else if (ev.type === 'error' && typeof ev.message === 'string') {
-                    setTeamLog((l) => l + `\n[error] ${ev.message}\n`);
+                    const slug = String(ev.agent ?? '');
+                    setPipelineRun((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            stages: prev.stages.map((s) =>
+                                s.slug === slug ? { ...s, status: 'done' } : s,
+                            ),
+                        };
+                    });
+                } else if (ev.type === 'error') {
+                    setPipelineRun((prev) => {
+                        if (!prev) return prev;
+                        const runningIdx = prev.stages.findIndex((s) => s.status === 'running');
+                        return {
+                            ...prev,
+                            running: false,
+                            stages: prev.stages.map((s, i) =>
+                                i === runningIdx ? { ...s, status: 'error', output: s.output + `\n[error] ${String(ev.message ?? '')}` } : s,
+                            ),
+                        };
+                    });
                 } else if (ev.type === 'done') {
                     const fin = typeof ev.final === 'string' ? ev.final : '';
-                    if (fin) setTeamLog((l) => l + `\n\n${fin}`);
-                    else setTeamLog((l) => l + '\n--- run complete ---\n');
+                    setPipelineRun((prev) => {
+                        if (!prev) return prev;
+                        return {
+                            ...prev,
+                            running: false,
+                            finalOutput: fin,
+                            stages: prev.stages.map((s) =>
+                                s.status === 'running' ? { ...s, status: 'done' } : s,
+                            ),
+                        };
+                    });
                 }
             });
         } catch (e) {
-            setTeamLog((l) => l + `\nError: ${e instanceof Error ? e.message : e}`);
-        } finally {
-            setTeamRunning(false);
+            setPipelineRun((prev) =>
+                prev ? { ...prev, running: false } : null,
+            );
         }
+    };
+
+    const quickCreateChangePipeline = async () => {
+        const model = models[0] || 'qwen3:8b';
+        const createdIds: string[] = [];
+        for (const def of CHANGE_PIPELINE) {
+            const a = await api.createWorkspaceAgent({
+                name: def.name,
+                role: def.role,
+                avatar: def.avatar,
+                model,
+                system_prompt: def.prompt,
+            });
+            createdIds.push(a.id);
+        }
+        const team = await api.createTeam({
+            name: 'Change Pipeline',
+            description: '9-stage sequential pipeline: Analyst → Researcher → Architect → Planner → Coder → Security → Tester → Reviewer → Integrator',
+            workflow: 'sequential',
+            agent_ids: createdIds,
+            shared_skills: [],
+        });
+        await refresh();
+        selectTeam(team.id);
     };
 
     const filteredSkills = skills.filter(
@@ -344,21 +563,31 @@ export default function Agents() {
                             <p className="px-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                                 Teams
                             </p>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setModal({ type: 'newTeam' });
-                                    setNewTeamForm({
-                                        name: '',
-                                        description: '',
-                                        workflow: 'orchestrated',
-                                        agent_ids: agents[0] ? [agents[0].id] : [],
-                                    });
-                                }}
-                                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-btn border border-surface-4 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3"
-                            >
-                                <Users className="w-3.5 h-3.5" /> New Team
-                            </button>
+                            <div className="flex gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setModal({ type: 'newTeam' });
+                                        setNewTeamForm({
+                                            name: '',
+                                            description: '',
+                                            workflow: 'orchestrated',
+                                            agent_ids: agents[0] ? [agents[0].id] : [],
+                                        });
+                                    }}
+                                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-btn border border-surface-4 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-3"
+                                >
+                                    <Users className="w-3.5 h-3.5" /> New Team
+                                </button>
+                                <button
+                                    type="button"
+                                    title="Create 9-agent Change Pipeline in one click"
+                                    onClick={() => void quickCreateChangePipeline()}
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded-btn border border-accent/40 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
+                                >
+                                    <Zap className="w-3 h-3" /> Pipeline
+                                </button>
+                            </div>
                             {teams.map((t) => (
                                 <button
                                     key={t.id}
@@ -386,8 +615,7 @@ export default function Agents() {
                                 agents={agents}
                                 teamTask={teamTask}
                                 setTeamTask={setTeamTask}
-                                teamLog={teamLog}
-                                teamRunning={teamRunning}
+                                pipelineRun={pipelineRun}
                                 onRun={() => void runTeam()}
                             />
                         ) : agentDetail ? (
@@ -902,64 +1130,177 @@ function Modal({
     );
 }
 
+function StageIcon({ status }: { status: StageStatus }) {
+    if (status === 'done') return <CheckCircle2 className="w-4 h-4 text-accent-green shrink-0" />;
+    if (status === 'running') return <Loader2 className="w-4 h-4 text-accent animate-spin shrink-0" />;
+    if (status === 'error') return <AlertCircle className="w-4 h-4 text-accent-red shrink-0" />;
+    return <Circle className="w-4 h-4 text-text-muted/40 shrink-0" />;
+}
+
 function TeamCenter({
     team,
     agents,
     teamTask,
     setTeamTask,
-    teamLog,
-    teamRunning,
+    pipelineRun,
     onRun,
 }: {
     team: WorkspaceTeam | undefined;
     agents: WorkspaceAgent[];
     teamTask: string;
     setTeamTask: (s: string) => void;
-    teamLog: string;
-    teamRunning: boolean;
+    pipelineRun: PipelineRun | null;
     onRun: () => void;
 }) {
+    const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
+
     if (!team) {
         return (
             <div className="flex flex-col h-full min-h-0 items-center justify-center text-text-muted text-sm p-8">
-                Team not found. Select another from the list.
+                Team not found.
             </div>
         );
     }
+
     const roster = team.agent_ids
         .map((id) => agents.find((a) => a.id === id))
         .filter(Boolean) as WorkspaceAgent[];
+
+    const isRunning = pipelineRun?.running ?? false;
+
     return (
-        <div className="flex flex-col h-full min-h-0 p-4">
-            <h2 className="text-lg font-semibold mb-1">{team.name}</h2>
-            <p className="text-xs text-text-muted mb-3">{team.description}</p>
-            <div className="flex flex-wrap gap-2 mb-4">
-                {roster.map((a, i) => (
-                    <span
-                        key={a.id}
-                        className="text-xs px-2 py-1 rounded-none bg-surface-2 border border-surface-4"
-                    >
-                        {i === 0 ? 'Lead: ' : ''}
-                        {a.avatar} {a.name}
-                    </span>
-                ))}
+        <div className="flex flex-col h-full min-h-0">
+            {/* Header */}
+            <div className="shrink-0 border-b border-surface-5 px-4 py-3 space-y-1">
+                <h2 className="text-sm font-semibold text-text-primary">{team.name}</h2>
+                {team.description && (
+                    <p className="text-xs text-text-muted">{team.description}</p>
+                )}
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {roster.map((a, i) => (
+                        <span
+                            key={a.id}
+                            className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-badge border border-surface-4 bg-surface-2 text-text-muted"
+                        >
+                            <span>{a.avatar}</span>
+                            <span>{a.name}</span>
+                            {i < roster.length - 1 && (
+                                <ChevronRight className="w-2.5 h-2.5 opacity-30" />
+                            )}
+                        </span>
+                    ))}
+                </div>
             </div>
-            <textarea
-                className="w-full min-h-[80px] text-sm bg-surface-2 rounded p-2 border border-surface-4 mb-2"
-                placeholder="What task should this team tackle?"
-                value={teamTask}
-                onChange={(e) => setTeamTask(e.target.value)}
-            />
-            <button
-                type="button"
-                disabled={teamRunning}
-                onClick={onRun}
-                className="mb-4 px-4 py-2 rounded-none bg-accent text-white text-sm disabled:opacity-50"
-            >
-                {teamRunning ? 'Running…' : 'Run team'}
-            </button>
-            <div className="flex-1 min-h-0 overflow-y-auto rounded-none border border-surface-4 p-2 bg-surface-1 text-xs font-mono whitespace-pre-wrap">
-                {teamLog || <span className="text-text-muted">Execution log will appear here.</span>}
+
+            {/* Input + run */}
+            <div className="shrink-0 px-4 py-3 border-b border-surface-5 space-y-2">
+                <textarea
+                    className="w-full min-h-[72px] text-sm bg-surface-2 rounded-btn border border-surface-4 p-2.5 text-text-primary resize-y placeholder-text-muted focus:outline-none focus:border-accent"
+                    placeholder="Describe the change you want to make…"
+                    value={teamTask}
+                    onChange={(e) => setTeamTask(e.target.value)}
+                    disabled={isRunning}
+                />
+                <button
+                    type="button"
+                    disabled={isRunning || !teamTask.trim()}
+                    onClick={onRun}
+                    className="w-full py-2 rounded-btn bg-accent text-white text-sm font-medium disabled:opacity-50 hover:bg-accent-hover transition-colors"
+                >
+                    {isRunning ? (
+                        <span className="flex items-center justify-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Pipeline running…
+                        </span>
+                    ) : (
+                        'Run pipeline'
+                    )}
+                </button>
+            </div>
+
+            {/* Pipeline stages */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {!pipelineRun ? (
+                    <div className="flex flex-col items-center justify-center h-full p-8 text-center text-text-muted">
+                        <Zap className="w-8 h-8 opacity-20 mb-3" />
+                        <p className="text-sm font-medium text-text-secondary">Ready to run</p>
+                        <p className="text-xs mt-1">
+                            Describe a change above and hit Run. Each stage builds on the last.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="p-3 space-y-1.5">
+                        {pipelineRun.stages.map((stage, i) => {
+                            const isExpanded = expandedSlug === stage.slug || stage.status === 'running';
+                            return (
+                                <div
+                                    key={stage.slug}
+                                    className={cn(
+                                        'rounded-btn border transition-colors',
+                                        stage.status === 'running' && 'border-accent/40 bg-accent/5',
+                                        stage.status === 'done' && 'border-surface-4 bg-surface-1',
+                                        stage.status === 'error' && 'border-accent-red/40 bg-accent-red/5',
+                                        stage.status === 'waiting' && 'border-surface-4 bg-surface-0 opacity-50',
+                                    )}
+                                >
+                                    {/* Stage header */}
+                                    <button
+                                        type="button"
+                                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"
+                                        onClick={() => setExpandedSlug(isExpanded && stage.status !== 'running' ? null : stage.slug)}
+                                    >
+                                        <span className="text-[11px] font-mono text-text-muted w-4 shrink-0">{i + 1}</span>
+                                        <StageIcon status={stage.status} />
+                                        <span className="text-base leading-none shrink-0">{stage.avatar}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-medium text-text-primary">{stage.name}</div>
+                                            <div className="text-[11px] text-text-muted">{stage.role}</div>
+                                        </div>
+                                        {stage.output && stage.status !== 'running' && (
+                                            <ChevronRight
+                                                className={cn(
+                                                    'w-3.5 h-3.5 text-text-muted transition-transform',
+                                                    isExpanded && 'rotate-90',
+                                                )}
+                                            />
+                                        )}
+                                    </button>
+
+                                    {/* Stage output */}
+                                    {isExpanded && stage.output && (
+                                        <div className="px-3 pb-3">
+                                            <div className="rounded border border-surface-4 bg-surface-0 p-2.5 text-xs text-text-secondary font-mono whitespace-pre-wrap max-h-64 overflow-y-auto leading-relaxed">
+                                                {stage.output}
+                                                {stage.status === 'running' && (
+                                                    <span className="inline-flex gap-0.5 ml-1">
+                                                        <span className="animate-bounce [animation-delay:0ms]">·</span>
+                                                        <span className="animate-bounce [animation-delay:100ms]">·</span>
+                                                        <span className="animate-bounce [animation-delay:200ms]">·</span>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+
+                        {/* Final output */}
+                        {pipelineRun.finalOutput && !pipelineRun.running && (
+                            <div className="mt-3 rounded-btn border border-accent-green/40 bg-accent-green/5 p-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <CheckCircle2 className="w-4 h-4 text-accent-green" />
+                                    <span className="text-xs font-semibold text-accent-green uppercase tracking-wide">
+                                        Final output
+                                    </span>
+                                </div>
+                                <div className="text-xs text-text-secondary font-mono whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
+                                    {pipelineRun.finalOutput}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

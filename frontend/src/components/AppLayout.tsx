@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { GitPullRequest, MessageSquare, Settings } from 'lucide-react';
+import { GitPullRequest, Settings } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import MobileNav from './MobileNav';
 import { AppAssistDock } from './AppAssistDock';
+import CommandPalette from './CommandPalette';
 import type { SpeedMode } from '../lib/types';
 import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
@@ -74,6 +75,7 @@ export default function AppLayout() {
     const notifiedRunIdsRef = useRef<Set<string>>(new Set());
     const runStartTimesRef = useRef<Map<string, number>>(new Map());
     const ollamaHealthFailuresRef = useRef(0);
+    const [paletteOpen, setPaletteOpen] = useState(false);
     const appInstanceIdRef = useRef('');
     const appInstanceHeartbeatRef = useRef<number | null>(null);
     const appInstanceClosedRef = useRef(false);
@@ -169,7 +171,10 @@ export default function AppLayout() {
     }, [loadNotificationSettings]);
 
     useEffect(() => {
-        const checkHealth = async () => {
+        let timer: number | null = null;
+        let cancelled = false;
+
+        const checkHealth = async (): Promise<boolean> => {
             try {
                 const health = await api.getHealth();
                 ollamaHealthFailuresRef.current = 0;
@@ -179,20 +184,48 @@ export default function AppLayout() {
                     url: String(health.ollama_url || 'http://localhost:11434'),
                     backendReachable: true,
                 });
+                return true;
             } catch {
                 ollamaHealthFailuresRef.current += 1;
-                if (ollamaHealthFailuresRef.current < 3) return;
-                setOllamaHealth((current) => ({
-                    checked: true,
-                    ok: false,
-                    url: current.url || 'http://localhost:11434',
-                    backendReachable: false,
-                }));
+                if (ollamaHealthFailuresRef.current >= 3) {
+                    setOllamaHealth((current) => ({
+                        checked: true,
+                        ok: false,
+                        url: current.url || 'http://localhost:11434',
+                        backendReachable: false,
+                    }));
+                }
+                return false;
             }
         };
-        checkHealth().catch(() => undefined);
-        const id = window.setInterval(() => checkHealth().catch(() => undefined), 5000);
-        return () => window.clearInterval(id);
+
+        const schedule = (delayMs: number) => {
+            if (cancelled) return;
+            timer = window.setTimeout(async () => {
+                const ok = await checkHealth();
+                // Healthy: poll every 5s. Failing: back off 5 → 10 → 20 → 30s (cap).
+                const failures = ollamaHealthFailuresRef.current;
+                const next = ok ? 5000 : Math.min(30000, 5000 * Math.pow(2, Math.max(0, failures - 1)));
+                schedule(next);
+            }, delayMs);
+        };
+
+        schedule(0);
+        return () => {
+            cancelled = true;
+            if (timer !== null) window.clearTimeout(timer);
+        };
+    }, []);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+                e.preventDefault();
+                setPaletteOpen((o) => !o);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
     }, []);
 
     useEffect(() => {
@@ -382,19 +415,8 @@ export default function AppLayout() {
                     <Outlet context={{ speedMode, onSpeedModeChange: handleSpeedModeChange }} />
                 </main>
             </div>
-            {isMobile && location.pathname !== '/chat' && (
-                <button
-                    type="button"
-                    onClick={() => navigate('/chat')}
-                    className="fixed right-4 z-50 flex items-center gap-2 rounded-btn border border-accent/30 bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-lg md:hidden"
-                    style={{ bottom: 'calc(64px + env(safe-area-inset-bottom, 0px))' }}
-                    aria-label="Open chat"
-                >
-                    <MessageSquare size={16} />
-                    Chat
-                </button>
-            )}
             {isMobile && <MobileNav />}
+            <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         </div>
     );
 }

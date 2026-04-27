@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary';
+import LoadingScreen from './components/LoadingScreen';
 import './index.css';
 
 const SERVICE_WORKER_VERSION = '2026-03-22-1';
@@ -58,13 +59,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
         <ErrorBoundary>
         <BrowserRouter>
-            <Suspense
-                fallback={
-                    <div className="h-screen w-screen flex items-center justify-center bg-surface-0 text-text-secondary text-sm">
-                        Loading jimAI...
-                    </div>
-                }
-            >
+            <Suspense fallback={<LoadingScreen />}>
                 <Routes>
                     <Route element={<AppLayout />}>
                         <Route path="/" element={<Navigate to="/chat" replace />} />

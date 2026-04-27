@@ -143,6 +143,8 @@ def _normalize_chat_action(
 
     allowed = {
         "navigate",
+        "click_index",
+        "type_index",
         "click_xy",
         "type_xy",
         "type_chars",
@@ -181,7 +183,13 @@ def _normalize_chat_action(
             response = "Opening the top search result."
 
     # Fill in minimal defaults so frontend executor always has valid params.
-    if action == "click_xy":
+    if action == "click_index":
+        params.setdefault("index", -1)
+    elif action == "type_index":
+        params.setdefault("index", -1)
+        params.setdefault("text", "")
+        params.setdefault("submit", False)
+    elif action == "click_xy":
         params.setdefault("x", 0)
         params.setdefault("y", 0)
     elif action == "type_chars":
@@ -191,16 +199,19 @@ def _normalize_chat_action(
         params.setdefault("y", 0)
         params.setdefault("text", "")
     elif action in {"type", "type_and_submit"}:
-        params.setdefault("selector", 'textarea[name="q"],input[name="q"]')
         params.setdefault("text", "")
-    elif action == "click_selector":
-        params.setdefault("selector", "button[type='submit']")
     elif action == "navigate":
         params.setdefault("url", "")
     elif action == "press_key":
         params.setdefault("key", "Enter")
     elif action == "scroll":
         params.setdefault("dy", 400)
+    # Reject malformed click_index / type_index up front so the executor
+    # doesn't waste a step on an invalid index.
+    if action == "click_index" and (not isinstance(params.get("index"), int) or params.get("index", -1) < 0):
+        action = "wait"
+    if action == "type_index" and (not isinstance(params.get("index"), int) or params.get("index", -1) < 0 or not params.get("text")):
+        action = "wait"
 
     # If parse failed, do not expose raw parser error to users; recover gracefully.
     if parsed is None:
@@ -442,26 +453,43 @@ _BROWSER_SYSTEM = """\
 Browser automation agent. Output ONE JSON action — no markdown, no extra text.
 Format: {"thought":"one sentence","action":"ACTION","params":{...},"response":"plain English"}
 
-Actions: navigate {"url":"..."} | click_selector {"selector":"css"} | click_xy {"x":N,"y":N} \
-| type_xy {"x":N,"y":N,"text":"..."} | type_chars {"text":"..."} | press_key {"key":"Enter"} \
-| scroll {"dy":400} | wait {} | done {} | talk {}
+You receive the page as an INDEXED list of interactive elements:
+  [0] <button> "Sign in"
+  [1] <input type=email> "Email"
+  [2] <a href=/signup> "Create account"
+Address elements ONLY by their numeric index. Do not write CSS selectors or pixel
+coordinates — the executor resolves the index to the real DOM node.
 
-General strategy:
-1. Navigate to the right URL first. If you are not on the right site, navigate there.
-2. Prefer click_selector over click_xy — it finds elements by structure not pixel position.
-3. After any navigate or click that loads a page, use wait before the next action.
-4. If FEEDBACK says last action had no effect: try the same goal with a different method.
-   - click failed → try click_selector with a different CSS selector
-   - click_selector failed → try navigate directly to the target URL
-   - page won't load → wait, then retry
-5. To create a new file/document: look for a "New", "Create", "Blank", or "+" button.
-   If clicking it fails, try constructing a direct URL (many services support /create or /new).
-6. For text input: click_selector or type_xy to focus, then type_chars for rich editors.
-7. For search boxes: type_xy into the field then press_key Enter, or navigate with ?q=query.
-8. For login: fill email → submit/Next → fill password → submit. Use click_selector for buttons.
-9. If a page element is not visible, scroll down to reveal it.
-10. Never repeat the exact same action+params twice — change approach each retry.
-11. Use done when the goal is achieved or definitively cannot be achieved."""
+Actions:
+  navigate    {"url": "https://..."}                — load a URL in the current tab
+  click_index {"index": N}                          — click element [N] from the listing
+  type_index  {"index": N, "text": "...", "submit": true|false}
+                                                    — focus element [N], type text, optionally press Enter
+  press_key   {"key": "Enter"|"Tab"|"Escape"|...}  — send a key to the focused element
+  scroll      {"dy": 400}                           — scroll down (positive) or up (negative)
+  wait        {}                                    — wait ~1.5s for SPA rendering
+  done        {}                                    — goal complete or impossible
+  talk        {}                                    — answer the user without acting
+
+Strategy:
+1. If you are not on the right site, navigate to a known URL first. Prefer direct
+   URLs (e.g. https://accounts.google.com/signin) over clicking through nav menus.
+2. After a navigate, the next step you receive will show the new page's indexed
+   elements. Pick the one that matches your intent by its label.
+3. For login forms: type_index into the email field with submit=false, then
+   type_index into the password field with submit=true, OR click_index the
+   "Sign in" / "Continue" button.
+4. For search boxes: type_index with submit=true, or navigate ?q=query.
+5. If FEEDBACK says the last action had no visible effect, the index you picked
+   was probably wrong or the click was intercepted — pick a different index, or
+   navigate directly to the target URL.
+6. Never repeat the exact same {action, index} twice in a row. If it didn't work
+   the first time, choose a different element or strategy.
+7. If the desired element isn't in the listing, scroll. If still not visible,
+   the page may render it lazily — wait, then re-check.
+8. Use done when the user's goal is satisfied or definitively impossible.
+9. Use talk when the user only asked a question and no browser action is needed.
+"""
 
 
 async def _vision_analyze(screenshot_b64: str, url: str, title: str) -> str:

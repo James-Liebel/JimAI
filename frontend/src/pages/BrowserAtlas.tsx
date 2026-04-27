@@ -58,7 +58,7 @@ interface AgentStep {
 }
 
 const BACKEND = 'http://127.0.0.1:8000/api/agent-space';
-const MAX_STEPS = 15;
+const MAX_STEPS = 25;
 const isElectron = navigator.userAgent.includes('Electron');
 let _tabSeq = 1;
 const newTabId = () => `tab-${++_tabSeq}`;
@@ -263,65 +263,129 @@ export default function BrowserAtlas() {
     }, [navInput, getWv]);
 
     // ── Page state extraction ────────────────────────────────────────────────
-    const getPageState = useCallback(async (): Promise<{ url: string; title: string; pageText: string; screenshot: string }> => {
+    // Each call:
+    //   1) clears any prior data-jimai-id attributes (incl. inside same-origin iframes)
+    //   2) collects visible interactive elements, scores them, takes the top N
+    //   3) writes data-jimai-id="<index>" on each kept element so the executor can
+    //      resolve click_index(i) → document.querySelector('[data-jimai-id="i"]')
+    //   4) returns the indexed listing the model sees, plus the count of indices
+    const getPageState = useCallback(async (): Promise<{
+        url: string; title: string; pageText: string; screenshot: string; elemCount: number;
+    }> => {
         const wv = getWv();
-        if (!wv) return { url: '', title: '', pageText: '', screenshot: '' };
-
+        if (!wv) return { url: '', title: '', pageText: '', screenshot: '', elemCount: 0 };
 
         const url = wv.getURL();
         const title = wv.getTitle();
         let pageText = '';
+        let elemCount = 0;
         try {
             const raw = await wv.executeJavaScript(`
                 (function() {
-                    const W = window.innerWidth, H = window.innerHeight;
-                    const elems = [...document.querySelectorAll(
-                        'a[href], button, input:not([type="hidden"]), select, textarea, ' +
+                    const LOGIN_LEX = /\\b(sign[- ]?in|sign[- ]?up|log[- ]?in|continue|next|submit|login|email|password|username|search|create)\\b/i;
+                    const SELECTOR = 'a[href], button, input:not([type="hidden"]):not([type="submit"]), input[type="submit"], select, textarea, ' +
                         '[role="button"], [role="link"], [role="tab"], [role="menuitem"], ' +
-                        '[role="option"], [role="checkbox"], [role="radio"], ' +
-                        '[jsaction], [jsname], [data-action], [data-tooltip]'
-                    )].filter(el => {
-                        const r = el.getBoundingClientRect();
-                        if (r.width < 4 || r.height < 4) return false;
-                        if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) return false;
-                        const s = window.getComputedStyle(el);
-                        return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) > 0.1;
-                    }).slice(0, 35).map(el => {
-                        const r = el.getBoundingClientRect();
-                        const x = Math.round(r.left + r.width / 2);
-                        const y = Math.round(r.top + r.height / 2);
-                        const tag = el.tagName.toLowerCase();
-                        const type = el.getAttribute('type') || '';
-                        const role = el.getAttribute('role') || '';
-                        const label = (
-                            (el.innerText || '').trim().replace(/\\s+/g,' ') ||
-                            el.getAttribute('aria-label') ||
-                            el.getAttribute('data-tooltip') ||
-                            el.getAttribute('title') ||
-                            el.getAttribute('placeholder') ||
-                            el.getAttribute('value') || ''
-                        ).slice(0, 50);
-                        const href = el.getAttribute('href') || '';
-                        const jsname = el.getAttribute('jsname') || '';
-                        let kind = type ? tag+'['+type+']' : tag;
-                        if (role && role !== tag) kind += '[role='+role+']';
-                        if (jsname) kind += '[jsname='+jsname+']';
-                        if (el.isContentEditable && tag !== 'input' && tag !== 'textarea') kind += '[editable]';
-                        return kind + ' ('+x+','+y+') "'+label+'"' + (href ? ' -> '+href.slice(0,60) : '');
-                    });
-                    const bodyText = document.body ? document.body.innerText.slice(0, 1500) : '';
-                    return JSON.stringify({ bodyText, elems });
+                        '[role="option"], [role="checkbox"], [role="radio"], [contenteditable="true"], [jsaction]';
+
+                    function clearMarks(doc) {
+                        const marked = doc.querySelectorAll('[data-jimai-id]');
+                        marked.forEach(el => el.removeAttribute('data-jimai-id'));
+                    }
+
+                    function collect(doc, frame) {
+                        const W = (frame && frame.clientWidth) || window.innerWidth;
+                        const H = (frame && frame.clientHeight) || window.innerHeight;
+                        const out = [];
+                        let nodes;
+                        try { nodes = doc.querySelectorAll(SELECTOR); } catch (e) { return out; }
+                        for (const el of nodes) {
+                            let r;
+                            try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+                            if (r.width < 4 || r.height < 4) continue;
+                            if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) continue;
+                            const s = doc.defaultView ? doc.defaultView.getComputedStyle(el) : window.getComputedStyle(el);
+                            if (s.visibility === 'hidden' || s.display === 'none' || parseFloat(s.opacity) < 0.1) continue;
+                            const label = ((el.innerText || '').trim().replace(/\\s+/g,' ')
+                                || el.getAttribute('aria-label')
+                                || el.getAttribute('placeholder')
+                                || el.getAttribute('title')
+                                || el.getAttribute('value')
+                                || el.getAttribute('name')
+                                || '').slice(0, 80);
+                            const tag = el.tagName.toLowerCase();
+                            const type = (el.getAttribute('type') || '').toLowerCase();
+                            const role = (el.getAttribute('role') || '').toLowerCase();
+                            const href = el.getAttribute('href') || '';
+                            let score = 0;
+                            if (LOGIN_LEX.test(label)) score += 8;
+                            if (tag === 'button' || (tag === 'input' && (type === 'submit' || type === 'button'))) score += 3;
+                            if (tag === 'input' && (type === 'email' || type === 'password' || type === 'text' || type === '')) score += 2;
+                            if (role === 'button' || role === 'link') score += 1;
+                            if (r.top < H / 2) score += 1;          // upper half — likelier primary CTA
+                            if (label.length > 0) score += 1;
+                            out.push({ el, tag, type, role, label, href, score, top: r.top });
+                        }
+                        return out;
+                    }
+
+                    clearMarks(document);
+                    let all = collect(document, null);
+                    const frames = document.querySelectorAll('iframe');
+                    for (const f of frames) {
+                        let cdoc = null;
+                        try { cdoc = f.contentDocument; } catch (e) { /* cross-origin */ }
+                        if (!cdoc) continue;
+                        clearMarks(cdoc);
+                        all = all.concat(collect(cdoc, f));
+                    }
+
+                    // Stable sort: higher score first, then by document order via top.
+                    all.sort((a, b) => b.score - a.score || a.top - b.top);
+                    const top = all.slice(0, 60);
+
+                    const lines = [];
+                    for (let i = 0; i < top.length; i++) {
+                        const it = top[i];
+                        try { it.el.setAttribute('data-jimai-id', String(i)); } catch (e) { continue; }
+                        let descriptor = it.tag;
+                        if (it.type) descriptor += ' type=' + it.type;
+                        if (it.role && it.role !== it.tag) descriptor += ' role=' + it.role;
+                        let line = '[' + i + '] <' + descriptor + '>';
+                        if (it.label) line += ' "' + it.label.replace(/"/g, "'") + '"';
+                        if (it.href && it.href.length < 80) line += ' → ' + it.href;
+                        lines.push(line);
+                    }
+
+                    const bodyText = document.body ? document.body.innerText.replace(/\\s+/g,' ').trim().slice(0, 1200) : '';
+                    return JSON.stringify({ bodyText, lines, count: lines.length });
                 })()
             `) as string;
-            const parsed = JSON.parse(raw) as { bodyText: string; elems: string[] };
-            pageText = parsed.bodyText
-                + '\n\n--- Visible elements (tag (x,y) "label") ---\n'
-                + parsed.elems.join('\n');
+            const parsed = JSON.parse(raw) as { bodyText: string; lines: string[]; count: number };
+            elemCount = parsed.count;
+            pageText = 'Interactive elements:\n' + parsed.lines.join('\n')
+                + (parsed.bodyText ? '\n\nPage text:\n' + parsed.bodyText : '');
         } catch { /* cross-origin or CSP — proceed without page text */ }
 
-        // Screenshots are only captured when BROWSER_VISION_ENABLED=True on the backend.
-        // Skipping here keeps the step lightweight (no PNG encoding + base64 overhead).
-        return { url, title, pageText, screenshot: '' };
+        return { url, title, pageText, screenshot: '', elemCount };
+    }, [getWv]);
+
+    const awaitDomChange = useCallback(async (
+        prevUrl: string, prevElemCount: number, capMs = 1500,
+    ): Promise<boolean> => {
+        const wv = getWv();
+        if (!wv) return false;
+        const t0 = Date.now();
+        while (Date.now() - t0 < capMs) {
+            await new Promise((r) => setTimeout(r, 120));
+            try {
+                if (wv.getURL() !== prevUrl) return true;
+                const c = await wv.executeJavaScript(
+                    `document.querySelectorAll('[data-jimai-id]').length`,
+                ).catch(() => prevElemCount) as number;
+                if (typeof c === 'number' && c !== prevElemCount) return true;
+            } catch { /* continue */ }
+        }
+        return false;
     }, [getWv]);
 
     // ── Execute an agent action on the active webview ────────────────────────
@@ -330,6 +394,98 @@ export default function BrowserAtlas() {
         if (!wv) return;
 
         switch (action) {
+            case 'click_index': {
+                const idx = Number(params.index ?? params.id ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                const prevUrl = wv.getURL();
+                const prevCount = await wv.executeJavaScript(
+                    `document.querySelectorAll('[data-jimai-id]').length`,
+                ).catch(() => 0) as number;
+                const point = await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return null;
+                        try { el.scrollIntoView({behavior:'instant', block:'center'}); } catch(e){}
+                        try { el.focus(); } catch(e){}
+                        try { el.click(); } catch(e){}
+                        const r = el.getBoundingClientRect();
+                        const href = el.getAttribute('href') || '';
+                        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2), href };
+                    })()
+                `).catch(() => null) as { x: number; y: number; href: string } | null;
+
+                if (await awaitDomChange(prevUrl, prevCount, 1200)) break;
+
+                if (point && point.x > 0 && point.y > 0) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 60));
+                    wv.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+                    wv.sendInputEvent({ type: 'mouseUp',   x: point.x, y: point.y, button: 'left', clickCount: 1 });
+                    if (await awaitDomChange(prevUrl, prevCount, 1500)) break;
+                    if (point.href && point.href.startsWith('http')) {
+                        await wv.loadURL(point.href).catch(() => {});
+                        await awaitDomChange(prevUrl, prevCount, 4000);
+                    }
+                }
+                break;
+            }
+
+            case 'type_index': {
+                const idx = Number(params.index ?? params.id ?? -1);
+                const text = String(params.text ?? '');
+                const submit = Boolean(params.submit ?? params.press_enter ?? false);
+                if (!Number.isFinite(idx) || idx < 0 || !text) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                const prevUrl = wv.getURL();
+                const prevCount = await wv.executeJavaScript(
+                    `document.querySelectorAll('[data-jimai-id]').length`,
+                ).catch(() => 0) as number;
+                await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return false;
+                        try { el.scrollIntoView({behavior:'instant', block:'center'}); } catch(e){}
+                        try { el.focus(); } catch(e){}
+                        const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+                        if (isInput) {
+                            const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                            const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+                            setter.call(el, ${JSON.stringify(text)});
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        } else if (el.isContentEditable) {
+                            el.textContent = ${JSON.stringify(text)};
+                            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
+                        } else {
+                            try { document.execCommand('selectAll', false); } catch(e){}
+                            try { document.execCommand('insertText', false, ${JSON.stringify(text)}); } catch(e){}
+                        }
+                        return true;
+                    })()
+                `).catch(() => {});
+                if (submit) {
+                    await new Promise((r) => setTimeout(r, 100));
+                    await wv.executeJavaScript(`
+                        (function(){
+                            const el = document.querySelector(${JSON.stringify(sel)});
+                            if (!el) return;
+                            ['keydown','keypress','keyup'].forEach(t =>
+                                el.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', keyCode: 13, bubbles: true }))
+                            );
+                            const form = el.form;
+                            if (form && typeof form.requestSubmit === 'function') {
+                                try { form.requestSubmit(); } catch(e){ try { form.submit(); } catch(_){} }
+                            }
+                        })()
+                    `).catch(() => {});
+                    await awaitDomChange(prevUrl, prevCount, 4000);
+                } else {
+                    await awaitDomChange(prevUrl, prevCount, 600);
+                }
+                break;
+            }
+
             case 'navigate': {
                 const url = String(params.url ?? '');
                 if (url) {
@@ -629,9 +785,11 @@ export default function BrowserAtlas() {
         let agentSaidDone = false;
         let stepsUsed = 0;
         let agentFinalResponse = '';
-        // Track page state to detect whether each action had any visible effect
+        // Track page state to detect whether each action had any visible effect.
+        // We compare URL and the count of indexed interactive elements — both are
+        // structural signals that flip only when the page actually changes.
         let prevUrl = '';
-        let prevPageSnippet = '';
+        let prevElemCount = -1;
         let actionFeedback = '';
 
         for (let step = 0; step < MAX_STEPS; step++) {
@@ -639,20 +797,19 @@ export default function BrowserAtlas() {
             stepsUsed = step + 1;
 
             setAgentStepInfo({ step: step + 1, phase: 'thinking' });
-            const { url, title, pageText, screenshot } = await getPageState();
+            const { url, title, pageText, screenshot, elemCount } = await getPageState();
 
-            // After the first step, detect whether the previous action changed anything
             if (step > 0) {
                 const urlChanged = url !== prevUrl;
-                const contentChanged = pageText.slice(0, 300) !== prevPageSnippet;
-                if (!urlChanged && !contentChanged) {
-                    actionFeedback = 'FEEDBACK: Last action had no visible effect — URL and page content unchanged. Try a different approach (different selector, direct URL navigate, scroll to reveal more, or wait).';
+                const elemsChanged = elemCount !== prevElemCount;
+                if (!urlChanged && !elemsChanged) {
+                    actionFeedback = 'FEEDBACK: Last action had no visible effect — URL and interactive element set unchanged. Try a different element index, navigate to a direct URL, or scroll to reveal more.';
                 } else {
                     actionFeedback = '';
                 }
             }
             prevUrl = url;
-            prevPageSnippet = pageText.slice(0, 300);
+            prevElemCount = elemCount;
 
             let result: AgentStep;
             try {

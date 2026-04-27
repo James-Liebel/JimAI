@@ -60,7 +60,16 @@
       "Bash(ollama pull *)",
       "Bash(python3 -c \"import sys,json; [print\\(m['name']\\) for m in json.load\\(sys.stdin\\).get\\('models',[]\\)]\")",
       "Bash(node_modules/.bin/tsc --noEmit)",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(mkdir -p /c/Users/james/JimAI-1/frontend/.claude/commands)",
+      "Bash(cp /c/Users/james/.claude/commands/propose.md /c/Users/james/JimAI-1/frontend/.claude/commands/propose.md)",
+      "Bash(node_modules/.bin/tsc.cmd --noEmit)",
+      "Bash(where node *)",
+      "Bash(cmd /c \"node_modules\\\\.bin\\\\tsc.cmd --noEmit\")",
+      "Bash(node node_modules/typescript/bin/tsc --noEmit)",
+      "WebFetch(domain:openai.com)",
+      "WebSearch",
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\('backend/agent_space/browser_agent_runner.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")"
     ]
   }
 }

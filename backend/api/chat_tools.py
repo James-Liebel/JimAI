@@ -506,53 +506,79 @@ def detect_needed_tools(message: str) -> list[str]:
     return tools
 
 
+# Per-tool wall-clock budget (seconds). Anything that exceeds → success:False with
+# an explicit "timed out" error so the chat surface and routing payload show it.
+_TOOL_TIMEOUTS: dict[str, float] = {
+    "datetime": 2.0, "sysinfo": 2.0, "uuid": 2.0, "color": 2.0, "text_stats": 2.0,
+    "math": 5.0, "calculator": 3.0, "unit_convert": 3.0, "hash": 3.0,
+    "base64": 3.0, "json_format": 3.0, "regex_test": 3.0,
+    "git": 8.0, "file_read": 6.0, "code_exec": 8.0,
+}
+_TOOL_TIMEOUT_DEFAULT = 5.0
+
+
+async def _with_timeout(name: str, coro: Any) -> dict[str, Any]:
+    """Run a tool coroutine under a per-tool wall-clock budget."""
+    timeout = _TOOL_TIMEOUTS.get(name, _TOOL_TIMEOUT_DEFAULT)
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        return {"tool": name, "success": False, "error": f"timed out after {timeout:.0f}s"}
+    except Exception as exc:
+        return {"tool": name, "success": False, "error": str(exc)[:200]}
+
+
 async def run_tools(message: str) -> list[dict[str, Any]]:
-    """Run all detected tools concurrently. Returns results list."""
+    """Run all detected tools concurrently with per-tool timeouts. Returns results list."""
     needed = detect_needed_tools(message)
     if not needed:
         return []
 
     tasks: list[asyncio.Task] = []
+
+    def _add(name: str, coro: Any) -> None:
+        tasks.append(asyncio.create_task(_with_timeout(name, coro)))
+
     for name in needed:
         if name == "datetime":
-            tasks.append(asyncio.create_task(_run_datetime()))
+            _add(name, _run_datetime())
         elif name == "sysinfo":
-            tasks.append(asyncio.create_task(_run_sysinfo()))
+            _add(name, _run_sysinfo())
         elif name == "git":
-            tasks.append(asyncio.create_task(_run_git(message)))
+            _add(name, _run_git(message))
         elif name == "file_read":
-            tasks.append(asyncio.create_task(_run_file_read(message)))
+            _add(name, _run_file_read(message))
         elif name == "code_exec":
             m = _CODE_BLOCK.search(message)
             code = m.group(1).strip() if m else ""
             if code:
-                tasks.append(asyncio.create_task(_run_python(code)))
+                _add(name, _run_python(code))
         elif name == "unit_convert":
-            tasks.append(asyncio.create_task(_run_unit_convert(message)))
+            _add(name, _run_unit_convert(message))
         elif name == "hash":
-            tasks.append(asyncio.create_task(_run_hash(message)))
+            _add(name, _run_hash(message))
         elif name == "base64":
-            tasks.append(asyncio.create_task(_run_base64(message)))
+            _add(name, _run_base64(message))
         elif name == "json_format":
-            tasks.append(asyncio.create_task(_run_json_format(message)))
+            _add(name, _run_json_format(message))
         elif name == "regex_test":
-            tasks.append(asyncio.create_task(_run_regex_test(message)))
+            _add(name, _run_regex_test(message))
         elif name == "text_stats":
-            tasks.append(asyncio.create_task(_run_text_stats(message)))
+            _add(name, _run_text_stats(message))
         elif name == "uuid":
-            tasks.append(asyncio.create_task(_run_uuid()))
+            _add(name, _run_uuid())
         elif name == "color":
-            tasks.append(asyncio.create_task(_run_color(message)))
+            _add(name, _run_color(message))
         elif name == "math":
             m = _MATH_INLINE.search(message)
             expr = m.group(1).strip() if m else ""
             if expr:
-                tasks.append(asyncio.create_task(_run_math(expr)))
+                _add(name, _run_math(expr))
         elif name == "calculator":
             m = _CALC_EXPR.search(message)
             expr = m.group(1).strip() if m else ""
             if expr:
-                tasks.append(asyncio.create_task(_run_calculator(expr)))
+                _add(name, _run_calculator(expr))
 
     if not tasks:
         return []

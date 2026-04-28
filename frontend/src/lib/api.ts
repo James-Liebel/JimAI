@@ -73,6 +73,7 @@ export async function streamChat(
     imageBase64?: string,
     skillSlugs?: string[],
     autoSelectSkills?: boolean,
+    signal?: AbortSignal,
 ): Promise<void> {
     const body: Record<string, unknown> = {
         message,
@@ -92,11 +93,28 @@ export async function streamChat(
         body.auto_select_skills = true;
     }
 
-    const resp = await fetchWithTimeout(`${BASE}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    }, 120000);
+    // Chat streams indefinitely; use a 2-minute connection timeout but allow the
+    // external signal to abort the whole stream (e.g. user resends).
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), 120000);
+    const onExternalAbort = () => timeoutController.abort();
+    if (signal) {
+        if (signal.aborted) timeoutController.abort();
+        else signal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+
+    let resp: Response;
+    try {
+        resp = await fetch(`${BASE}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-JimAI-CSRF': '1' },
+            body: JSON.stringify(body),
+            signal: timeoutController.signal,
+        });
+    } finally {
+        clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onExternalAbort);
+    }
 
     if (!resp.ok) throw new Error(`Chat failed: ${resp.status}`);
     if (!resp.body) throw new Error('No response body');
@@ -107,8 +125,18 @@ export async function streamChat(
     let doneEmitted = false;
 
     while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        if (signal?.aborted) {
+            try { await reader.cancel(); } catch { /* ignore */ }
+            break;
+        }
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+            chunk = await reader.read();
+        } catch {
+            break; // network error or aborted mid-read
+        }
+        if (chunk.done) break;
+        const value = chunk.value;
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');

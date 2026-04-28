@@ -314,6 +314,15 @@ export default function Chat() {
                                         </span>
                                     );
                                 })}
+                                {(lastRouting?.tool_errors ?? []).map((err, idx) => (
+                                    <span
+                                        key={`tool-err-${idx}`}
+                                        className="rounded-badge border border-accent-red/30 bg-accent-red/10 px-2 py-0.5 text-accent-red"
+                                        title={err}
+                                    >
+                                        ⚠ {err.split(':')[0]} failed
+                                    </span>
+                                ))}
                             </>
                         )}
                     </div>

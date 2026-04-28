@@ -16,6 +16,7 @@ export function useChat() {
     const [chatList, setChatList] = useState<api.ChatListItem[]>([]);
     const sessionIdRef = useRef(chatId);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const abortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         sessionIdRef.current = chatId;
@@ -56,6 +57,13 @@ export function useChat() {
 
     const sendMessage = useCallback(
         async (content: string, imageBase64?: string) => {
+            // Cancel any in-flight stream so the new turn doesn't race.
+            if (abortRef.current) {
+                abortRef.current.abort();
+                abortRef.current = null;
+            }
+            const controller = new AbortController();
+            abortRef.current = controller;
             const mode: Mode = modelOverride ? (modelOverride as Mode) : 'chat';
 
             const userMsg: Message = {
@@ -177,24 +185,53 @@ export function useChat() {
                     imageBase64,
                     undefined,
                     true,
+                    controller.signal,
                 );
             } catch (err) {
-                appendChunk(`\n\n**Error:** ${err instanceof Error ? err.message : 'Unknown error'}`);
-                setMessages((prev) => {
-                    const updated = [...prev];
-                    const last = updated[updated.length - 1];
-                    if (last?.role === 'assistant' && last.isStreaming) {
-                        updated[updated.length - 1] = { ...last, isStreaming: false };
-                    }
-                    return updated;
-                });
+                if (controller.signal.aborted) {
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        const last = updated[updated.length - 1];
+                        if (last?.role === 'assistant' && last.isStreaming) {
+                            updated[updated.length - 1] = { ...last, isStreaming: false };
+                        }
+                        return updated;
+                    });
+                } else {
+                    appendChunk(`\n\n**Error:** ${err instanceof Error ? err.message : 'Unknown error'}`);
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        const last = updated[updated.length - 1];
+                        if (last?.role === 'assistant' && last.isStreaming) {
+                            updated[updated.length - 1] = { ...last, isStreaming: false };
+                        }
+                        return updated;
+                    });
+                }
                 setIsStreaming(false);
                 setSearchingWeb(false);
                 setSearchStatus('');
+            } finally {
+                if (abortRef.current === controller) abortRef.current = null;
             }
         },
         [messages, modelOverride, chatTitle, autoSave],
     );
+
+    const stopStream = useCallback(() => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setIsStreaming(false);
+        setSearchingWeb(false);
+        setSearchStatus('');
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            abortRef.current?.abort();
+            abortRef.current = null;
+        };
+    }, []);
 
     const newChat = useCallback(async () => {
         await api.clearHistory(sessionIdRef.current);
@@ -236,6 +273,7 @@ export function useChat() {
         modelOverride,
         setModelOverride,
         sendMessage,
+        stopStream,
         newChat,
         sessionId: chatId,
         chatList,

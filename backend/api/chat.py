@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
 from urllib.parse import quote_plus, urlparse
 
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 
 from agent_space.web_research import fetch_web, search_web
 from agents.judge import judge_response, should_judge, JudgeVerdict
-from agents.self_consistency import self_consistent_math
+from agents.self_consistency import self_consistent_quant
 from config.inference_params import get_inference_params
 from config.models import MODEL_ROUTES, get_speed_mode
 from config.settings import (
@@ -330,6 +331,28 @@ def _build_direct_retailer_fallback_urls(message: str) -> list[str]:
         seen.add(key)
         deduped.append(url)
     return deduped[:6]
+
+
+_TECHNICAL_HINTS = re.compile(
+    r"```|"
+    r"\b(exactly|precisely|step by step|explain|debug|fix|solve|calculate|compute|"
+    r"derive|prove|integrate|differentiate|evaluate|simplify|implement|refactor|"
+    r"optimi[sz]e|benchmark|complexity|big[- ]?o)\b|"
+    r"\b(algorithm|function|class|variable|equation|formula|theorem|matrix|"
+    r"derivative|integral|gradient|tensor|vector)\b|"
+    r"[=<>]+|"
+    r"\b\d+(?:\.\d+)?\s*(?:%|kg|km|lb|lbs|mph|kph|gb|mb|kb|hz|mhz|ghz|ms|s|min|h|"
+    r"°c|°f|c|f|m|cm|mm|ft|in)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_technical_message(text: str) -> bool:
+    """Heuristic: should the chat/writing model use a tighter temperature for this turn?"""
+    s = str(text or "").strip()
+    if not s:
+        return False
+    return bool(_TECHNICAL_HINTS.search(s))
 
 
 def _response_looks_stale_for_live_request(response_text: str) -> bool:
@@ -851,6 +874,7 @@ async def _stream_chat(
     from api.chat_tools import run_tools, build_tool_context, detect_needed_tools
     tool_results: list[dict] = []
     tool_names_used: list[str] = []
+    tool_errors: list[str] = []
     needed_tools = detect_needed_tools(message)
     if needed_tools and not browser_png_b64:
         status_label = " · ".join(
@@ -863,8 +887,16 @@ async def _stream_chat(
         try:
             tool_results = await run_tools(message)
             tool_names_used = [r["tool"] for r in tool_results if r.get("tool")]
+            for r in tool_results:
+                if not r.get("success", True):
+                    err = str(r.get("error") or "tool failed")
+                    tool_errors.append(f"{r.get('tool', 'tool')}: {err[:200]}")
         except Exception as _te:
             logger.warning("Tool dispatch failed: %s", _te)
+            tool_errors.append(f"dispatch: {str(_te)[:200]}")
+        if tool_errors:
+            err_status = "Tool errors: " + "; ".join(tool_errors[:3])
+            yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': err_status})}\n\n"
         yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': ''})}\n\n"
 
     # Retrieve RAG context — scoped to sources ingested in this chat/session
@@ -932,6 +964,7 @@ async def _stream_chat(
             "chat_browser_capture": bool(browser_png_b64),
             "chat_browser_url": browser_capture_url or None,
             "tools_used": tool_names_used,
+            "tool_errors": tool_errors,
         }
         session_store.add_message(session_id, "assistant", fallback, mode)
         yield f"data: {json.dumps({'text': fallback, 'done': True, 'sources': [], 'routing': routing_info})}\n\n"
@@ -964,7 +997,13 @@ async def _stream_chat(
 
     # Get model config for this mode
     config = get_model_config(mode)
-    system_prompt = config.system_prompt
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    date_line = (
+        f"Today's date is {today_iso}. Treat this as authoritative current time. "
+        "Do not say 'as of my last update' or refer to a stale knowledge cutoff — "
+        "use web context or tool results when supplied for current facts."
+    )
+    system_prompt = f"{date_line}\n\n{config.system_prompt}" if config.system_prompt else date_line
     if browser_png_b64:
         system_prompt = (
             f"{system_prompt}\n\n"
@@ -980,7 +1019,8 @@ async def _stream_chat(
     # Inject style profile for writing mode
     if mode == "writing":
         profile = load_style_profile()
-        system_prompt = build_style_system_prompt(profile)
+        style_sp = build_style_system_prompt(profile)
+        system_prompt = f"{date_line}\n\n{style_sp}" if style_sp else date_line
 
     # Inject knowledge graph context
     from memory.knowledge_graph import get_context_prompt
@@ -1065,6 +1105,7 @@ async def _stream_chat(
         "chat_browser_capture": bool(browser_png_b64),
         "chat_browser_url": browser_capture_url or None,
         "tools_used": tool_names_used,
+        "tool_errors": tool_errors,
     }
 
     # ── Hybrid pipeline execution ──────────────────────────────────────
@@ -1237,7 +1278,18 @@ async def _stream_chat(
     set_current_model(config.model)
 
     speed_mode = get_speed_mode()
-    params = get_inference_params(mode, speed_mode)
+    params = dict(get_inference_params(mode, speed_mode))
+    # Sharpen chat/writing on technical asks (code blocks, equations, "exactly", units, ...).
+    # Math/code/finance modes already have tight temps; only relax-default modes need this.
+    if mode in {"chat", "writing"} and _is_technical_message(message):
+        current_temp = float(params.get("temperature", config.temperature))
+        params["temperature"] = min(current_temp, 0.4)
+    # Lift num_predict on code-mode asks that include a large pasted code block,
+    # so refactor/explain answers don't get truncated mid-function.
+    if mode == "code":
+        big_code_chars = sum(len(m) for m in re.findall(r"```[\s\S]*?```", message))
+        if big_code_chars >= 800:
+            params["num_predict"] = max(int(params.get("num_predict") or 0), 4096)
     images = [image_b64] if image_b64 and mode == "vision" else None
     chat_messages = ollama_client._build_chat_messages(
         history_for_model,
@@ -1252,15 +1304,17 @@ async def _stream_chat(
     judge_meta: Optional[dict] = None
     full_response_str: str
 
-    # Math (non-hybrid): self-consistency sampling, then optional judge, then stream final answer
-    if mode == "math" and not routing.is_hybrid:
-        consistency = await self_consistent_math(message)
+    # Quant (math/finance, non-hybrid): self-consistency sampling, then optional judge, then stream final answer
+    if mode in {"math", "finance"} and not routing.is_hybrid:
+        consistency = await self_consistent_quant(message, domain=mode)
         full_response_str = consistency["answer"]
         consistency_meta = {
             "confidence": consistency.get("confidence", "single_shot"),
             "agreement_rate": consistency.get("agreement_rate"),
             "n_samples": consistency.get("n_samples", 1),
+            "domain": mode,
         }
+        judge_correction_appendix = ""
         if should_judge(mode, speed_mode.value, len(message)):
             verdict = await judge_response(
                 question=message,
@@ -1269,13 +1323,19 @@ async def _stream_chat(
                 domain=mode,
             )
             if verdict and not verdict.passed and verdict.revised_response:
-                full_response_str = verdict.revised_response
+                judge_correction_appendix = (
+                    "\n\n---\n**Correction (judge):**\n"
+                    + str(verdict.revised_response).strip()
+                )
             judge_meta = _judge_meta(verdict) if verdict else None
-        # Stream the final answer in chunks
+        # Stream the final answer in chunks (then the correction, if any).
         chunk_size = 80
         for i in range(0, len(full_response_str), chunk_size):
             chunk = full_response_str[i : i + chunk_size]
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
+        if judge_correction_appendix:
+            full_response_str = full_response_str + judge_correction_appendix
+            yield f"data: {json.dumps({'text': judge_correction_appendix, 'done': False, 'model': config.model, 'judge_corrected': True})}\n\n"
     else:
         # Standard single-shot generation with inference params
         full_response = []
@@ -1302,7 +1362,13 @@ async def _stream_chat(
                 domain=mode,
             )
             if verdict and not verdict.passed and verdict.revised_response:
-                full_response_str = verdict.revised_response
+                # Stream the correction so the user actually sees it. The original
+                # streamed reply already reached the client; a silent overwrite of
+                # full_response_str only affects saved history, not the display.
+                correction = str(verdict.revised_response).strip()
+                appendix = "\n\n---\n**Correction (judge):**\n" + correction
+                full_response_str = full_response_str + appendix
+                yield f"data: {json.dumps({'text': appendix, 'done': False, 'model': config.model, 'judge_corrected': True})}\n\n"
             judge_meta = _judge_meta(verdict) if verdict else None
 
     review_text = None

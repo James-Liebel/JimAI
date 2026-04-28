@@ -72,7 +72,9 @@
       "Bash(python -c \"import ast,sys; ast.parse\\(open\\('backend/agent_space/browser_agent_runner.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")",
       "Bash(node node_modules/webpack/bin/webpack.js --mode production)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('backend/api/chat.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('backend/api/chat.py',encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('backend/agents/self_consistency.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('backend/api/chat.py',encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('backend/agents/self_consistency.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('backend/api/chat.py',encoding='utf-8'\\).read\\(\\)\\); print\\('chat.py ok'\\)\")"
     ]
   }
 }

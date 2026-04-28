@@ -445,21 +445,30 @@ export default function BrowserAtlas() {
                     (function(){
                         const el = document.querySelector(${JSON.stringify(sel)});
                         if (!el) return false;
+                        const value = ${JSON.stringify(text)};
                         try { el.scrollIntoView({behavior:'instant', block:'center'}); } catch(e){}
                         try { el.focus(); } catch(e){}
                         const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
                         if (isInput) {
-                            const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                            const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                            setter.call(el, ${JSON.stringify(text)});
+                            try {
+                                const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                                const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                                if (desc && desc.set) {
+                                    desc.set.call(el, value);
+                                } else {
+                                    el.value = value;
+                                }
+                            } catch (e) {
+                                try { el.value = value; } catch (_) {}
+                            }
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                         } else if (el.isContentEditable) {
-                            el.textContent = ${JSON.stringify(text)};
-                            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ${JSON.stringify(text)} }));
+                            el.textContent = value;
+                            el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
                         } else {
                             try { document.execCommand('selectAll', false); } catch(e){}
-                            try { document.execCommand('insertText', false, ${JSON.stringify(text)}); } catch(e){}
+                            try { document.execCommand('insertText', false, value); } catch(e){}
                         }
                         return true;
                     })()

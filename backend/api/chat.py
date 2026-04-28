@@ -887,10 +887,12 @@ async def _stream_chat(
         try:
             tool_results = await run_tools(message)
             tool_names_used = [r["tool"] for r in tool_results if r.get("tool")]
+            # Only surface entries with an explicit error field — many tools return
+            # success:False as a "no parseable input" no-op (unit_convert, hash, base64,
+            # json_format, regex_test) and that's not an error worth flagging.
             for r in tool_results:
-                if not r.get("success", True):
-                    err = str(r.get("error") or "tool failed")
-                    tool_errors.append(f"{r.get('tool', 'tool')}: {err[:200]}")
+                if not r.get("success", True) and r.get("error"):
+                    tool_errors.append(f"{r.get('tool', 'tool')}: {str(r['error'])[:200]}")
         except Exception as _te:
             logger.warning("Tool dispatch failed: %s", _te)
             tool_errors.append(f"dispatch: {str(_te)[:200]}")

@@ -30,6 +30,8 @@ export interface ConsistencyResult {
     agreement_rate?: number;
     n_samples?: number;
     disagreements?: string[];
+    /** Which domain self-consistency ran for (math | finance) */
+    domain?: string;
 }
 
 export interface RoutingDecision {
@@ -70,6 +72,8 @@ export interface RoutingDecision {
     chat_browser_url?: string | null;
     /** Auto tools that ran for this turn (code_exec, math, sysinfo, datetime, calculator) */
     tools_used?: string[];
+    /** Tool failures with explicit errors, e.g. ["git: not a repo", "file_read: No path detected"] */
+    tool_errors?: string[];
     /** Per-request model context (this chat only, after windowing) */
     context_window_messages?: number;
     context_window_chars?: number;

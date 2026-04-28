@@ -1,12 +1,13 @@
 """
-Self-consistency checking for math.
+Self-consistency checking for quantitative domains (math, finance).
 
 Generates N independent solutions at slightly different temperatures,
 extracts final answers, picks the majority. When solutions cluster,
 confidence in correctness is significantly higher than single-shot.
 
 N=1 in Fast mode (disabled), N=3 in Balanced, N=5 in Deep.
-Only used for math — code correctness is verified by actually running it.
+Used for math and finance — both have silent, consequential errors.
+Code correctness is verified separately by actually running it.
 """
 
 import re
@@ -17,7 +18,7 @@ from config.models import get_config, get_speed_mode, SpeedMode
 from models import ollama_client
 
 
-async def self_consistent_math(question: str) -> dict:
+async def self_consistent_quant(question: str, domain: str = "math") -> dict:
     """
     Run self-consistency sampling for a math problem.
 
@@ -29,7 +30,7 @@ async def self_consistent_math(question: str) -> dict:
         disagreements: list[str] — answers that differed from majority
     """
     mode = get_speed_mode()
-    config = get_config("math")
+    config = get_config(domain if domain in {"math", "finance"} else "math")
     model = config.model
     system = config.system_prompt
 
@@ -106,6 +107,11 @@ async def self_consistent_math(question: str) -> dict:
         "n_samples": n,
         "disagreements": [a for a in valid_answers if a != majority_answer],
     }
+
+
+async def self_consistent_math(question: str) -> dict:
+    """Back-compat alias — use self_consistent_quant(question, domain='math')."""
+    return await self_consistent_quant(question, domain="math")
 
 
 def _extract_final_answer(text: str) -> Optional[str]:

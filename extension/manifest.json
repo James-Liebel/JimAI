@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
-    "name": "Private AI",
+    "name": "JimAI",
     "version": "1.0.0",
-    "description": "Your local private AI — reads your screen, answers inline",
+    "description": "JimAI in your sidebar — chat with your local AI, ask about the current page, explain selections.",
     "permissions": [
         "activeTab",
         "scripting",
@@ -13,6 +13,7 @@
     ],
     "host_permissions": [
         "http://localhost:8000/*",
+        "http://127.0.0.1:8000/*",
         "<all_urls>"
     ],
     "background": {
@@ -30,7 +31,7 @@
         "default_path": "sidebar.html"
     },
     "action": {
-        "default_title": "Open Private AI",
+        "default_title": "Open JimAI",
         "default_icon": {
             "16": "icons/icon16.png",
             "48": "icons/icon48.png"
@@ -39,11 +40,11 @@
     "commands": {
         "toggle-sidebar": {
             "suggested_key": { "default": "Alt+A" },
-            "description": "Toggle Private AI sidebar"
+            "description": "Toggle JimAI sidebar"
         },
         "capture-screen": {
             "suggested_key": { "default": "Alt+S" },
-            "description": "Capture screenshot and open sidebar"
+            "description": "Capture screenshot and open JimAI"
         }
     }
 }

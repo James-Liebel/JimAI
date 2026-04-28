@@ -1,16 +1,16 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import Chat from './Chat';
+import Sidebar from './Sidebar';
 
 const root = document.getElementById('sidebar-root');
 if (root) {
     ReactDOM.createRoot(root).render(
         <React.StrictMode>
-            <Chat />
-        </React.StrictMode>
+            <Sidebar />
+        </React.StrictMode>,
     );
 }
 
 export default function App() {
-    return <Chat />;
+    return <Sidebar />;
 }

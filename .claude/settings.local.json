@@ -69,7 +69,8 @@
       "Bash(node node_modules/typescript/bin/tsc --noEmit)",
       "WebFetch(domain:openai.com)",
       "WebSearch",
-      "Bash(python -c \"import ast,sys; ast.parse\\(open\\('backend/agent_space/browser_agent_runner.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")"
+      "Bash(python -c \"import ast,sys; ast.parse\\(open\\('backend/agent_space/browser_agent_runner.py',encoding='utf-8'\\).read\\(\\)\\); print\\('ok'\\)\")",
+      "Bash(node node_modules/webpack/bin/webpack.js --mode production)"
     ]
   }
 }

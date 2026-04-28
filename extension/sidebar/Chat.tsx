@@ -1,28 +1,33 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { streamChat } from './lib/api';
+import { loadHistory, saveHistory, StoredMessage } from './lib/storage';
 
-const BACKEND = 'http://localhost:8000';
-
-interface Message {
-    role: 'user' | 'assistant';
-    content: string;
-}
+const HISTORY_FOR_MODEL = 12;
 
 export default function Chat() {
-    const [messages, setMessages] = useState<Message[]>([]);
+    const [messages, setMessages] = useState<StoredMessage[]>([]);
     const [input, setInput] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
+    const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        loadHistory().then(setMessages).catch(() => {});
+    }, []);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages, isStreaming]);
+
+    useEffect(() => {
+        if (messages.length === 0) return;
+        const id = window.setTimeout(() => { void saveHistory(messages); }, 400);
+        return () => window.clearTimeout(id);
     }, [messages]);
 
     useEffect(() => {
-        const handler = (msg: { type: string; text?: string; mode?: string; image?: string }) => {
-            if (msg.type === 'AI_RESPONSE' && msg.text) {
-                setMessages(prev => [...prev, { role: 'assistant', content: msg.text! }]);
-            }
+        const handler = (msg: { type: string; image?: string }) => {
             if (msg.type === 'SCREENSHOT_CAPTURED' && msg.image) {
                 setCapturedImage(msg.image);
                 setInput('Describe what you see on this screen');
@@ -33,141 +38,69 @@ export default function Chat() {
     }, []);
 
     const sendMessage = useCallback(async () => {
-        if (!input.trim() || isStreaming) return;
+        const text = input.trim();
+        if (!text || isStreaming) return;
 
-        const userMsg = input.trim();
-        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+        const userMsg: StoredMessage = { role: 'user', content: text, timestamp: Date.now() };
+        const placeholder: StoredMessage = { role: 'assistant', content: '', timestamp: Date.now() };
+        setMessages((prev) => [...prev, userMsg, placeholder]);
         setInput('');
         setIsStreaming(true);
-        setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
+        const historyForModel = messages
+            .slice(-HISTORY_FOR_MODEL)
+            .map((m) => ({ role: m.role, content: m.content }));
+
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const image = capturedImage;
+        if (image) setCapturedImage(null);
 
         try {
-            if (capturedImage) {
-                // Send to vision API
-                const resp = await fetch(`${BACKEND}/api/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: userMsg,
-                        mode: 'vision',
-                        session_id: 'extension',
-                        history: [],
-                        image: capturedImage,
-                        has_image: true,
-                    }),
-                });
-
-                setCapturedImage(null);
-                await streamResponse(resp);
-            } else {
-                const resp = await fetch(`${BACKEND}/api/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        message: userMsg,
-                        mode: 'chat',
-                        session_id: 'extension',
-                        history: [],
-                    }),
-                });
-                await streamResponse(resp);
-            }
+            await streamChat({
+                message: text,
+                mode: image ? 'vision' : 'chat',
+                history: historyForModel,
+                image: image || undefined,
+                signal: controller.signal,
+                onChunk: (chunk) => {
+                    setMessages((prev) => {
+                        const updated = [...prev];
+                        const last = updated[updated.length - 1];
+                        if (last && last.role === 'assistant') {
+                            updated[updated.length - 1] = { ...last, content: last.content + chunk };
+                        }
+                        return updated;
+                    });
+                },
+            });
         } catch (err) {
-            setMessages(prev => {
+            const msg = err instanceof Error ? err.message : String(err);
+            setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
-                if (last) updated[updated.length - 1] = { ...last, content: `Error: ${err}` };
+                if (last && last.role === 'assistant') {
+                    updated[updated.length - 1] = {
+                        ...last,
+                        content: last.content || `Error: ${msg}`,
+                    };
+                }
                 return updated;
             });
         } finally {
             setIsStreaming(false);
+            abortRef.current = null;
         }
-    }, [input, isStreaming, capturedImage]);
+    }, [input, isStreaming, messages, capturedImage]);
 
-    const streamResponse = async (resp: Response) => {
-        const reader = resp.body?.getReader();
-        if (!reader) return;
-
-        const decoder = new TextDecoder();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const text = decoder.decode(value, { stream: true });
-            for (const line of text.split('\n')) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                    const data = JSON.parse(line.slice(6));
-                    if (data.text) {
-                        setMessages(prev => {
-                            const updated = [...prev];
-                            const last = updated[updated.length - 1];
-                            if (last) updated[updated.length - 1] = { ...last, content: last.content + data.text };
-                            return updated;
-                        });
-                    }
-                } catch { /* skip */ }
-            }
-        }
-    };
-
-    const captureScreen = async () => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id && tab.windowId) {
-            try {
-                const screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-                const base64 = screenshot.replace('data:image/png;base64,', '');
-                setCapturedImage(base64);
-                setInput('Describe what you see on this screen');
-            } catch (e) {
-                setMessages(prev => [...prev, { role: 'assistant', content: `Screenshot failed: ${e}` }]);
-            }
-        }
-    };
-
-    const readPage = async () => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.id) {
-            chrome.tabs.sendMessage(tab.id, { type: 'CAPTURE_REQUEST' }, async (response: { text: string }) => {
-                if (response?.text) {
-                    try {
-                        await fetch(`${BACKEND}/api/upload/url`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ url: tab.url || 'page', session_id: 'extension' }),
-                        });
-                        setMessages(prev => [...prev, { role: 'assistant', content: '📄 Page content indexed! You can now ask questions about it.' }]);
-                    } catch (err) {
-                        setMessages(prev => [...prev, { role: 'assistant', content: `Failed to index page: ${err}` }]);
-                    }
-                }
-            });
-        }
-    };
-
-    const indexPage = async () => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab?.url) {
-            setMessages(prev => [...prev, { role: 'assistant', content: `📚 Indexing ${tab.url}...` }]);
-            chrome.runtime.sendMessage({ type: 'INDEX_PAGE', url: tab.url }, (result: { success: boolean }) => {
-                if (result?.success) {
-                    setMessages(prev => [...prev, { role: 'assistant', content: '✓ Page permanently indexed to knowledge base.' }]);
-                }
-            });
-        }
+    const stop = () => {
+        abortRef.current?.abort();
+        abortRef.current = null;
+        setIsStreaming(false);
     };
 
     return (
         <div style={styles.container}>
-            <div style={styles.header}>
-                <span style={styles.headerTitle}>Private AI</span>
-                <div style={styles.headerButtons}>
-                    <button onClick={captureScreen} style={styles.headerBtn} title="Capture Screen (Alt+S)">📸</button>
-                    <button onClick={readPage} style={styles.headerBtn} title="Read Page">📖</button>
-                    <button onClick={indexPage} style={styles.headerBtn} title="Index Page">📚</button>
-                </div>
-            </div>
-
             {capturedImage && (
                 <div style={styles.imagePreview}>
                     <img src={`data:image/png;base64,${capturedImage}`} alt="Captured" style={styles.previewImg} />
@@ -176,44 +109,78 @@ export default function Chat() {
             )}
 
             <div style={styles.messages}>
+                {messages.length === 0 && (
+                    <div style={styles.placeholder}>
+                        Ask anything. Use the Page tab for tools that work on the current website.
+                    </div>
+                )}
                 {messages.map((msg, i) => (
-                    <div key={i} style={{ ...styles.msg, ...(msg.role === 'user' ? styles.userMsg : styles.assistantMsg) }}>
-                        {msg.content}
+                    <div
+                        key={i}
+                        style={{
+                            ...styles.msg,
+                            ...(msg.role === 'user' ? styles.userMsg : styles.assistantMsg),
+                        }}
+                    >
+                        {msg.content || (isStreaming && i === messages.length - 1 ? '…' : '')}
                     </div>
                 ))}
                 <div ref={bottomRef} />
             </div>
 
             <div style={styles.inputArea}>
-                <input
+                <textarea
                     value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                    placeholder="Message Private AI..."
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            void sendMessage();
+                        }
+                    }}
+                    placeholder="Message JimAI…"
                     style={styles.input}
+                    rows={2}
+                    disabled={isStreaming}
                 />
-                <button onClick={sendMessage} disabled={isStreaming} style={{ ...styles.sendBtn, opacity: isStreaming ? 0.5 : 1 }}>
-                    ↑
-                </button>
+                {isStreaming ? (
+                    <button onClick={stop} style={styles.stopBtn} title="Stop">■</button>
+                ) : (
+                    <button onClick={sendMessage} disabled={!input.trim()} style={styles.sendBtn} title="Send (Enter)">↑</button>
+                )}
             </div>
         </div>
     );
 }
 
 const styles: Record<string, React.CSSProperties> = {
-    container: { height: '100vh', display: 'flex', flexDirection: 'column', fontFamily: "'Inter', system-ui, sans-serif", color: '#e8e8f0', background: '#0a0a0c' },
-    header: { padding: '8px 12px', borderBottom: '1px solid #1e1e24', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-    headerTitle: { fontWeight: 600, fontSize: '13px' },
-    headerButtons: { display: 'flex', gap: '4px' },
-    headerBtn: { fontSize: '12px', padding: '4px 6px', background: '#111114', border: '1px solid #1e1e24', color: '#7070a0', borderRadius: '4px', cursor: 'pointer' },
-    imagePreview: { padding: '8px 12px', position: 'relative' as const, borderBottom: '1px solid #1e1e24' },
-    previewImg: { width: '100%', borderRadius: '4px', maxHeight: '100px', objectFit: 'cover' as const },
-    removeBtn: { position: 'absolute' as const, top: '12px', right: '16px', background: '#1e1e24', border: 'none', color: '#7070a0', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '12px' },
-    messages: { flex: 1, overflow: 'auto', padding: '12px' },
-    msg: { marginBottom: '6px', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.5', whiteSpace: 'pre-wrap' as const },
-    userMsg: { background: '#4f8ef7', marginLeft: '20%' },
-    assistantMsg: { background: '#111114', border: '1px solid #1e1e24', marginRight: '10%' },
-    inputArea: { padding: '8px 12px', borderTop: '1px solid #1e1e24', display: 'flex', gap: '6px' },
-    input: { flex: 1, background: '#111114', border: '1px solid #1e1e24', color: '#e8e8f0', borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none' },
-    sendBtn: { padding: '8px 12px', background: '#4f8ef7', border: 'none', color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 },
+    container: { height: '100%', display: 'flex', flexDirection: 'column', color: '#e8e8f0', background: '#0a0a0c' },
+    imagePreview: { padding: '8px 12px', position: 'relative', borderBottom: '1px solid #1e1e24' },
+    previewImg: { width: '100%', borderRadius: '4px', maxHeight: '100px', objectFit: 'cover' },
+    removeBtn: {
+        position: 'absolute', top: '12px', right: '16px', background: '#1e1e24',
+        border: 'none', color: '#e8e8f0', borderRadius: '50%',
+        width: '20px', height: '20px', cursor: 'pointer', fontSize: '12px',
+    },
+    placeholder: { color: '#55556A', fontSize: '12px', textAlign: 'center', padding: '32px 16px' },
+    messages: { flex: 1, overflow: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '6px' },
+    msg: { padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.5', whiteSpace: 'pre-wrap', maxWidth: '85%' },
+    userMsg: { background: '#3B82F6', color: 'white', alignSelf: 'flex-end' },
+    assistantMsg: { background: '#111114', border: '1px solid #1e1e24', color: '#e8e8f0', alignSelf: 'flex-start' },
+    inputArea: { padding: '8px 12px', borderTop: '1px solid #1e1e24', display: 'flex', gap: '6px', alignItems: 'flex-end' },
+    input: {
+        flex: 1, background: '#111114', border: '1px solid #1e1e24', color: '#e8e8f0',
+        borderRadius: '6px', padding: '8px 10px', fontSize: '12px', outline: 'none',
+        resize: 'none', fontFamily: 'inherit',
+    },
+    sendBtn: {
+        padding: '8px 12px', background: '#3B82F6', border: 'none',
+        color: 'white', borderRadius: '6px', cursor: 'pointer',
+        fontSize: '13px', fontWeight: 600, height: '34px',
+    },
+    stopBtn: {
+        padding: '8px 12px', background: 'transparent', border: '1px solid #EF4444',
+        color: '#EF4444', borderRadius: '6px', cursor: 'pointer',
+        fontSize: '11px', height: '34px',
+    },
 };

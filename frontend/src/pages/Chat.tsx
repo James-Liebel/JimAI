@@ -314,15 +314,34 @@ export default function Chat() {
                                         </span>
                                     );
                                 })}
-                                {(lastRouting?.tool_errors ?? []).map((err, idx) => (
-                                    <span
-                                        key={`tool-err-${idx}`}
-                                        className="rounded-badge border border-accent-red/30 bg-accent-red/10 px-2 py-0.5 text-accent-red"
-                                        title={err}
-                                    >
-                                        ⚠ {err.split(':')[0]} failed
-                                    </span>
-                                ))}
+                                {(lastRouting?.tool_error_details ?? []).map((err, idx) => {
+                                    const cls =
+                                        err.kind === 'timeout'
+                                            ? 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber'
+                                            : err.kind === 'invalid_input'
+                                              ? 'border-surface-4 bg-surface-2 text-text-secondary'
+                                              : 'border-accent-red/30 bg-accent-red/10 text-accent-red';
+                                    const icon = err.kind === 'timeout' ? '⏱' : err.kind === 'invalid_input' ? '·' : '⚠';
+                                    return (
+                                        <span
+                                            key={`tool-err-${idx}`}
+                                            className={cn('rounded-badge border px-2 py-0.5', cls)}
+                                            title={`${err.tool}: ${err.message}`}
+                                        >
+                                            {icon} {err.tool} {err.kind === 'timeout' ? 'timed out' : 'failed'}
+                                        </span>
+                                    );
+                                })}
+                                {(lastRouting?.tool_error_details ?? []).length === 0 &&
+                                    (lastRouting?.tool_errors ?? []).map((err, idx) => (
+                                        <span
+                                            key={`tool-err-legacy-${idx}`}
+                                            className="rounded-badge border border-accent-red/30 bg-accent-red/10 px-2 py-0.5 text-accent-red"
+                                            title={err}
+                                        >
+                                            ⚠ {err.split(':')[0]} failed
+                                        </span>
+                                    ))}
                             </>
                         )}
                     </div>

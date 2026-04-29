@@ -25,6 +25,12 @@ export interface JudgeResult {
     was_revised: boolean;
 }
 
+export interface ToolErrorDetail {
+    tool: string;
+    kind: 'timeout' | 'runtime' | 'invalid_input';
+    message: string;
+}
+
 export interface ConsistencyResult {
     confidence: 'high' | 'medium' | 'low' | 'single_shot';
     agreement_rate?: number;
@@ -74,6 +80,8 @@ export interface RoutingDecision {
     tools_used?: string[];
     /** Tool failures with explicit errors, e.g. ["git: not a repo", "file_read: No path detected"] */
     tool_errors?: string[];
+    /** Structured tool failures with kind ('timeout' | 'runtime' | 'invalid_input') for richer UI affordances */
+    tool_error_details?: ToolErrorDetail[];
     /** Per-request model context (this chat only, after windowing) */
     context_window_messages?: number;
     context_window_chars?: number;

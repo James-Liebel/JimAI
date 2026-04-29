@@ -160,17 +160,14 @@ _RGB_COLOR = re.compile(r"rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)")
 
 # ── Tool runners ─────────────────────────────────────────────────────────
 
-async def _run_python(code: str, timeout: int = 15) -> dict[str, Any]:
+async def _run_python(code: str, timeout: int = 12) -> dict[str, Any]:
     try:
         from tools.python_exec import execute
-        result = await asyncio.wait_for(execute(code, timeout=timeout), timeout=timeout + 2)
+        result = await execute(code, timeout=timeout)
         return {"tool": "code_exec", "label": "Code executed", "success": result.get("success", False),
                 "stdout": (result.get("stdout") or "").strip()[:2000],
                 "stderr": (result.get("stderr") or "").strip()[:500],
                 "returncode": result.get("returncode", -1)}
-    except asyncio.TimeoutError:
-        return {"tool": "code_exec", "label": "Code executed", "success": False,
-                "stdout": "", "stderr": "Execution timed out.", "returncode": -1}
     except Exception as exc:
         return {"tool": "code_exec", "label": "Code executed", "success": False,
                 "stdout": "", "stderr": str(exc), "returncode": -1}
@@ -245,12 +242,6 @@ async def _run_git(message: str) -> dict[str, Any]:
         )
         wants_diff = bool(re.search(r"\bdiff\b|\bchanged\b|\bwhat.{0,10}changed\b", message, re.I))
         wants_log = bool(re.search(r"\blog\b|\bcommit\s+histor|\brecent\s+commit", message, re.I))
-
-        tasks = {"status": asyncio.create_task(asyncio.to_thread(lambda: __import__("asyncio").run(status(cwd))))}
-        if wants_log:
-            tasks["log"] = asyncio.create_task(asyncio.to_thread(lambda: __import__("asyncio").run(log(10, cwd))))
-        if wants_diff:
-            tasks["diff"] = asyncio.create_task(asyncio.to_thread(lambda: __import__("asyncio").run(diff(cwd=cwd))))
 
         git_status = await status(cwd)
         git_log = await log(8, cwd) if wants_log else []
@@ -512,20 +503,28 @@ _TOOL_TIMEOUTS: dict[str, float] = {
     "datetime": 2.0, "sysinfo": 2.0, "uuid": 2.0, "color": 2.0, "text_stats": 2.0,
     "math": 5.0, "calculator": 3.0, "unit_convert": 3.0, "hash": 3.0,
     "base64": 3.0, "json_format": 3.0, "regex_test": 3.0,
-    "git": 8.0, "file_read": 6.0, "code_exec": 8.0,
+    "git": 8.0, "file_read": 6.0, "code_exec": 12.0,
 }
 _TOOL_TIMEOUT_DEFAULT = 5.0
 
 
 async def _with_timeout(name: str, coro: Any) -> dict[str, Any]:
-    """Run a tool coroutine under a per-tool wall-clock budget."""
+    """Run a tool coroutine under a per-tool wall-clock budget.
+
+    On failure, returns a result dict with `error_kind` so the UI can pick
+    the right affordance (timeout vs runtime).
+    """
     timeout = _TOOL_TIMEOUTS.get(name, _TOOL_TIMEOUT_DEFAULT)
     try:
         return await asyncio.wait_for(coro, timeout=timeout)
     except asyncio.TimeoutError:
-        return {"tool": name, "success": False, "error": f"timed out after {timeout:.0f}s"}
+        return {"tool": name, "success": False,
+                "error": f"timed out after {timeout:.0f}s",
+                "error_kind": "timeout"}
     except Exception as exc:
-        return {"tool": name, "success": False, "error": str(exc)[:200]}
+        return {"tool": name, "success": False,
+                "error": str(exc)[:200],
+                "error_kind": "runtime"}
 
 
 async def run_tools(message: str) -> list[dict[str, Any]]:

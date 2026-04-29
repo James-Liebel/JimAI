@@ -10,12 +10,42 @@ Used for math and finance — both have silent, consequential errors.
 Code correctness is verified separately by actually running it.
 """
 
+import math
 import re
-from collections import Counter
 from typing import Optional
 
 from config.models import get_config, get_speed_mode, SpeedMode
 from models import ollama_client
+
+
+_CURRENCY_PAT = re.compile(r"[-+]?\$\s*([\d,]+(?:\.\d+)?)")
+_PERCENT_PAT = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*%")
+_BPS_PAT = re.compile(r"([-+]?\d+(?:\.\d+)?)\s*bps\b", re.I)
+
+
+def _canonicalize_answer(raw: str, domain: str) -> tuple[str, Optional[float]]:
+    """Return (display_form, numeric_value_or_None). Numeric form drives clustering."""
+    s = raw.strip()
+    cleaned = s.replace(",", "").replace("$", "").rstrip("%").strip()
+    try:
+        return s, float(cleaned)
+    except ValueError:
+        pass
+    if domain == "finance":
+        for pat in (_CURRENCY_PAT, _PERCENT_PAT, _BPS_PAT):
+            m = pat.search(s)
+            if m:
+                try:
+                    return s, float(m.group(1).replace(",", ""))
+                except ValueError:
+                    continue
+    return s, None
+
+
+def _numeric_match(a: float, b: float, domain: str) -> bool:
+    if domain == "finance":
+        return math.isclose(a, b, abs_tol=0.01, rel_tol=1e-4)
+    return math.isclose(a, b, rel_tol=1e-6, abs_tol=1e-9)
 
 
 async def self_consistent_quant(question: str, domain: str = "math") -> dict:
@@ -73,11 +103,15 @@ async def self_consistent_quant(question: str, domain: str = "math") -> dict:
         solutions.append(response)
 
     final_answers = [_extract_final_answer(s) for s in solutions]
-    valid_answers = [a for a in final_answers if a is not None]
+    canonical: list[tuple[Optional[str], Optional[float]]] = [
+        _canonicalize_answer(a, domain) if a is not None else (None, None)
+        for a in final_answers
+    ]
+    valid = [c for c in canonical if c[0] is not None]
 
-    if not valid_answers:
+    if not valid:
         return {
-            "answer": max(solutions, key=len),
+            "answer": solutions[0],
             "confidence": "low",
             "agreement_rate": 0.0,
             "n_samples": n,
@@ -85,13 +119,31 @@ async def self_consistent_quant(question: str, domain: str = "math") -> dict:
             "note": "Could not extract comparable final answers for consistency check",
         }
 
-    counts = Counter(valid_answers)
-    majority_answer, majority_count = counts.most_common(1)[0]
-    agreement_rate = majority_count / n
+    # Cluster by numeric equivalence when both have a number, else by string equality.
+    clusters: list[dict] = []
+    for sol, (display, num) in zip(solutions, canonical):
+        if display is None:
+            continue
+        placed = False
+        for c in clusters:
+            if num is not None and c["num"] is not None and _numeric_match(num, c["num"], domain):
+                c["members"].append((sol, display))
+                placed = True
+                break
+            if num is None and c["num"] is None and c["key"] == display:
+                c["members"].append((sol, display))
+                placed = True
+                break
+        if not placed:
+            clusters.append({"key": display, "num": num, "members": [(sol, display)]})
 
-    best_solution = next(
-        s for s, a in zip(solutions, final_answers) if a == majority_answer
-    )
+    clusters.sort(key=lambda c: len(c["members"]), reverse=True)
+    majority = clusters[0]
+    majority_count = len(majority["members"])
+    agreement_rate = majority_count / n
+    best_solution = majority["members"][0][0]
+    majority_answer = majority["key"]
+    disagreements = [d for c in clusters[1:] for _s, d in c["members"]]
 
     confidence = (
         "high"
@@ -105,7 +157,7 @@ async def self_consistent_quant(question: str, domain: str = "math") -> dict:
         "agreement_rate": agreement_rate,
         "majority_answer": majority_answer,
         "n_samples": n,
-        "disagreements": [a for a in valid_answers if a != majority_answer],
+        "disagreements": disagreements,
     }
 
 

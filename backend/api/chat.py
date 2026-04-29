@@ -875,6 +875,7 @@ async def _stream_chat(
     tool_results: list[dict] = []
     tool_names_used: list[str] = []
     tool_errors: list[str] = []
+    tool_error_details: list[dict] = []
     needed_tools = detect_needed_tools(message)
     if needed_tools and not browser_png_b64:
         status_label = " · ".join(
@@ -892,10 +893,15 @@ async def _stream_chat(
             # json_format, regex_test) and that's not an error worth flagging.
             for r in tool_results:
                 if not r.get("success", True) and r.get("error"):
-                    tool_errors.append(f"{r.get('tool', 'tool')}: {str(r['error'])[:200]}")
+                    name = r.get("tool", "tool")
+                    msg = str(r["error"])[:200]
+                    kind = r.get("error_kind") or "runtime"
+                    tool_errors.append(f"{name}: {msg}")
+                    tool_error_details.append({"tool": name, "kind": kind, "message": msg})
         except Exception as _te:
             logger.warning("Tool dispatch failed: %s", _te)
             tool_errors.append(f"dispatch: {str(_te)[:200]}")
+            tool_error_details.append({"tool": "dispatch", "kind": "runtime", "message": str(_te)[:200]})
         if tool_errors:
             err_status = "Tool errors: " + "; ".join(tool_errors[:3])
             yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': err_status})}\n\n"
@@ -967,6 +973,7 @@ async def _stream_chat(
             "chat_browser_url": browser_capture_url or None,
             "tools_used": tool_names_used,
             "tool_errors": tool_errors,
+            "tool_error_details": tool_error_details,
         }
         session_store.add_message(session_id, "assistant", fallback, mode)
         yield f"data: {json.dumps({'text': fallback, 'done': True, 'sources': [], 'routing': routing_info})}\n\n"
@@ -1108,6 +1115,7 @@ async def _stream_chat(
         "chat_browser_url": browser_capture_url or None,
         "tools_used": tool_names_used,
         "tool_errors": tool_errors,
+        "tool_error_details": tool_error_details,
     }
 
     # ── Hybrid pipeline execution ──────────────────────────────────────

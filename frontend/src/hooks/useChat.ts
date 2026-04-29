@@ -15,12 +15,17 @@ export function useChat() {
     const [chatTitle, setChatTitle] = useState('');
     const [chatList, setChatList] = useState<api.ChatListItem[]>([]);
     const sessionIdRef = useRef(chatId);
+    const chatTitleRef = useRef(chatTitle);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const abortRef = useRef<AbortController | null>(null);
 
     useEffect(() => {
         sessionIdRef.current = chatId;
     }, [chatId]);
+
+    useEffect(() => {
+        chatTitleRef.current = chatTitle;
+    }, [chatTitle]);
 
     const refreshChatList = useCallback(async () => {
         const list = await api.listChats();
@@ -131,7 +136,7 @@ export function useChat() {
             };
 
             const currentChatId = sessionIdRef.current;
-            const currentTitle = chatTitle;
+            const currentTitle = chatTitleRef.current;
 
             const onDone = () => {
                 setMessages((prev) => {
@@ -215,7 +220,7 @@ export function useChat() {
                 if (abortRef.current === controller) abortRef.current = null;
             }
         },
-        [messages, modelOverride, chatTitle, autoSave],
+        [messages, modelOverride, autoSave],
     );
 
     const stopStream = useCallback(() => {

@@ -601,19 +601,26 @@ async def chat_browser_step(
             messages.append({"role": "user" if role == "user" else "assistant", "content": content})
     messages.append({"role": "user", "content": user_prompt})
 
-    raw = await ollama_client.chat_full(
-        model=BROWSER_MODEL,
-        messages=messages,
-        temperature=0.1,
-        num_ctx=2048,       # enough for system prompt + page context + history
-        num_predict=120,    # JSON action + response field
-        num_batch=128,
-        repeat_penalty=1.05,
-        think=False,
-        num_gpu=BROWSER_NUM_GPU,   # 99 = all layers on GPU → low CPU heat
-        json_format=True,          # constrained JSON — no parse failures
-        keep_alive=BROWSER_KEEP_ALIVE,
-    )
+    try:
+        raw = await asyncio.wait_for(
+            ollama_client.chat_full(
+                model=BROWSER_MODEL,
+                messages=messages,
+                temperature=0.1,
+                num_ctx=4096,       # system prompt ~700 chars + history + page context
+                num_predict=150,    # JSON action + response field (bumped from 120)
+                num_batch=512,      # higher parallelism during prefill (was 128)
+                repeat_penalty=1.05,
+                think=False,
+                num_gpu=BROWSER_NUM_GPU,
+                json_format=True,
+                keep_alive=BROWSER_KEEP_ALIVE,
+            ),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("chat_browser_step timed out after 60s")
+        raw = '{"action":"wait","thought":"Model timed out.","response":"Taking a moment to retry."}'
 
     parsed = _parse_action_strict(raw)
     return _normalize_chat_action(parsed, message=message, url=url, page_text=page_text)

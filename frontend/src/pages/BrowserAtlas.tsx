@@ -356,7 +356,7 @@ export default function BrowserAtlas() {
                         lines.push(line);
                     }
 
-                    const bodyText = document.body ? document.body.innerText.replace(/\\s+/g,' ').trim().slice(0, 1200) : '';
+                    const bodyText = document.body ? document.body.textContent.replace(/\\s+/g,' ').trim().slice(0, 1200) : '';
                     return JSON.stringify({ bodyText, lines, count: lines.length });
                 })()
             `) as string;
@@ -369,6 +369,22 @@ export default function BrowserAtlas() {
         return { url, title, pageText, screenshot: '', elemCount };
     }, [getWv]);
 
+    // Waits for a did-stop-loading event OR timeoutMs, whichever comes first.
+    // Always removes the listener to prevent accumulation across agent steps.
+    const waitForLoad = useCallback((wv: AtlasWebview, timeoutMs: number): Promise<void> =>
+        new Promise<void>((resolve) => {
+            let settled = false;
+            const done = () => {
+                if (settled) return;
+                settled = true;
+                wv.removeEventListener('did-stop-loading', done);
+                resolve();
+            };
+            wv.addEventListener('did-stop-loading', done);
+            setTimeout(done, timeoutMs);
+        }),
+    []);
+
     const awaitDomChange = useCallback(async (
         prevUrl: string, prevElemCount: number, capMs = 1500,
     ): Promise<boolean> => {
@@ -376,7 +392,7 @@ export default function BrowserAtlas() {
         if (!wv) return false;
         const t0 = Date.now();
         while (Date.now() - t0 < capMs) {
-            await new Promise((r) => setTimeout(r, 120));
+            await new Promise((r) => setTimeout(r, 250));
             try {
                 if (wv.getURL() !== prevUrl) return true;
                 const c = await wv.executeJavaScript(
@@ -500,11 +516,7 @@ export default function BrowserAtlas() {
                 if (url) {
                     setNavInput(url);
                     await wv.loadURL(url).catch(() => {});
-                    await new Promise<void>((res) => {
-                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
-                        wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 5000);
-                    });
+                    await waitForLoad(wv, 5000);
                     // Extra settle time for SPAs that render after the load event fires
                     await new Promise((r) => setTimeout(r, 1500));
                 }
@@ -520,11 +532,7 @@ export default function BrowserAtlas() {
                     await new Promise((r) => setTimeout(r, 80));
                     wv.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
                     wv.sendInputEvent({ type: 'mouseUp',   x, y, button: 'left', clickCount: 1 });
-                    await new Promise<void>((res) => {
-                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
-                        wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 3000);
-                    });
+                    await waitForLoad(wv, 3000);
                 }
                 break;
             }
@@ -612,11 +620,7 @@ export default function BrowserAtlas() {
                             wv.sendInputEvent({ type: 'mouseUp',   x: rect.x, y: rect.y, button: 'left', clickCount: 1 });
                         }
                     }
-                    await new Promise<void>((res) => {
-                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
-                        wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 3000);
-                    });
+                    await waitForLoad(wv, 3000);
                 }
                 break;
             }
@@ -691,11 +695,7 @@ export default function BrowserAtlas() {
                             return 'submitted';
                         })()
                     `).catch(() => {});
-                    await new Promise<void>((res) => {
-                        const done = () => { wv.removeEventListener('did-stop-loading', done); res(); };
-                        wv.addEventListener('did-stop-loading', done);
-                        setTimeout(res, 5000);
-                    });
+                    await waitForLoad(wv, 5000);
                 }
                 break;
             }
@@ -770,7 +770,7 @@ export default function BrowserAtlas() {
                 break;
             }
         }
-    }, [getWv]);
+    }, [getWv, waitForLoad]);
 
     // ── Chat helpers ─────────────────────────────────────────────────────────
     const addMsg = useCallback((role: ChatMessage['role'], content: string, actionLabel?: string) => {
@@ -935,7 +935,7 @@ export default function BrowserAtlas() {
                             : <Globe size={9} className="shrink-0 opacity-50" />
                         }
                         <span className="truncate flex-1 text-left">
-                            {tab.title || new URL(tab.url.startsWith('http') ? tab.url : 'https://new').hostname || 'New tab'}
+                            {tab.title || (tab.url.startsWith('http') ? new URL(tab.url).hostname : '') || 'New tab'}
                         </span>
                         {tabs.length > 1 && (
                             <span

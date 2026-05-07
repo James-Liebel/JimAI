@@ -105,6 +105,7 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
     const [filter, setFilter] = useState<'all' | 'pending' | 'pass' | 'partial' | 'fail'>('all');
     const [search, setSearch] = useState('');
     const [expandedCat, setExpandedCat] = useState<string | null>(null);
+    const [runAllProgress, setRunAllProgress] = useState<{ current: number; total: number } | null>(null);
     const abortRef = useRef(false);
     const allTasks = ATLAS_TASK_CATEGORIES.flatMap(c => c.tasks.map(t => ({ ...t, categoryName: c.name })));
 
@@ -166,23 +167,29 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
             const r = results.get(t.id);
             return !r || r.status === 'pending' || r.status === 'error';
         });
-        for (const task of pending) {
+        setRunAllProgress({ current: 0, total: pending.length });
+        for (let i = 0; i < pending.length; i++) {
             if (abortRef.current) break;
-            await runSingleTask(task);
-            await new Promise(r => setTimeout(r, 800)); // brief pause between tasks
+            setRunAllProgress({ current: i + 1, total: pending.length });
+            await runSingleTask(pending[i]);
+            // 2.5s cooldown between tasks — prevents GPU/RAM saturation during long runs
+            await new Promise(r => setTimeout(r, 2500));
         }
+        setRunAllProgress(null);
     }, [allTasks, results, runSingleTask]);
 
     const stopAll = useCallback(() => {
         abortRef.current = true;
         onStop();
         setRunningId(null);
+        setRunAllProgress(null);
     }, [onStop]);
 
     const reset = useCallback(() => {
         abortRef.current = true;
         setResults(new Map());
         setRunningId(null);
+        setRunAllProgress(null);
     }, []);
 
     const exportResults = useCallback(() => {
@@ -257,6 +264,14 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
                         <Download size={10} />
                     </button>
                 </div>
+
+                {/* Run-all progress indicator */}
+                {runAllProgress && (
+                    <div className="flex items-center gap-2 text-[10px] text-accent-blue">
+                        <Loader2 size={9} className="animate-spin shrink-0" />
+                        <span>Running {runAllProgress.current} of {runAllProgress.total} tasks…</span>
+                    </div>
+                )}
 
                 {/* Summary bar */}
                 {total > 0 && (

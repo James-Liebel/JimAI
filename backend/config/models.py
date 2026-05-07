@@ -1,13 +1,13 @@
-"""Model routing configuration — three-tier speed modes with per-role model configs.
+"""Model routing configuration — four-tier speed modes with per-role model configs.
 
 ALL INSTALLED MODELS (exact strings):
-  qwen3:14b                        — primary math, stats, reasoning, finance (upgraded from deepseek-r1:14b)
+  qwen3:14b                        — primary math, stats, reasoning, finance
   qwen2.5-coder:14b                — primary code, data science
-  qwen3:8b                         — primary chat, orchestration, writing
+  qwen3:8b                         — primary chat, orchestration, writing, turbo math/finance
   qwen2.5vl:7b                     — vision (all modes — no faster alternative)
   qwen2-math:7b-instruct           — fast math fallback
   qwen2.5-coder:7b                 — fast code fallback
-  qwen2.5-coder:3b                 — tab completion only (speed > quality)
+  qwen2.5-coder:3b                 — turbo chat/writing (speed > quality, explicit opt-in)
   qwen2.5:32b-instruct-q3_k_s     — deep mode only, explicit invocation, fits in 16GB VRAM
   nomic-embed-text                 — embeddings, runs on NPU/CPU, never on GPU
 """
@@ -17,6 +17,7 @@ from enum import Enum
 
 
 class SpeedMode(str, Enum):
+    TURBO = "turbo"    # 3-8B — instant response, simple questions only, explicit opt-in
     FAST = "fast"      # 7-8B — tab completion, mobile, quick questions
     BALANCED = "balanced"  # 14B — default, good quality + reasonable speed
     DEEP = "deep"      # 32B — maximum capability, explicit only, never auto-routed
@@ -257,11 +258,36 @@ SELF-CHECK before responding:
 - Would a domain expert find this rigorous?
 If no to any of these, fix it before responding."""
 
-MATH_PROMPT_FAST = "Concise math assistant. Show key steps only. LaTeX for equations ($$ display, $ inline). State the answer clearly. Verify numerical results before stating them."
-CODE_PROMPT_FAST = "Concise expert programmer. Write clean, typed, working code immediately. Include error handling. One-line docstring. Show a usage example. If fixing a bug: one sentence on what was wrong, then the fix."
-CHAT_PROMPT_FAST = "Be direct and concise. Lead with the answer. No filler."
-DATA_PROMPT_FAST = "Write concise data science code. Vectorize. Set seeds. Key steps only."
-VISION_PROMPT_FAST = "Analyze and describe concisely. Extract all equations in LaTeX."
+MATH_PROMPT_FAST = """Concise math expert. Correct first, fast second — never sacrifice accuracy for brevity.
+Lead with the result. Show the critical reasoning steps; skip only trivial algebra.
+All equations in LaTeX: $$ display, $ inline. Verify numerical results before stating them.
+For stats: state H0/H1, give test statistic + p-value + one-sentence interpretation.
+For proofs: show each logical step — never write "it follows that" and skip work."""
+
+CODE_PROMPT_FAST = """Senior programmer. Lead with working, typed code immediately.
+Full type annotations on every function. One-line docstring for non-trivial functions.
+Handle the main error case. Show a usage example after the code.
+If fixing a bug: one sentence on root cause, then the corrected code.
+No magic numbers. No bare except."""
+
+CHAT_PROMPT_FAST = """Sharp, direct. Lead with the conclusion, then the key support.
+Think before answering — give the right answer quickly, not a quick wrong answer.
+No filler: no "Certainly!", "Great question!", "Of course!". No hedging theater.
+Concrete examples beat pure explanation. Match the user's register."""
+
+DATA_PROMPT_FAST = """Fast data scientist. Lead with working, vectorized code.
+Set random seeds. Use sklearn Pipeline. Shape/dtype checks at function boundaries.
+State the statistical reasoning in one inline comment per non-obvious step."""
+
+VISION_PROMPT_FAST = """Precise visual analyst. Extract all content — be exhaustive, not selective.
+All equations in LaTeX ($$ display, $ inline) — transcribe exactly, never paraphrase.
+For charts: state type, axes, primary trend, and any outliers. For text: transcribe fully."""
+
+TURBO_PROMPT_CHAT = """Fast, direct assistant. One clear answer. Lead with the point.
+Think briefly but correctly. No filler. Concrete over abstract."""
+
+TURBO_PROMPT_CODE = """Fast coder. Write the working code first.
+Type annotations. Handle the main error case. One-line docstring."""
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MODEL CONFIGS — THREE TIERS
@@ -300,6 +326,19 @@ DEEP_CONFIGS: dict[str, ModelConfig] = {
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.DEEP, system_prompt=""),
 }
 
+# Turbo: 3B-8B quantized models — fastest possible TTFT for simple queries.
+# math/finance/vision fall back to 8B (3B lacks domain reasoning).
+TURBO_CONFIGS: dict[str, ModelConfig] = {
+    "math": ModelConfig(model="qwen2-math:7b-instruct", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=MATH_PROMPT_FAST),
+    "code": ModelConfig(model="qwen2.5-coder:3b", temperature=0.05, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CODE),
+    "chat": ModelConfig(model="qwen2.5-coder:3b", temperature=0.7, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CHAT),
+    "vision": ModelConfig(model="qwen2.5vl:7b", temperature=0.2, speed_mode=SpeedMode.TURBO, system_prompt=VISION_PROMPT_FAST),
+    "finance": ModelConfig(model="qwen3:8b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=MATH_PROMPT_FAST),
+    "writing": ModelConfig(model="qwen2.5-coder:3b", temperature=0.75, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CHAT),
+    "data": ModelConfig(model="qwen2.5-coder:3b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CODE),
+    "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.TURBO, system_prompt=""),
+}
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # RUNTIME STATE + ACCESSORS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -308,6 +347,8 @@ _current_mode: SpeedMode = SpeedMode.BALANCED
 
 
 def get_configs() -> dict[str, ModelConfig]:
+    if _current_mode == SpeedMode.TURBO:
+        return TURBO_CONFIGS
     if _current_mode == SpeedMode.FAST:
         return FAST_CONFIGS
     if _current_mode == SpeedMode.DEEP:
@@ -340,7 +381,7 @@ MODEL_DISPLAY: dict[str, dict] = {
     "qwen2.5vl:7b": {"label": "VL·7B", "color": "purple"},
     "qwen2-math:7b-instruct": {"label": "Math·7B", "color": "blue"},
     "qwen2.5-coder:7b": {"label": "Coder·7B", "color": "green"},
-    "qwen2.5-coder:3b": {"label": "Coder·3B", "color": "green"},
+    "qwen2.5-coder:3b": {"label": "Coder·3B ⚡", "color": "green"},
     "qwen2.5:32b-instruct-q3_k_s": {"label": "32B·Q3", "color": "amber"},
     "nomic-embed-text": {"label": "Embed", "color": "gray"},
     # legacy — kept for display if old model name appears in history

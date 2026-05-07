@@ -1,4 +1,4 @@
-import type { Source, RoutingDecision, SpeedModeResponse } from './types';
+import type { Source, RoutingDecision, SpeedModeResponse, SpeedMode } from './types';
 import { API_BASE as BASE, apiUrl } from './backendBase';
 
 // ── Timeout-aware fetch ───────────────────────────────────────────────
@@ -45,7 +45,7 @@ export async function getSpeedMode(): Promise<SpeedModeResponse> {
     return res.json();
 }
 
-export async function setSpeedMode(mode: 'fast' | 'balanced' | 'deep'): Promise<SpeedModeResponse> {
+export async function setSpeedMode(mode: SpeedMode): Promise<SpeedModeResponse> {
     const res = await fetchWithTimeout(`${BASE}/api/settings/speed-mode`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

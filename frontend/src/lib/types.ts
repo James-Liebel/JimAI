@@ -1,6 +1,6 @@
 export type Mode = 'math' | 'code' | 'chat' | 'vision' | 'writing' | 'data' | 'finance' | 'browser';
 
-export type SpeedMode = 'fast' | 'balanced' | 'deep';
+export type SpeedMode = 'turbo' | 'fast' | 'balanced' | 'deep';
 
 export interface SpeedModeResponse {
     mode: SpeedMode;

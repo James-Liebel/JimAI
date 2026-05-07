@@ -10,25 +10,32 @@ interface Props {
 
 const MODES: { value: SpeedMode; icon: string; label: string; color: string; tooltip: string }[] = [
     {
-        value: 'fast',
+        value: 'turbo',
         icon: '⚡',
+        label: 'Turbo',
+        color: 'text-cyan-400 bg-cyan-500/15 border-cyan-500/30',
+        tooltip: '3B model — instant responses. Best for simple questions and quick lookups.',
+    },
+    {
+        value: 'fast',
+        icon: '▶',
         label: 'Fast',
         color: 'text-accent bg-accent/15 border-accent/30',
-        tooltip: 'Uses smaller, faster models. Best for quick Q&A.',
+        tooltip: '7B models — fast responses with solid reasoning. Good for most tasks.',
     },
     {
         value: 'balanced',
         icon: '◎',
         label: 'Balanced',
         color: 'text-accent bg-accent/15 border-accent/30',
-        tooltip: 'Balanced speed and quality. Recommended for most tasks.',
+        tooltip: '14B models — deep thinking at reasonable speed. Recommended default.',
     },
     {
         value: 'deep',
         icon: '🔬',
         label: 'Deep',
         color: 'text-amber-400 bg-amber-500/15 border-amber-500/30',
-        tooltip: 'Uses largest models with extended reasoning. Best for complex tasks.',
+        tooltip: '32B Q3 model — maximum capability. Best for complex reasoning and long analysis.',
     },
 ];
 

@@ -51,7 +51,7 @@ async def update_speed_mode(req: SpeedModeRequest):
     try:
         mode = SpeedMode(req.mode)
     except ValueError:
-        return {"error": "Invalid mode. Must be: fast, balanced, or deep"}
+        return {"error": "Invalid mode. Must be: turbo, fast, balanced, or deep"}
 
     old_mode = get_speed_mode()
     warning = None

@@ -10,23 +10,24 @@ interface Props {
     isStreaming: boolean;
     modelOverride: string;
     onModelOverrideChange: (override: string) => void;
-    onSpeedModeChange?: (mode: 'fast' | 'balanced' | 'deep') => void;
+    onSpeedModeChange?: (mode: 'turbo' | 'fast' | 'balanced' | 'deep') => void;
     onFileAttach: (file: File) => void;
     isMobile?: boolean;
-    speedMode?: 'fast' | 'balanced' | 'deep';
+    speedMode?: 'turbo' | 'fast' | 'balanced' | 'deep';
 }
 
 const ROLE_MODEL_MAP: Record<string, Record<string, string>> = {
-    fast:     { math: 'qwen2-math:7b',    code: 'qwen2.5-coder:7b', chat: 'qwen3:8b', vision: 'qwen2.5vl:7b', data: 'qwen2.5-coder:7b' },
-    balanced: { math: 'deepseek-r1:14b',   code: 'qwen2.5-coder:14b', chat: 'qwen3:8b', vision: 'qwen2.5vl:7b', data: 'qwen2.5-coder:14b' },
-    deep:     { math: 'qwen2.5:32b',       code: 'qwen2.5:32b',       chat: 'qwen2.5:32b', vision: 'qwen2.5vl:7b', data: 'qwen2.5:32b' },
+    turbo:    { math: 'qwen2-math:7b',     code: 'qwen2.5-coder:3b',  chat: 'qwen2.5-coder:3b', vision: 'qwen2.5vl:7b', data: 'qwen2.5-coder:3b' },
+    fast:     { math: 'qwen2-math:7b',     code: 'qwen2.5-coder:7b',  chat: 'qwen3:8b',          vision: 'qwen2.5vl:7b', data: 'qwen2.5-coder:7b' },
+    balanced: { math: 'qwen3:14b',         code: 'qwen2.5-coder:14b', chat: 'qwen3:8b',          vision: 'qwen2.5vl:7b', data: 'qwen2.5-coder:14b' },
+    deep:     { math: 'qwen2.5:32b-q3',   code: 'qwen2.5:32b-q3',    chat: 'qwen2.5:32b-q3',    vision: 'qwen2.5vl:7b', data: 'qwen2.5:32b-q3' },
 };
 
 function resolveModelLabel(role: string, speedMode: string): string {
     const models = ROLE_MODEL_MAP[speedMode] || ROLE_MODEL_MAP.balanced;
     const model = models[role] || models.chat;
-    const suffix = speedMode === 'fast' ? ' (fast)' : speedMode === 'deep' ? ' (deep)' : '';
-    return `${model}${suffix}`;
+    const suffix: Record<string, string> = { turbo: ' ⚡turbo', fast: ' (fast)', deep: ' (deep)' };
+    return `${model}${suffix[speedMode] ?? ''}`;
 }
 
 export default function InputBar({
@@ -150,7 +151,8 @@ export default function InputBar({
 
     const overrideOption = MODEL_OPTIONS.find((o) => o.value === modelOverride);
     const borderClass = modelOverride && overrideOption?.color ? overrideOption.color : 'border-surface-4';
-    const modelSelectValue = modelOverride || `__speed_${speedMode}`;
+    const validSpeedModes = new Set(['turbo', 'fast', 'balanced', 'deep']);
+    const modelSelectValue = modelOverride || (validSpeedModes.has(speedMode) ? `__speed_${speedMode}` : '__speed_balanced');
 
     return (
         <div className="space-y-2">
@@ -361,8 +363,8 @@ export default function InputBar({
                     value={modelSelectValue}
                     onChange={(e) => {
                         const value = e.target.value;
-                        if (value === '__speed_fast' || value === '__speed_balanced' || value === '__speed_deep') {
-                            const next = value.replace('__speed_', '') as 'fast' | 'balanced' | 'deep';
+                        if (['__speed_turbo', '__speed_fast', '__speed_balanced', '__speed_deep'].includes(value)) {
+                            const next = value.replace('__speed_', '') as 'turbo' | 'fast' | 'balanced' | 'deep';
                             onModelOverrideChange('');
                             onSpeedModeChange?.(next);
                             return;
@@ -374,9 +376,10 @@ export default function InputBar({
                         isMobile ? 'text-xs px-3 py-1.5 min-h-[36px]' : 'text-[11px] px-2 py-0.5',
                     )}
                 >
-                    <option value="__speed_fast">Auto Routing (Fast)</option>
-                    <option value="__speed_balanced">Auto Routing (Balanced)</option>
-                    <option value="__speed_deep">Auto Routing (Deep)</option>
+                    <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
+                    <option value="__speed_fast">Auto Routing (Fast 7B)</option>
+                    <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
+                    <option value="__speed_deep">Auto Routing (Deep 32B)</option>
                     {MODEL_OPTIONS.filter((opt) => opt.value !== '').map((opt) => (
                         <option key={opt.value} value={opt.value}>
                             {opt.label} (manual)

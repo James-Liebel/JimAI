@@ -97,24 +97,16 @@ export default function Dashboard() {
                     description={runState}
                     meta={lastUpdatedLabel ? `Last updated: ${lastUpdatedLabel}` : undefined}
                     actions={
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                onClick={togglePower}
-                                className={`px-4 py-2 rounded-btn text-sm font-semibold border ${
-                                    status?.power?.enabled
-                                        ? 'bg-accent-red/15 border-accent-red/50 text-accent-red'
-                                        : 'bg-accent-green/15 border-accent-green/50 text-accent-green'
-                                }`}
-                            >
-                                {status?.power?.enabled ? 'Turn OFF' : 'Turn ON'}
-                            </button>
-                            <Link to="/audit" className="px-4 py-2 rounded-btn border border-accent/40 text-sm text-accent hover:bg-accent/10">
-                                Run Audit
-                            </Link>
-                            <Link to="/self-code" className="px-4 py-2 rounded-btn border border-surface-4 text-sm text-text-primary hover:bg-surface-2">
-                                Start Run
-                            </Link>
-                        </div>
+                        <button
+                            onClick={togglePower}
+                            className={`px-4 py-2 rounded-btn text-sm font-semibold border ${
+                                status?.power?.enabled
+                                    ? 'bg-accent-red/15 border-accent-red/50 text-accent-red'
+                                    : 'bg-accent-green/15 border-accent-green/50 text-accent-green'
+                            }`}
+                        >
+                            {status?.power?.enabled ? 'Turn OFF' : 'Turn ON'}
+                        </button>
                     }
                 />
                 {error && (

@@ -920,7 +920,17 @@ def _backend_port_busy_message(port: int, pids: list[int]) -> str:
     )
 
 
+def _clear_port(port: int) -> None:
+    for pid in _find_listening_pids(port):
+        terminate_pid(pid)
+
+
 def start_services(args: argparse.Namespace) -> None:
+    print("Clearing occupied ports before startup…")
+    for port in (11434, int(getattr(args, "backend_port", 8000)), int(getattr(args, "frontend_port", 5173))):
+        _clear_port(port)
+    time.sleep(1)
+
     pids = load_pids()
     backend_pid = int(pids.get("backend_pid", 0) or 0)
     frontend_pid = int(pids.get("frontend_pid", 0) or 0)

@@ -2,6 +2,20 @@ $root = Split-Path $PSScriptRoot -Parent
 
 Write-Host "Starting Private AI System..." -ForegroundColor Cyan
 
+# Clear any processes holding our ports from a previous run
+Write-Host "Clearing occupied ports (8000, 5173, 11434)..." -ForegroundColor Cyan
+foreach ($port in @(11434, 8000, 5173)) {
+    $pids = netstat -ano 2>$null |
+        Select-String ":$port\s" |
+        ForEach-Object { ($_.ToString().Trim() -split '\s+')[-1] } |
+        Where-Object { $_ -match '^\d+$' } |
+        Select-Object -Unique
+    foreach ($p in $pids) {
+        Stop-Process -Id ([int]$p) -Force -ErrorAction SilentlyContinue
+    }
+}
+Start-Sleep 1
+
 # Ollama performance env vars — must be set before ollama serve starts
 $env:OLLAMA_FLASH_ATTENTION   = "1"    # Flash Attention 2: faster long-context inference
 $env:OLLAMA_KV_CACHE_TYPE     = "q8_0" # Quantize KV cache: frees VRAM, more layers on GPU

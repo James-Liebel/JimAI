@@ -68,7 +68,6 @@ export default function Research() {
     const [searching, setSearching] = useState(false);
     const [forceLive, setForceLive] = useState(false);
     const [error, setError] = useState('');
-    const [timings, setTimings] = useState<Record<string, number>>({});
     const [services, setServices] = useState<Record<string, agentApi.ResearchServiceProbe>>({});
     const [memoryHit, setMemoryHit] = useState<{
         matchPercent: number;
@@ -91,12 +90,6 @@ export default function Research() {
         return running ? running.label : null;
     }, [steps]);
 
-    const answerParagraphs = useMemo(
-        () => answer.split(/\n\s*\n/).map((row) => row.trim()).filter(Boolean),
-        [answer],
-    );
-    const compactSummary = answerParagraphs[0] || '';
-    const compactSummaryLine = compactSummary.length > 260 ? `${compactSummary.slice(0, 257)}...` : compactSummary;
     const sourceCount = sources.length;
     const trustLabel = memoryHit
         ? 'Memory-backed'
@@ -104,7 +97,7 @@ export default function Research() {
             ? 'Source-summary fallback'
             : sourceCount > 0
                 ? 'Live source-backed'
-                : 'No source backing yet';
+                : 'Ready';
     const rankedSources = useMemo(
         () => [...sources].sort((left, right) => normalizeScore((right as { score?: number }).score) - normalizeScore((left as { score?: number }).score)),
         [sources],
@@ -131,7 +124,6 @@ export default function Research() {
         setSources([]);
         setError('');
         setRawMode(false);
-        setTimings({});
         setMemoryHit(null);
         setSteps(STEP_ORDER.reduce((acc, row) => ({ ...acc, [row.key]: 'pending' as StepState }), {}));
     };
@@ -187,7 +179,6 @@ export default function Research() {
                     onDone: (event) => {
                         if (cancelledRef.current) return;
                         setSearching(false);
-                        setTimings(event.timings || {});
                         setRawMode(Boolean(event.raw_mode));
                         if (!answer && typeof event.answer === 'string' && event.answer.trim()) {
                             setAnswer(event.answer);
@@ -282,21 +273,22 @@ export default function Research() {
                     ))}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                    {['searxng', 'bing', 'google', 'duckduckgo', 'qdrant', 'ollama'].map((key) => {
-                        const svc = services[key];
-                        const ok = Boolean(svc?.ok);
-                        return (
-                            <span
-                                key={key}
-                                className={`text-[11px] px-2 py-1 rounded border ${serviceBadgeClass(ok)}`}
-                                title={svc?.error || svc?.url || key}
-                            >
-                                {key} {ok ? '●' : '○'}
-                            </span>
-                        );
-                    })}
-                </div>
+                {offlineServices.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {offlineServices.map((key) => {
+                            const svc = services[key];
+                            return (
+                                <span
+                                    key={key}
+                                    className={`text-[11px] px-2 py-1 rounded border ${serviceBadgeClass(false)}`}
+                                    title={svc?.error || svc?.url || key}
+                                >
+                                    {key} offline
+                                </span>
+                            );
+                        })}
+                    </div>
+                )}
 
                 {memoryHit && (
                     <div className="mt-3 rounded border border-accent-green/40 bg-accent-green/10 p-2 text-xs text-accent-green flex items-center justify-between gap-2">
@@ -331,24 +323,13 @@ export default function Research() {
                         Some services are offline: {offlineServices.join(', ')}. The pipeline still attempts available sources.
                     </div>
                 )}
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
-                        <p className="text-[11px] text-text-muted">Trust</p>
-                        <p className="mt-1 text-xs text-text-primary">{trustLabel}</p>
+                {(searching || answer) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                        <span>{searching ? (activeStepLabel || 'Working…') : trustLabel}</span>
+                        {sourceCount > 0 && <span>· {sourceCount} source{sourceCount === 1 ? '' : 's'}</span>}
+                        {forceLive && <span>· live mode</span>}
                     </div>
-                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
-                        <p className="text-[11px] text-text-muted">Sources</p>
-                        <p className="mt-1 text-xs text-text-primary">{sourceCount}</p>
-                    </div>
-                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
-                        <p className="text-[11px] text-text-muted">Status</p>
-                        <p className="mt-1 text-xs text-text-primary">{searching ? (activeStepLabel || 'Working') : 'Ready'}</p>
-                    </div>
-                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-2">
-                        <p className="text-[11px] text-text-muted">Mode</p>
-                        <p className="mt-1 text-xs text-text-primary">{forceLive ? 'Forced live' : 'Auto'}</p>
-                    </div>
-                </div>
+                )}
                 {freshnessNeeded && !forceLive && (
                     <div className="mt-3 rounded border border-accent-blue/30 bg-accent-blue/10 p-2 text-xs text-accent-blue">
                         This query looks freshness-sensitive. Auto mode is active; switch to live mode if you want to bypass memory for this run.
@@ -356,8 +337,9 @@ export default function Research() {
                 )}
             </section>
 
+            {(searching || answer) && (
             <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
-                <h2 className="text-sm font-semibold text-text-primary">Pipeline</h2>
+                {searching && (
                 <div className="space-y-1">
                     {STEP_ORDER.map((step) => (
                         <div key={step.key} className="text-xs text-text-secondary flex items-center gap-2">
@@ -366,6 +348,7 @@ export default function Research() {
                         </div>
                     ))}
                 </div>
+                )}
 
                 <div>
                     <div className="flex items-center justify-between gap-2 mb-1">
@@ -394,17 +377,10 @@ export default function Research() {
                 </div>
                 {rankedSources.length > 0 && (
                     <div className="space-y-2">
-                        <h3 className="text-xs font-semibold text-text-primary">Top evidence</h3>
                         {rankedSources.slice(0, 3).map((row, idx) => (
                             <div key={`${row.url}-evidence-${idx}`} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                                    <span className="rounded-none border border-surface-4 px-2 py-1 text-text-primary">#{idx + 1}</span>
-                                    {row.provider && (
-                                        <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">{row.provider}</span>
-                                    )}
-                                    {row.engine && (
-                                        <span className="rounded-none border border-surface-4 px-2 py-1 text-text-secondary">{row.engine}</span>
-                                    )}
+                                    <span className="text-text-muted">#{idx + 1}</span>
                                     <span className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                         {confidenceLabel((row as { score?: number }).score)}
                                     </span>
@@ -412,12 +388,7 @@ export default function Research() {
                                         <span className="text-text-muted">{sourceDomain(row.url)}</span>
                                     )}
                                 </div>
-                                <a
-                                    href={row.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="mt-2 block text-sm text-text-primary hover:text-accent"
-                                >
+                                <a href={row.url} target="_blank" rel="noreferrer" className="mt-2 block text-sm text-text-primary hover:text-accent">
                                     {row.title}
                                 </a>
                                 <p className="mt-1 text-xs text-text-secondary">{row.snippet}</p>
@@ -426,27 +397,20 @@ export default function Research() {
                     </div>
                 )}
             </section>
+            )}
 
             <section className="rounded-card border border-surface-4 bg-surface-1 p-4 space-y-3">
-                <h2 className="text-sm font-semibold text-text-primary">Answer</h2>
-                {compactSummary && (
-                    <div className="rounded-btn border border-surface-4 bg-surface-0 p-3">
-                        <p className="text-[11px] uppercase tracking-wide text-text-secondary">Compact Summary</p>
-                        <p className="mt-2 text-sm text-text-primary">{compactSummaryLine}</p>
-                    </div>
+                {!answer && !searching && (
+                    <p className="text-xs text-text-muted">Run a research query above to get a grounded answer.</p>
                 )}
-                {!answer && (
+                {!answer && searching && (
                     <p className="text-xs text-text-secondary flex items-center gap-1.5">
-                        {searching ? (
-                            <>
-                                <span className="inline-flex gap-0.5">
-                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:0ms]" />
-                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:150ms]" />
-                                    <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:300ms]" />
-                                </span>
-                                {activeStepLabel || 'Streaming answer...'}
-                            </>
-                        ) : 'Run a research query to stream grounded results.'}
+                        <span className="inline-flex gap-0.5">
+                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:0ms]" />
+                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:150ms]" />
+                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:300ms]" />
+                        </span>
+                        {activeStepLabel || 'Streaming answer…'}
                     </p>
                 )}
                 {answer && (
@@ -454,24 +418,10 @@ export default function Research() {
                         <ReactMarkdown>{answer}</ReactMarkdown>
                     </div>
                 )}
-                {sourceCount > 0 && (
-                    <p className="text-[11px] text-text-muted">
-                        Trust note: citations are only as reliable as the fetched pages. Open the source chips above when you need to verify a claim directly.
-                    </p>
-                )}
                 {rawMode && (
                     <p className="text-xs text-accent-amber">
-                        Returned raw source summary because Ollama synthesis was unavailable.
+                        Synthesis unavailable — showing raw source summary.
                     </p>
-                )}
-                {Object.keys(timings).length > 0 && (
-                    <div className="text-[11px] text-text-muted border-t border-surface-4 pt-2">
-                        {Object.entries(timings).map(([key, value]) => (
-                            <span key={key} className="mr-3">
-                                {key}: {Number(value).toFixed(3)}s
-                            </span>
-                        ))}
-                    </div>
                 )}
             </section>
         </div>

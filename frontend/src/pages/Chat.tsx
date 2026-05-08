@@ -63,12 +63,6 @@ export default function Chat() {
     const [showSidebar, setShowSidebar] = useState(!isMobile);
     const [showMobileDrawer, setShowMobileDrawer] = useState(false);
     const [showAgentPanel, setShowAgentPanel] = useState(false);
-    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant');
-    const lastSourceCount = lastAssistantMessage?.sources?.length || 0;
-    const lastRouting = lastAssistantMessage?.routing;
-    const lastQueryCount = Number(lastRouting?.auto_web_research_query_count || 0);
-    const lastFetchedPages = Number(lastRouting?.auto_web_research_fetched_pages || 0);
-    const lastDomainCount = Number(lastRouting?.auto_web_research_domain_count || 0);
 
     const handleFileAttach = useCallback(
         async (file: File) => {
@@ -209,143 +203,17 @@ export default function Chat() {
                     </div>
                 </div>
 
-                {/* Auto-mode info strip */}
-                <div className={cn(
-                    'flex-shrink-0 border-b border-surface-5 bg-surface-0/60',
-                    isMobile ? 'px-3 py-1.5' : 'px-4 py-1.5',
-                )}>
-                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                        <span className="text-text-muted tracking-wide">
-                            Auto mode
+                {/* Status strip — only visible when actively searching */}
+                {searchingWeb && (
+                    <div className={cn(
+                        'flex-shrink-0 border-b border-surface-5 bg-surface-0/60',
+                        isMobile ? 'px-3 py-1.5' : 'px-4 py-1.5',
+                    )}>
+                        <span className="rounded-badge border border-accent/30 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent animate-pulse">
+                            {searchStatus || 'Searching web…'}
                         </span>
-                        <span className="text-surface-4">·</span>
-                        <span className="text-text-muted">web research runs automatically when needed</span>
-                        {searchingWeb && (
-                            <span className="rounded-badge border border-accent/30 bg-accent/10 px-2 py-0.5 font-medium text-accent">
-                                {searchStatus || 'Searching web…'}
-                            </span>
-                        )}
-                        {lastAssistantMessage && (
-                            <>
-                                {lastSourceCount > 0 && (
-                                    <span className="rounded-badge border border-accent/25 bg-accent/8 px-2 py-0.5 text-accent">
-                                        {lastSourceCount} source{lastSourceCount === 1 ? '' : 's'}
-                                    </span>
-                                )}
-                                {lastRouting?.auto_web_research_attempted && (
-                                    <span
-                                        className={cn(
-                                            'rounded-badge border px-2 py-0.5',
-                                            lastRouting.auto_web_research_ok
-                                                ? 'border-accent-green/25 bg-accent-green/8 text-accent-green'
-                                                : 'border-accent-amber/25 bg-accent-amber/8 text-accent-amber',
-                                        )}
-                                    >
-                                        {lastRouting.auto_web_research_ok ? 'Web ✓' : 'Web attempted'}
-                                    </span>
-                                )}
-                                {lastQueryCount > 0 && (
-                                    <span className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 text-text-secondary">
-                                        {lastQueryCount} quer{lastQueryCount === 1 ? 'y' : 'ies'}
-                                    </span>
-                                )}
-                                {lastFetchedPages > 0 && (
-                                    <span className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 text-text-secondary">
-                                        {lastFetchedPages} page{lastFetchedPages === 1 ? '' : 's'}
-                                    </span>
-                                )}
-                                {lastDomainCount > 0 && (
-                                    <span className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 text-text-secondary">
-                                        {lastDomainCount} site{lastDomainCount === 1 ? '' : 's'}
-                                    </span>
-                                )}
-                                {typeof lastRouting?.context_window_messages === 'number' && (
-                                    <span
-                                        className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 font-mono text-text-secondary"
-                                        title="Messages from this chat passed into the model for this reply (after windowing)"
-                                    >
-                                        ctx {lastRouting.context_window_messages} msg
-                                        {typeof lastRouting.context_window_chars === 'number'
-                                            ? ` · ${Math.round(lastRouting.context_window_chars / 1000)}k chars`
-                                            : ''}
-                                    </span>
-                                )}
-                                {lastRouting?.cross_chat_memory_active && (
-                                    <span
-                                        className="rounded-badge border border-accent/25 bg-accent/8 px-2 py-0.5 text-accent"
-                                        title="Cross-chat memory bullets were included in the system prompt"
-                                    >
-                                        shared memory
-                                    </span>
-                                )}
-                                {lastRouting?.rolling_summary_active && (
-                                    <span
-                                        className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-0.5 text-text-secondary"
-                                        title="Older turns in this chat were compressed into a rolling summary"
-                                    >
-                                        chat summary
-                                    </span>
-                                )}
-                                {(lastRouting?.tools_used ?? []).map((tool) => {
-                                    const TOOL_LABELS: Record<string, string> = {
-                                        code_exec: '⚡ code ran',
-                                        math: '∑ math',
-                                        sysinfo: '💻 sysinfo',
-                                        datetime: '🕐 time',
-                                        calculator: '🔢 calc',
-                                        git: '🌿 git',
-                                        file_read: '📄 file',
-                                        unit_convert: '📐 units',
-                                        hash: '🔑 hash',
-                                        base64: '📦 base64',
-                                        json_format: '{ } json',
-                                        regex_test: '🔍 regex',
-                                        text_stats: '📝 stats',
-                                        uuid: '🆔 uuid',
-                                        color: '🎨 color',
-                                    };
-                                    return (
-                                        <span
-                                            key={tool}
-                                            className="rounded-badge border border-cyan-500/25 bg-cyan-500/8 px-2 py-0.5 text-cyan-400"
-                                            title={`Auto tool used: ${tool}`}
-                                        >
-                                            {TOOL_LABELS[tool] ?? tool}
-                                        </span>
-                                    );
-                                })}
-                                {(lastRouting?.tool_error_details ?? []).map((err, idx) => {
-                                    const cls =
-                                        err.kind === 'timeout'
-                                            ? 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber'
-                                            : err.kind === 'invalid_input'
-                                              ? 'border-surface-4 bg-surface-2 text-text-secondary'
-                                              : 'border-accent-red/30 bg-accent-red/10 text-accent-red';
-                                    const icon = err.kind === 'timeout' ? '⏱' : err.kind === 'invalid_input' ? '·' : '⚠';
-                                    return (
-                                        <span
-                                            key={`tool-err-${idx}`}
-                                            className={cn('rounded-badge border px-2 py-0.5', cls)}
-                                            title={`${err.tool}: ${err.message}`}
-                                        >
-                                            {icon} {err.tool} {err.kind === 'timeout' ? 'timed out' : 'failed'}
-                                        </span>
-                                    );
-                                })}
-                                {(lastRouting?.tool_error_details ?? []).length === 0 &&
-                                    (lastRouting?.tool_errors ?? []).map((err, idx) => (
-                                        <span
-                                            key={`tool-err-legacy-${idx}`}
-                                            className="rounded-badge border border-accent-red/30 bg-accent-red/10 px-2 py-0.5 text-accent-red"
-                                            title={err}
-                                        >
-                                            ⚠ {err.split(':')[0]} failed
-                                        </span>
-                                    ))}
-                            </>
-                        )}
                     </div>
-                </div>
+                )}
 
                 <div className="flex-1 flex overflow-hidden">
                     <div className="flex-1 flex flex-col min-w-0">

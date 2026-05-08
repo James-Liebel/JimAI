@@ -47,7 +47,7 @@ export default function Dashboard() {
 
     useEffect(() => {
         load();
-        const id = window.setInterval(load, 5000);
+        const id = window.setInterval(load, 10000);
         return () => window.clearInterval(id);
     }, [load]);
 
@@ -157,20 +157,21 @@ export default function Dashboard() {
                 </div>
             </section>
 
+            {memory.length > 0 && (
             <section className="rounded-card border border-surface-4 bg-surface-1 p-6 md:p-8">
-                <h2 className="text-base font-semibold text-text-primary">Recent Memory Summaries</h2>
+                <h2 className="text-base font-semibold text-text-primary">Recent Memory</h2>
                 <div className="mt-4 space-y-3">
-                    {memory.length === 0 && <p className="text-xs text-text-secondary">No memory entries yet.</p>}
                     {memory.map((entry, index) => (
                         <div key={index} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                             <p className="text-sm text-text-primary">{String(entry.objective || 'Untitled run')}</p>
                             <p className="text-[11px] text-text-muted mt-1">
-                                status: {String(entry.status || 'unknown')} • run: {String(entry.run_id || '')}
+                                {String(entry.status || 'unknown')} · run {String(entry.run_id || '')}
                             </p>
                         </div>
                     ))}
                 </div>
             </section>
+            )}
             </div>
         </div>
     );

@@ -298,6 +298,10 @@ export default function Skills() {
                         {listError ? <p className="px-2 py-2 text-xs text-accent-red">{listError}</p> : null}
                         {loadingList && !list.length ? (
                             <p className="px-2 py-4 text-xs text-text-muted">Loading…</p>
+                        ) : filtered.length === 0 ? (
+                            <p className="px-2 py-4 text-xs text-text-muted">
+                                {list.length === 0 ? 'No skills yet — install defaults or create one.' : 'No skills match your filter.'}
+                            </p>
                         ) : (
                             <ul className="space-y-1">
                                 {filtered.map((s) => (

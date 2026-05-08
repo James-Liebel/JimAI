@@ -431,7 +431,7 @@ export default function Agents() {
     );
 
     const onKeyDownChat = (e: React.KeyboardEvent) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             void sendChat();
         }
@@ -728,7 +728,7 @@ export default function Agents() {
                                     <div className="flex gap-2">
                                         <textarea
                                             className="flex-1 min-h-[44px] max-h-32 rounded-btn border border-surface-4 bg-surface-2 px-3 py-2 text-sm text-text-primary resize-y"
-                                            placeholder="Message… (Ctrl+Enter to send)"
+                                            placeholder="Message… (Enter to send, Shift+Enter for new line)"
                                             value={chatInput}
                                             onChange={(e) => setChatInput(e.target.value)}
                                             onKeyDown={onKeyDownChat}

@@ -466,7 +466,7 @@ export default function AgentStudio() {
                             onChange={(e) => setObjective(e.target.value)}
                             rows={3}
                             placeholder="Describe what you want agents to build. Skills can auto-generate from this objective."
-                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
+                            className="w-full bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
                         />
                         <div className="flex gap-2">
                             <button
@@ -560,20 +560,20 @@ export default function AgentStudio() {
                             value={skillName}
                             onChange={(e) => setSkillName(e.target.value)}
                             placeholder="Skill name"
-                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
+                            className="w-full bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                         />
                         <input
                             value={skillDescription}
                             onChange={(e) => setSkillDescription(e.target.value)}
                             placeholder="Short description"
-                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
+                            className="w-full bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                         />
                         <div className="grid grid-cols-5 gap-2">
                             <input
                                 value={skillTags}
                                 onChange={(e) => setSkillTags(e.target.value)}
                                 placeholder="tags,comma,separated"
-                                className="col-span-4 bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
+                                className="col-span-4 bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                             />
                             <input
                                 type="number"
@@ -581,7 +581,7 @@ export default function AgentStudio() {
                                 max={5}
                                 value={skillComplexity}
                                 onChange={(e) => setSkillComplexity(Number(e.target.value))}
-                                className="col-span-1 bg-white text-black border border-surface-4 rounded-none px-2 py-1.5 text-xs"
+                                className="col-span-1 bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-1.5 text-xs"
                             />
                         </div>
                         <textarea
@@ -589,7 +589,7 @@ export default function AgentStudio() {
                             onChange={(e) => setSkillContent(e.target.value)}
                             rows={6}
                             placeholder="Optional full SKILL.md content. Leave empty to auto-build a complex template."
-                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-y"
+                            className="w-full bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-2 text-xs resize-y"
                         />
                         <button
                             onClick={handleCreateSkill}
@@ -607,7 +607,7 @@ export default function AgentStudio() {
                             onChange={(e) => setRunPrompt(e.target.value)}
                             rows={3}
                             placeholder="Prompt the current team to execute a task."
-                            className="w-full bg-white text-black border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
+                            className="w-full bg-surface-0 text-text-primary border border-surface-4 rounded-none px-2 py-2 text-xs resize-none"
                         />
                         <button
                             onClick={handleRunTest}

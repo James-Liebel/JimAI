@@ -232,6 +232,7 @@ export default function Settings() {
     };
 
     const resetRuntimeData = async () => {
+        if (!window.confirm('Reset all jimAI runtime data? This clears runs, reviews, logs, memory, chats, and the index. Settings and teams are kept. This cannot be undone.')) return;
         setMessage('');
         setError('');
         try {
@@ -616,9 +617,12 @@ export default function Settings() {
 
             <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
                 <h2 className="text-sm font-semibold text-text-primary">Proactive & Self-Improvement</h2>
-                <p className="text-xs text-text-secondary">
-                    proactive: {String(Boolean(proactiveStatus.running))} • goals: {String(proactiveStatus.goal_count ?? 0)}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className={`text-xs px-2 py-1 rounded border ${proactiveStatus.running ? 'border-accent-green/40 bg-accent-green/10 text-accent-green' : 'border-surface-4 bg-surface-0 text-text-muted'}`}>
+                        {proactiveStatus.running ? 'Running' : 'Stopped'}
+                    </span>
+                    <span className="text-xs text-text-muted">{String(proactiveStatus.goal_count ?? 0)} goals</span>
+                </div>
                 <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => setProactiveRunning(true)} className="px-3 py-2 rounded-btn border border-accent-green/40 text-accent-green text-xs">
                         Start Proactive

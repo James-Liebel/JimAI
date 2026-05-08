@@ -250,42 +250,24 @@ export default function MessageBubble({ message }: Props) {
                         )}
                     </div>
                 )}
-                {hasSources && (
-                    <div className="mt-2">
-                        <button
-                            onClick={() => setShowSources(!showSources)}
-                            className="text-[11px] text-text-muted hover:text-text-secondary transition-colors"
-                        >
-                            {showSources ? '▼' : '▶'} {message.sources!.length} source(s)
-                        </button>
-                        {showSources && (
-                            <div className="mt-1.5 space-y-1">
-                                {rankedSources.map((s, i) => (
-                                    <div key={i} className="text-[11px] text-text-muted bg-surface-2 rounded p-2">
-                                        <span className="font-medium text-text-secondary">#{i + 1} {sourceDisplayLabel(s)}</span>
-                                        {typeof s.score === 'number' && Number.isFinite(s.score) && (
-                                            <>
-                                                {' '}
-                                                <span className="opacity-60">
-                                                    ({(normalizeSourceScore(s.score) * 100).toFixed(0)}% · {sourceConfidence(s.score)} confidence)
-                                                </span>
-                                            </>
-                                        )}
-                                        <p className="mt-0.5 opacity-75 line-clamp-2">{s.text}</p>
-                                        {normalizeSourceUrl(s) && (
-                                            <a
-                                                href={normalizeSourceUrl(s)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="mt-1 inline-block text-accent hover:underline"
-                                            >
-                                                {normalizeSourceUrl(s)}
-                                            </a>
-                                        )}
-                                    </div>
-                                ))}
+                {hasSources && showSources && (
+                    <div className="mt-1.5 space-y-1">
+                        {rankedSources.map((s, i) => (
+                            <div key={i} className="text-[11px] text-text-muted bg-surface-2 rounded p-2">
+                                <span className="font-medium text-text-secondary">#{i + 1} {sourceDisplayLabel(s)}</span>
+                                {typeof s.score === 'number' && Number.isFinite(s.score) && (
+                                    <span className="opacity-60 ml-1">
+                                        ({(normalizeSourceScore(s.score) * 100).toFixed(0)}%)
+                                    </span>
+                                )}
+                                <p className="mt-0.5 opacity-75 line-clamp-2">{s.text}</p>
+                                {normalizeSourceUrl(s) && (
+                                    <a href={normalizeSourceUrl(s)} target="_blank" rel="noreferrer" className="mt-1 inline-block text-accent hover:underline">
+                                        {normalizeSourceUrl(s)}
+                                    </a>
+                                )}
                             </div>
-                        )}
+                        ))}
                     </div>
                 )}
 

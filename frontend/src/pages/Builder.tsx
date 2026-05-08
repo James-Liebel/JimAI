@@ -2364,7 +2364,7 @@ function FileTreeNode({
                         if (e.key === 'Enter') onCreate();
                         if (e.key === 'Escape') onCancelCreate();
                     }}
-                    className="mt-2 w-full rounded-none border border-surface-4 bg-white px-2 py-1 text-[11px] text-black outline-none"
+                    className="mt-2 w-full rounded-none border border-surface-4 bg-surface-0 px-2 py-1 text-[11px] text-text-primary outline-none"
                     placeholder={`Enter ${pendingCreate!.kind} name`}
                 />
                 <div className="mt-2 flex gap-2">

@@ -94,16 +94,9 @@ export default function InputBar({
     }, [text, pastedImage, isStreaming, onSend]);
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (isMobile) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-            }
-        } else {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                handleSend();
-            }
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
         }
     };
 
@@ -277,7 +270,7 @@ export default function InputBar({
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder={isMobile ? 'Ask anything...' : 'Just type anything... Ctrl+Enter to send'}
+                    placeholder="Ask anything… Shift+Enter for new line"
                     rows={1}
                     className={cn(
                         'flex-1 bg-transparent text-text-primary resize-none outline-none placeholder:text-text-muted',
@@ -313,7 +306,7 @@ export default function InputBar({
                             ? 'cursor-not-allowed text-text-muted'
                             : 'text-accent hover:bg-white/5',
                     )}
-                    title={isMobile ? 'Send' : 'Send (Ctrl+Enter)'}
+                    title="Send (Enter)"
                 >
                     <Send size={isMobile ? 20 : 18} />
                 </button>

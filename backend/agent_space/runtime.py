@@ -190,6 +190,13 @@ async def startup() -> None:
             await heartbeat_scheduler.start()
         except Exception as exc:
             logger.warning("Failed to start heartbeat scheduler: %s", exc)
+    guardrail_model = str(cfg.get("prompt_shield_guardrail_model") or "").strip()
+    if guardrail_model:
+        try:
+            security_runtime.get_prompt_shield().use_guardrail_model(guardrail_model)
+            logger.info("PromptShield guardrail model set to %s", guardrail_model)
+        except Exception as exc:
+            logger.warning("Failed to set PromptShield guardrail model: %s", exc)
 
 
 async def shutdown() -> None:

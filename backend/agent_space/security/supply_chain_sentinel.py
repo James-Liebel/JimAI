@@ -60,17 +60,36 @@ class CveFinding:
         return asdict(self)
 
 
+def _resolve_tool(name: str) -> str | None:
+    """Find the on-disk path for a tool, handling Windows .cmd/.bat shims."""
+    return shutil.which(name)
+
+
 def _have_tool(name: str) -> bool:
-    return shutil.which(name) is not None
+    return _resolve_tool(name) is not None
 
 
 async def _run_subprocess(args: list[str], *, cwd: Path, timeout: int) -> tuple[int, str, str]:
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=str(cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    # On Windows, .cmd / .bat / .ps1 shims must go through cmd.exe — create_subprocess_exec
+    # only accepts real executables. shutil.which returns the shim path; we let the OS
+    # resolve via shell=True (asyncio.create_subprocess_shell) when the head looks like one.
+    head = args[0] if args else ""
+    use_shell = head.lower().endswith((".cmd", ".bat", ".ps1"))
+    if use_shell:
+        cmd = subprocess.list2cmdline(args)
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -198,10 +217,11 @@ class SupplyChainSentinel:
         py_findings: list[CveFinding] = []
         npm_findings: list[CveFinding] = []
 
-        if _have_tool("pip-audit"):
+        pip_audit_path = _resolve_tool("pip-audit")
+        if pip_audit_path:
             try:
                 rc, stdout, stderr = await _run_subprocess(
-                    ["pip-audit", "--format", "json"],
+                    [pip_audit_path, "--format", "json"],
                     cwd=self.project_root / "backend",
                     timeout=PIP_AUDIT_TIMEOUT_SECONDS,
                 )
@@ -221,10 +241,11 @@ class SupplyChainSentinel:
             results["ecosystems"]["pypi"] = {"tool": "pip-audit", "skipped": "not installed"}
 
         npm_dir = self.project_root / "frontend"
-        if _have_tool("npm") and (npm_dir / "package.json").exists():
+        npm_path = _resolve_tool("npm")
+        if npm_path and (npm_dir / "package.json").exists():
             try:
                 rc, stdout, stderr = await _run_subprocess(
-                    ["npm", "audit", "--json"],
+                    [npm_path, "audit", "--json"],
                     cwd=npm_dir,
                     timeout=NPM_AUDIT_TIMEOUT_SECONDS,
                 )

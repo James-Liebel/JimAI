@@ -71,6 +71,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "anthropic_api_key": os.getenv("ANTHROPIC_API_KEY", ""),
     "github_token": os.getenv("GITHUB_TOKEN", ""),
     "agent_models": {},
+    "heartbeat_enabled": os.getenv("AGENT_SPACE_HEARTBEAT_ENABLED", "false").lower() in ("1", "true", "yes"),
+    "heartbeat_tick_seconds": int(os.getenv("AGENT_SPACE_HEARTBEAT_TICK_SECONDS", "60")),
+    "prompt_shield_guardrail_model": os.getenv("AGENT_SPACE_PROMPT_SHIELD_GUARDRAIL_MODEL", ""),
+    "prompt_shield_use_guardrail_default": os.getenv("AGENT_SPACE_PROMPT_SHIELD_USE_GUARDRAIL_DEFAULT", "false").lower() in ("1", "true", "yes"),
 }
 
 

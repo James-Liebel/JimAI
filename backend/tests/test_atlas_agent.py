@@ -592,3 +592,229 @@ class TestGoalDirectedScenarios:
         assert "accounts.google.com" in full_prompt
         assert "Sign in - Google Accounts" in full_prompt
         assert "Email or phone" in full_prompt
+
+
+# ---------------------------------------------------------------------------
+# Action signature + dedup gate (Atlas anti-loop)
+# ---------------------------------------------------------------------------
+
+
+class TestActionSignature:
+    """_action_signature is the fingerprint behind every dedup decision."""
+
+    def test_navigate_signature_strips_query_string(self):
+        sig_a = runner._action_signature("navigate", {"url": "https://www.google.com/search?q=foo"})
+        sig_b = runner._action_signature("navigate", {"url": "https://www.google.com/search?q=bar"})
+        # Same host + path -> same signature regardless of query string
+        assert sig_a == sig_b == "navigate:www.google.com/search"
+
+    def test_navigate_different_hosts_different_signatures(self):
+        sig_a = runner._action_signature("navigate", {"url": "https://google.com"})
+        sig_b = runner._action_signature("navigate", {"url": "https://bing.com"})
+        assert sig_a != sig_b
+
+    def test_click_index_signature_includes_index(self):
+        sig0 = runner._action_signature("click_index", {"index": 0})
+        sig1 = runner._action_signature("click_index", {"index": 1})
+        assert sig0 == "click_index:0"
+        assert sig1 == "click_index:1"
+        assert sig0 != sig1
+
+    def test_type_signature_excludes_freeform_text(self):
+        sig_a = runner._action_signature("type", {"selector": "#q", "text": "alpha"})
+        sig_b = runner._action_signature("type", {"selector": "#q", "text": "beta"})
+        # Free-form text intentionally not part of sig — re-typing same field
+        # for a different query is not a loop.
+        assert sig_a == sig_b == "type:#q"
+
+    def test_unknown_action_returns_verb(self):
+        assert runner._action_signature("teleport", {}) == "teleport"
+        assert runner._action_signature("", {}) == "unknown"
+
+
+class TestLastHistorySignature:
+    def test_picks_most_recent_meaningful_entry(self):
+        history = [
+            {"role": "user", "content": "go"},
+            {"role": "agent", "content": "[navigate:google.com] going there"},
+            {"role": "agent", "content": "[click_index:2] clicking"},
+        ]
+        assert runner._last_history_signature(history) == "click_index:2"
+
+    def test_skips_wait_and_talk_entries(self):
+        history = [
+            {"role": "agent", "content": "[navigate:google.com] going"},
+            {"role": "agent", "content": "[wait] paused"},
+            {"role": "agent", "content": "[talk] hi"},
+        ]
+        # wait + talk are skipped, navigate is the most recent meaningful entry.
+        assert runner._last_history_signature(history) == "navigate:google.com"
+
+    def test_legacy_format_still_matches(self):
+        history = [{"role": "agent", "content": "[click_index] clicking"}]
+        # Legacy entries without ":sig" fall back to verb only.
+        assert runner._last_history_signature(history) == "click_index"
+
+    def test_no_match_returns_empty(self):
+        assert runner._last_history_signature([]) == ""
+        assert runner._last_history_signature([{"role": "user", "content": "no tag"}]) == ""
+
+
+@pytest.mark.anyio
+class TestDedupGate:
+    """Pre-execution gate: identical signature + URL unchanged -> wait."""
+
+    def _mock(self, response_json: str):
+        mock = MagicMock()
+        mock.chat_full = AsyncMock(return_value=response_json)
+        return mock
+
+    async def test_repeat_navigate_with_unchanged_url_is_blocked(self):
+        history = [{"role": "agent", "content": "[navigate:www.google.com] going"}]
+        # Model emits the same navigate even though we're already there.
+        model_resp = _action_json(
+            action="navigate",
+            params={"url": "https://www.google.com"},
+            response="going to google",
+        )
+        with patch.object(runner, "ollama_client", self._mock(model_resp)):
+            result = await runner.chat_browser_step(
+                message="open google",
+                url="https://www.google.com",
+                last_url="https://www.google.com",
+                title="Google",
+                page_text="Google",
+                history=history,
+            )
+        assert result["action"] == "wait"
+        assert result.get("loop_blocked") is True
+        assert result.get("blocked_signature") == "navigate:www.google.com"
+
+    async def test_different_navigate_target_not_blocked(self):
+        history = [{"role": "agent", "content": "[navigate:www.google.com] step 1"}]
+        # Model picks a different host this time -> sig differs -> allowed.
+        model_resp = _action_json(
+            action="navigate",
+            params={"url": "https://duckduckgo.com"},
+            response="trying ddg",
+        )
+        with patch.object(runner, "ollama_client", self._mock(model_resp)):
+            result = await runner.chat_browser_step(
+                message="search",
+                url="https://www.google.com",
+                last_url="https://www.google.com",
+                title="Google",
+                page_text="Google",
+                history=history,
+            )
+        assert result["action"] == "navigate"
+        assert result.get("loop_blocked") is not True
+
+    async def test_repeat_click_index_url_changed_is_allowed(self):
+        history = [{"role": "agent", "content": "[click_index:0] step 1"}]
+        # Same click_index:0, but the URL has moved since last action,
+        # which means the previous click had effect — allow another one.
+        model_resp = _action_json(
+            action="click_index",
+            params={"index": 0},
+            response="clicking again",
+        )
+        with patch.object(runner, "ollama_client", self._mock(model_resp)):
+            result = await runner.chat_browser_step(
+                message="click first result",
+                url="https://example.com/page2",
+                last_url="https://example.com/page1",
+                title="x",
+                page_text="x",
+                history=history,
+            )
+        assert result["action"] == "click_index"
+        assert result.get("loop_blocked") is not True
+
+    async def test_no_last_url_falls_back_to_feedback_path(self):
+        # Without last_url we cannot prove no-effect, so the gate stays open and
+        # the existing FEEDBACK injection path covers things.
+        captured: list = []
+
+        async def capturing(model, messages, **kwargs):
+            captured.extend(messages)
+            return _action_json(
+                action="navigate",
+                params={"url": "https://www.google.com"},
+                response="going",
+            )
+        mock_oc = MagicMock()
+        mock_oc.chat_full = capturing
+        history = [
+            {"role": "agent", "content": "[navigate:www.google.com] step 1"},
+            {"role": "agent", "content": "[navigate:www.google.com] step 2"},
+        ]
+        with patch.object(runner, "ollama_client", mock_oc):
+            result = await runner.chat_browser_step(
+                message="open google",
+                url="https://www.google.com",
+                last_url="",  # no signal -> gate stays open
+                title="Google",
+                page_text="Google",
+                history=history,
+            )
+        # Action is allowed through (no last_url means no proof of no-op)
+        assert result["action"] == "navigate"
+        # But FEEDBACK was injected (threshold is 2; we have 2 prior navigates).
+        full = " ".join(m.get("content", "") for m in captured)
+        assert "FEEDBACK" in full
+
+    async def test_block_persists_across_intervening_wait(self):
+        # If a previous block rewrote the action to wait, the subsequent emit
+        # must still match against the underlying real action — not the wait.
+        history = [
+            {"role": "agent", "content": "[navigate:www.google.com] step 1"},
+            {"role": "agent", "content": "[wait] just tried that"},
+        ]
+        model_resp = _action_json(
+            action="navigate",
+            params={"url": "https://www.google.com"},
+            response="trying again",
+        )
+        with patch.object(runner, "ollama_client", self._mock(model_resp)):
+            result = await runner.chat_browser_step(
+                message="open google",
+                url="https://www.google.com",
+                last_url="https://www.google.com",
+                title="Google",
+                page_text="Google",
+                history=history,
+            )
+        # The wait between the two navigates is skipped; sig still matches.
+        assert result["action"] == "wait"
+        assert result.get("loop_blocked") is True
+
+    async def test_lowered_feedback_threshold_fires_after_two(self):
+        captured: list = []
+
+        async def capturing(model, messages, **kwargs):
+            captured.extend(messages)
+            return _action_json(
+                action="navigate",
+                params={"url": "https://www.bing.com"},
+                response="trying bing",
+            )
+        mock_oc = MagicMock()
+        mock_oc.chat_full = capturing
+        # Only TWO prior matching tags — under the old threshold of 3 this
+        # would have been silent. Under the new threshold of 2 it fires.
+        history = [
+            {"role": "agent", "content": "[navigate:google.com] step 1"},
+            {"role": "agent", "content": "[navigate:google.com] step 2"},
+        ]
+        with patch.object(runner, "ollama_client", mock_oc):
+            await runner.chat_browser_step(
+                message="open google",
+                url="https://www.bing.com",         # URL different so dedup gate stays open
+                last_url="https://www.google.com",
+                title="Bing",
+                page_text="Bing",
+                history=history,
+            )
+        full = " ".join(m.get("content", "") for m in captured)
+        assert "FEEDBACK" in full

@@ -111,6 +111,10 @@ class AtlasChatRequest(BaseModel):
     history: list[dict] = []
     screenshot: str = ""
     action_feedback: str = ""
+    # URL the page had BEFORE the most recent agent action ran. The backend's
+    # dedup gate compares this against the current ``url`` to detect no-op
+    # repeats. Defaults to "" so existing callers keep working.
+    last_url: str = ""
 
 
 class BenchmarkResultRequest(BaseModel):
@@ -298,6 +302,7 @@ def register_browser_routes(
             history=req.history,
             screenshot=req.screenshot,
             action_feedback=req.action_feedback,
+            last_url=req.last_url,
         )
 
     @router.post("/benchmark/results")

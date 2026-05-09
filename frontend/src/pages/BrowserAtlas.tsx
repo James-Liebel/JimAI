@@ -55,6 +55,11 @@ interface AgentStep {
     action?: string;
     params?: Record<string, unknown>;
     response?: string;
+    /** Set when the backend dedup gate replaced the action with `wait` because
+     *  the model emitted the same signature on a page that hadn't moved. */
+    loop_blocked?: boolean;
+    /** Signature that was suppressed (e.g. "navigate:google.com/search"). */
+    blocked_signature?: string;
 }
 
 const BACKEND = 'http://127.0.0.1:8000/api/agent-space';
@@ -67,6 +72,41 @@ const WELCOME_CONTENT = 'I can control this browser for you. Try: "Go to Amazon 
 const freshWelcome = (key = 'welcome'): ChatMessage => ({ id: key, role: 'agent', content: WELCOME_CONTENT });
 
 // ── Backend call ─────────────────────────────────────────────────────────────
+/**
+ * Build a stable, narrow signature for an action so two emits with the same
+ * verb but different targets aren't treated as duplicates downstream.
+ *
+ * Mirrors backend `_action_signature` in `browser_agent_runner.py`. Free-form
+ * text (typed query) is intentionally excluded — re-typing the same query
+ * after a page reload is not a loop.
+ */
+function actionSignature(action: string, params: Record<string, unknown> | null | undefined): string {
+    const a = (action || '').toLowerCase();
+    const p = params || {};
+    const get = (k: string) => p[k];
+    if (a === 'navigate') {
+        const raw = String(get('url') || '').trim();
+        try {
+            const u = new URL(raw);
+            const host = u.host.toLowerCase();
+            const path = (u.pathname || '').replace(/\/+$/, '');
+            const target = `${host}${path}`;
+            return target ? `navigate:${target}` : 'navigate';
+        } catch {
+            return raw ? `navigate:${raw.toLowerCase()}` : 'navigate';
+        }
+    }
+    if (a === 'click_index' || a === 'type_index') return `${a}:${get('index') ?? ''}`;
+    if (a === 'click_xy' || a === 'type_xy') return `${a}:${get('x') ?? ''},${get('y') ?? ''}`;
+    if (a === 'click_selector') return `click_selector:${String(get('selector') || '').trim()}`;
+    if (a === 'click_link') return `click_link:${String(get('href') || '').trim()}`;
+    if (a === 'type') return `type:${String(get('selector') || '').trim()}`;
+    if (a === 'type_and_submit') return `type_and_submit:${String(get('selector') || '').trim()}`;
+    if (a === 'press_key') return `press_key:${String(get('key') || '').trim()}`;
+    if (a === 'scroll') return `scroll:${get('dy') ?? ''}`;
+    return a || 'unknown';
+}
+
 async function agentStep(
     message: string,
     url: string,
@@ -75,6 +115,7 @@ async function agentStep(
     history: { role: string; content: string }[],
     screenshot?: string,
     actionFeedback?: string,
+    lastUrl?: string,
 ): Promise<AgentStep> {
     const res = await fetchWithTimeout(
         `${BACKEND}/browser/atlas/chat`,
@@ -85,6 +126,7 @@ async function agentStep(
                 message, url, title, page_text: pageText, history,
                 screenshot: screenshot ?? '',
                 action_feedback: actionFeedback ?? '',
+                last_url: lastUrl ?? '',
             }),
         },
         90000,
@@ -822,7 +864,12 @@ export default function BrowserAtlas() {
 
             let result: AgentStep;
             try {
-                result = await agentStep(userMessage, url, title, pageText, historyRef.current.slice(-10), screenshot, actionFeedback);
+                // prevUrl is the URL the page had right before the previous step ran;
+                // backend uses it to detect "I issued the same action and the URL didn't move" no-ops.
+                result = await agentStep(
+                    userMessage, url, title, pageText,
+                    historyRef.current.slice(-10), screenshot, actionFeedback, prevUrl,
+                );
             } catch (err) {
                 const msg = err instanceof Error ? err.message : 'unknown';
                 setAgentStepInfo(null);
@@ -837,11 +884,17 @@ export default function BrowserAtlas() {
 
             const { action = 'talk', params = {}, response = '' } = result;
             setAgentStepInfo({ step: step + 1, phase: 'acting', action });
+            const sig = actionSignature(action, params as Record<string, unknown>);
 
             if (response) {
                 agentFinalResponse = response;
                 addMsg('agent', response, action === 'talk' || action === 'done' ? undefined : action);
-                historyRef.current = [...historyRef.current, { role: 'agent', content: `[${action}] ${response}` }];
+                // Embed the signature in the tag so the backend's regex-based history
+                // scan can distinguish [navigate:google.com/x] from [navigate:bing.com/y].
+                historyRef.current = [
+                    ...historyRef.current,
+                    { role: 'agent', content: `[${sig}] ${response}` },
+                ];
             }
 
             if (action === 'done') {

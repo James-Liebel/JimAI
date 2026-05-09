@@ -314,6 +314,11 @@ async def run_browser_agent(
     yield {"type": "opened", "session_id": session_id, "url": opened.get("url", start_url)}
 
     action_history: list[str] = []
+    # Sliding window of (signature, url_at_execution) for the autonomous loop.
+    # Mirrors the chat-panel dedup but lives in-memory because run_browser_agent
+    # owns the entire stepping loop here.
+    sig_history: list[tuple[str, str]] = []
+    last_executed_url: str = opened.get("url", start_url)
 
     try:
         for step in range(1, max_steps + 1):
@@ -370,6 +375,21 @@ async def run_browser_agent(
             action_type = str(action.get("action", "wait")).lower()
             thought = str(action.get("thought", ""))
 
+            # Autonomous-mode dedup: if the model emitted the same signature as
+            # the previous step and the URL has not moved since, skip executing
+            # it. The agent gets to plan again next iteration with the failure
+            # implicit in the unchanged state.
+            new_sig = _action_signature(action_type, action.get("params") if isinstance(action.get("params"), dict) else action)
+            prev_sig = sig_history[-1][0] if sig_history else ""
+            prev_url = sig_history[-1][1] if sig_history else ""
+            blocked_repeat = (
+                bool(new_sig)
+                and new_sig == prev_sig
+                and bool(current_url)
+                and current_url == prev_url
+                and action_type not in {"done", "wait", "talk"}
+            )
+
             yield {
                 "type": "step",
                 "step": step,
@@ -378,9 +398,28 @@ async def run_browser_agent(
                 "action_detail": action,
                 "screenshot": b64_img,
                 "url": current_url,
+                "loop_blocked": blocked_repeat,
+                "signature": new_sig,
             }
 
             action_history.append(f"{action_type}: {thought}")
+            sig_history.append((new_sig, current_url))
+
+            if blocked_repeat:
+                logger.info(
+                    "run_browser_agent dedup: blocking repeat sig=%r url=%r",
+                    new_sig, current_url,
+                )
+                # Surface the skip on the SSE stream so the UI can render it.
+                yield {
+                    "type": "loop_detected",
+                    "step": step,
+                    "signature": new_sig,
+                    "reason": "Same signature as the previous step and the URL did not change.",
+                }
+                # Do not execute. Wait briefly to let any pending JS settle.
+                await asyncio.sleep(0.6)
+                continue
 
             if action_type == "done":
                 yield {
@@ -535,6 +574,112 @@ async def _vision_analyze(screenshot_b64: str, url: str, title: str) -> str:
         return ""
 
 
+_HISTORY_TAG_RE = re.compile(r"^\[(\w+)(?::([^\]]*))?\]")
+# Lowered from 3 to 2 — the original 3-strikes rule meant the user always saw the
+# same action execute three times before the model received any nudge. With 2, the
+# very next call gets feedback.
+_REPEAT_TAG_THRESHOLD = 2
+
+# Number of recent agent turns considered when looking for a tag-only repeat.
+_REPEAT_TAG_WINDOW = 4
+
+
+def _action_signature(action: str, params: dict | None) -> str:
+    """Return a stable string fingerprint for an Atlas action.
+
+    Two actions are 'the same' iff their signatures match. The signature is
+    intentionally narrow: only the verb plus the *primary* identifying param.
+    Free-form text (e.g. typed query) is excluded so a user re-typing the same
+    search string into a freshly-loaded form is not mis-classified as a loop.
+    """
+    a = (action or "").strip().lower()
+    p = params if isinstance(params, dict) else {}
+    if a == "navigate":
+        url = str(p.get("url") or "").strip()
+        # Normalise to host + path so query-string variants don't drift the sig.
+        try:
+            parsed = urllib.parse.urlparse(url)
+            target = (parsed.netloc + parsed.path).rstrip("/").lower()
+        except Exception:
+            target = url.lower()
+        return f"navigate:{target}" if target else "navigate"
+    if a in {"click_index", "type_index"}:
+        return f"{a}:{p.get('index', '')}"
+    if a == "click_xy" or a == "type_xy":
+        return f"{a}:{p.get('x', '')},{p.get('y', '')}"
+    if a == "click_selector":
+        return f"click_selector:{str(p.get('selector') or '').strip()}"
+    if a == "click_link":
+        return f"click_link:{str(p.get('href') or '').strip()}"
+    if a == "type":
+        return f"type:{str(p.get('selector') or '').strip()}"
+    if a == "type_and_submit":
+        return f"type_and_submit:{str(p.get('selector') or '').strip()}"
+    if a == "press_key":
+        return f"press_key:{str(p.get('key') or '').strip()}"
+    if a == "scroll":
+        return f"scroll:{p.get('dy', '')}"
+    return a or "unknown"
+
+
+def _last_history_signature(history: list[dict]) -> str:
+    """Read the most recent meaningful agent turn's signature.
+
+    Both the new ``[action:sig]`` content format and the legacy ``[action]``
+    format are accepted. Entries whose verb is ``wait`` or ``talk`` are skipped
+    because they represent non-actions: a single block from the dedup gate (which
+    rewrites to ``wait``) must NOT mask the real signature behind it, otherwise
+    a stubborn model emitting nav→nav→nav would only ever be blocked on every
+    other turn. Returns ``""`` if no parseable, meaningful tag is present.
+    """
+    for h in reversed(list(history or [])):
+        if str(h.get("role", "")) not in ("agent", "assistant"):
+            continue
+        m = _HISTORY_TAG_RE.search(str(h.get("content", "")))
+        if not m:
+            continue
+        verb = (m.group(1) or "").lower()
+        if verb in {"wait", "talk", "done"}:
+            continue
+        sig = m.group(2) or ""
+        return f"{verb}:{sig}" if sig else verb
+    return ""
+
+
+def _is_no_op_repeat(
+    *,
+    new_sig: str,
+    last_sig: str,
+    current_url: str,
+    last_url: str,
+    action_feedback: str,
+) -> bool:
+    """Decide whether the about-to-execute action should be BLOCKED.
+
+    The action is blocked only when all three conditions hold:
+      1. Its signature exactly matches the last agent turn's signature.
+      2. The page URL hasn't changed since the previous action.
+      3. The frontend either flagged the previous action as no-effect, OR no
+         feedback was sent (treated as "indeterminate, but URL unchanged is
+         strong enough on its own when signatures match exactly").
+
+    This deliberately blocks ONLY the second instance of an exact repeat, so a
+    user clicking the same toggle twice on purpose (different intent each time)
+    is unaffected — the page state will normally have changed between calls.
+    """
+    if not new_sig or not last_sig or new_sig != last_sig:
+        return False
+    if not current_url or not last_url:
+        # Without a usable URL signal we cannot prove no-effect; do not block,
+        # let the feedback-injection path handle it.
+        return False
+    if current_url != last_url:
+        return False
+    # URL unchanged + same signature: very likely a no-op repeat. The optional
+    # action_feedback string strengthens the signal but isn't required.
+    return True
+
+
 async def chat_browser_step(
     message: str,
     url: str,
@@ -543,21 +688,37 @@ async def chat_browser_step(
     history: list[dict],
     screenshot: str = "",
     action_feedback: str = "",
+    last_url: str = "",
 ) -> dict:
     """Single-step browser agent for the Atlas chat panel.
 
     Uses a single small model with minimal context to keep CPU/GPU load low.
     The frontend handles the execution loop; this function only picks the next action.
+
+    ``last_url`` is the URL the page had **before** the action that produced the
+    most recent agent turn ran. The backend uses it to detect no-op repeats in
+    the pre-execution gate below.
     """
-    # Detect repeated actions — same [action] tag 3+ times in last 5 agent turns
+    # Detect repeated action TAGS. The threshold (now 2 within a 4-turn window)
+    # only controls the *prompt feedback* path — the harder pre-execution gate
+    # below uses signatures and URL-change to actually block duplicate actions.
+    # 'wait' and 'talk' verbs are skipped so a single dedup-block does not mask
+    # the underlying repeat pattern.
     agent_turns = [h for h in history if str(h.get("role", "")) in ("agent", "assistant")]
-    recent_actions = [
-        m.group(1)
-        for h in agent_turns[-5:]
-        for m in [re.search(r"^\[(\w+)\]", str(h.get("content", "")))]
-        if m
-    ]
-    action_loop = len(recent_actions) >= 3 and len(set(recent_actions[-3:])) == 1
+    recent_actions: list[str] = []
+    for h in agent_turns[-_REPEAT_TAG_WINDOW * 2:]:  # widen window to absorb wait/talk gaps
+        m = _HISTORY_TAG_RE.search(str(h.get("content", "")))
+        if not m:
+            continue
+        verb = (m.group(1) or "").lower()
+        if verb in {"wait", "talk", "done"}:
+            continue
+        recent_actions.append(verb)
+    recent_actions = recent_actions[-_REPEAT_TAG_WINDOW:]
+    action_loop = (
+        len(recent_actions) >= _REPEAT_TAG_THRESHOLD
+        and len(set(recent_actions[-_REPEAT_TAG_THRESHOLD:])) == 1
+    )
 
     # Inject confirmed URL for any known service mentioned in the message
     msg_lower = message.lower()
@@ -631,4 +792,38 @@ async def chat_browser_step(
         raw = '{"action":"wait","thought":"Model timed out.","response":"Taking a moment to retry."}'
 
     parsed = _parse_action_strict(raw)
-    return _normalize_chat_action(parsed, message=message, url=url, page_text=page_text)
+    normalized = _normalize_chat_action(parsed, message=message, url=url, page_text=page_text)
+
+    # Pre-execution dedup gate. If the model just re-emitted the exact same
+    # signature as the last agent turn AND the URL hasn't moved, override to
+    # 'wait' so the duplicate never executes. The next turn's prompt will tell
+    # the model the previous attempt was a no-op.
+    new_sig = _action_signature(normalized.get("action", ""), normalized.get("params"))
+    last_sig = _last_history_signature(history)
+    if _is_no_op_repeat(
+        new_sig=new_sig,
+        last_sig=last_sig,
+        current_url=url,
+        last_url=last_url,
+        action_feedback=action_feedback,
+    ):
+        logger.info(
+            "atlas dedup: blocking repeat sig=%r url=%r last_url=%r",
+            new_sig, url, last_url,
+        )
+        return {
+            "thought": (
+                f"Last action [{last_sig}] did not change the page; "
+                "skipping the repeat and choosing a different approach next turn."
+            ),
+            "action": "wait",
+            "params": {},
+            "response": (
+                "I just tried that and the page didn't change — picking a different "
+                "approach next."
+            ),
+            "loop_blocked": True,
+            "blocked_signature": last_sig,
+        }
+
+    return normalized

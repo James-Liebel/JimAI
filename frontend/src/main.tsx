@@ -23,6 +23,8 @@ const Builder = lazy(() => import('./pages/Builder'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const Automation = lazy(() => import('./pages/Automation'));
 const Skills = lazy(() => import('./pages/Skills'));
+const Autonomy = lazy(() => import('./pages/Autonomy'));
+const Security = lazy(() => import('./pages/Security'));
 
 async function clearExistingServiceWorkersForDev(): Promise<void> {
     if (!('serviceWorker' in navigator)) return;
@@ -66,6 +68,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/chat" element={<Chat />} />
                         <Route path="/skills" element={<Skills />} />
+                        <Route path="/autonomy" element={<Autonomy />} />
+                        <Route path="/security" element={<Security />} />
                         <Route path="/workflow" element={<WorkflowReview />} />
                         <Route path="/research" element={<Research />} />
                         <Route path="/browser" element={<AgentBrowser />} />

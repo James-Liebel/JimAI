@@ -17,6 +17,8 @@ const NAV_ITEMS = [
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/self-code', label: 'SelfCode' },
+    { to: '/autonomy', label: 'Autonomy' },
+    { to: '/security', label: 'Security' },
 ];
 
 const TERMINAL_RUN_EVENTS = new Set(['run.completed', 'run.failed', 'run.stopped']);

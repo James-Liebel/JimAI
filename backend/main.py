@@ -286,6 +286,8 @@ from api.completion import router as completion_router
 from api.settings_api import router as settings_router
 from api.system_agent_api import router as system_agent_router
 from api.webtools import router as webtools_router
+from api.autonomy_api import router as autonomy_router
+from api.security_api import router as security_router
 from agents.builder import router as builder_router
 from agent_space.api import router as agent_space_router
 from routers.github import router as github_router
@@ -301,6 +303,8 @@ app.include_router(completion_router)
 app.include_router(settings_router)
 app.include_router(system_agent_router)
 app.include_router(webtools_router)
+app.include_router(autonomy_router)
+app.include_router(security_router)
 app.include_router(builder_router)
 app.include_router(agent_space_router)
 app.include_router(github_router)

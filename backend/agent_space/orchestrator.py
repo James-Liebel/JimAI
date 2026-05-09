@@ -95,6 +95,12 @@ class AgentSpaceOrchestrator:
         self._run_complete_hooks: list[
             Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], Awaitable[dict[str, Any] | None] | dict[str, Any] | None]
         ] = []
+        # Pre-action hooks let security agents intercept tool calls before
+        # they execute. Each hook receives (run_id, agent_id, action) and
+        # may raise to deny, return a dict to log, or return None to allow.
+        self._pre_action_hooks: list[
+            Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any] | None] | dict[str, Any] | None]
+        ] = []
 
     def list_runs(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = [_run_summary(r) for r in self.runs.values()]
@@ -166,6 +172,38 @@ class AgentSpaceOrchestrator:
         hook: Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], Awaitable[dict[str, Any] | None] | dict[str, Any] | None],
     ) -> None:
         self._run_complete_hooks.append(hook)
+
+    def add_pre_action_hook(
+        self,
+        hook: Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any] | None] | dict[str, Any] | None],
+    ) -> None:
+        """Register a callable invoked before every tool action.
+
+        Hooks receive (run_id, agent_id, action) and may raise to deny the
+        action. Used to wire security agents (ToolGate, EgressGuardian) into
+        the run loop without modifying the orchestrator's giant action
+        dispatcher.
+        """
+        self._pre_action_hooks.append(hook)
+
+    async def _run_pre_action_hooks(
+        self,
+        *,
+        run_id: str,
+        agent_id: str,
+        action: dict[str, Any],
+    ) -> None:
+        if not self._pre_action_hooks:
+            return
+        import inspect as _inspect
+        for hook in list(self._pre_action_hooks):
+            try:
+                result = hook(run_id, agent_id, action)
+                if _inspect.isawaitable(result):
+                    await result
+            except Exception:
+                # Re-raise so the action dispatcher reports the denial.
+                raise
 
     async def reset_runtime_state(self) -> dict[str, Any]:
         stopped_tasks = 0
@@ -2482,6 +2520,19 @@ class AgentSpaceOrchestrator:
         run["action_count"] += 1
         action_type = str(action.get("type", "")).strip()
         await self._emit(run_id, "action.started", f"{agent_id} executing {action_type}", {"action": action})
+
+        # Pre-action security hooks: ToolGate, EgressGuardian, BehaviorMonitor.
+        # Any hook raising aborts the action with a structured error.
+        try:
+            await self._run_pre_action_hooks(run_id=run_id, agent_id=agent_id, action=action)
+        except Exception as hook_exc:
+            await self._emit(
+                run_id,
+                "action.denied",
+                f"{agent_id} action {action_type} denied: {hook_exc}",
+                {"action_type": action_type, "reason": str(hook_exc)},
+            )
+            return {"success": False, "denied": True, "error": str(hook_exc), "action_type": action_type}
 
         try:
             if action_type == "read_file":

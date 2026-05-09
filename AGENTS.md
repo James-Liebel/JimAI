@@ -92,3 +92,100 @@ Blockers: {any issues the receiving agent should know about}
 - **Role**: Documentation and configuration templates
 - **Scope**: .env.example, README.md, AGENTS.md, COMPLETION_REPORT.md, CHANGELOG.md
 - **Output**: Up-to-date documentation with all new features documented
+
+## Autonomy Primitives (2026-05-09)
+
+Five autonomy primitives live in `backend/agent_space/autonomy/`. Each is
+independently usable; the orchestrator wires them together.
+
+### EpisodicMemory
+- **What**: Persistent (run, agent, event, outcome, summary) records.
+- **Index**: nomic-embed-text vectors stored inline (base64 float32).
+- **API**: `record`, `search`, `list_by_run`, `list_recent`, `consolidate`.
+- **Storage**: `data/agent_space/autonomy/episodes.jsonl`.
+
+### SkillLibrary
+- **What**: Verifier-gated capture of winning artifacts (code, action
+  sequences, traces) for retrieval against new objectives.
+- **API**: `capture`, `retrieve`, `list_all`, `delete`, `render_for_prompt`.
+- **Pattern**: Voyager / AutoSkill — compounding capability without
+  fine-tuning.
+
+### ReflectionEngine
+- **What**: Reflexion-style verbal critique generated after a verifier
+  rejection; injected into the next attempt's prompt.
+- **API**: `reflect`, `lessons_for(objective)`, `render_for_prompt`.
+- **Storage**: `data/agent_space/autonomy/reflections.jsonl`.
+
+### ReplanEngine
+- **What**: Mid-run goal re-evaluation. Returns a structured decision
+  (`continue` / `replan` / `abort`) plus patches (`drop`,
+  `insert_after`, `replace`) applied to the in-flight plan.
+- **API**: `evaluate`, `apply_patches`.
+- **Pattern**: Magentic-One progress ledger.
+
+### HeartbeatScheduler
+- **What**: Tick-driven scheduler that wakes regardless of external
+  events. Agents can schedule their own future wake-ups via
+  `schedule_self`.
+- **API**: `start`, `stop`, `tick`, `add_job`, `update_job`,
+  `delete_job`, `schedule_self`, `list_jobs`, `status`.
+- **Storage**: `data/agent_space/autonomy/heartbeat_jobs.json`.
+- **Toggle**: `settings.heartbeat_enabled` auto-starts the loop on
+  boot.
+
+API surface: `/api/autonomy/*` — see `backend/api/autonomy_api.py`.
+
+## Defensive Security Agents (2026-05-09)
+
+Six defensive agents live in `backend/agent_space/security/`. All run
+fully local. Wired into the orchestrator via `add_pre_action_hook`.
+
+### PromptShield
+- Regex pre-filter for injection / jailbreak patterns + optional
+  guardrail-model verdict (Granite Guardian, Llama Guard, ShieldGemma).
+- Configure via `shield.use_guardrail_model("granite-guardian:8b")`.
+
+### SecretScanner
+- High-confidence regex detector for AWS, GCP, GitHub, OpenAI,
+  Anthropic, Slack, Stripe, Twilio keys, JWTs, PEM blocks, generic
+  api_key/password assignments, DB connection strings.
+- Used by ToolGate before each tool call and standalone via API.
+
+### ToolGate
+- PEP enforcing capability allowlist + arg-shape policy + per-(agent,
+  tool) rate limit + secret scan on tool args.
+- Default policies match the existing action_type vocabulary.
+
+### EgressGuardian
+- URL allowlist + PII redaction (email, phone, SSN, credit card,
+  IBAN) for outbound traffic.
+- Defaults include the 20 domains the platform already fetches.
+
+### BehaviorMonitor
+- Per-run heuristic watchdog: iteration cap, wall-clock cap, token
+  budget, step dedup, n-gram tool-sequence repeat detector.
+- Catches the OWASP Agentic Top-10 "Agentic Resource Exhaustion" class
+  without ML.
+
+### SupplyChainSentinel
+- pip-audit + npm audit scanner with baseline diff.
+- Returns new-since-baseline findings to surface real changes.
+
+API surface: `/api/security/*` — see `backend/api/security_api.py`.
+
+## Self-Improvement Pipeline (2026-05-09)
+
+Three CLI scripts implement the minimum viable continuous self-improvement
+loop recommended by 2026 fine-tuning research:
+
+- `scripts/agent_trace_logger.py` — append-only ReAct trace logger with
+  daily JSONL files (data/agent_space/autonomy/traces).
+- `scripts/agent_eval.py` — tau-bench-inspired lightweight local eval
+  with three scripted tasks and mocked tools. Reports
+  success_rate, avg_steps_to_success, tool_error_rate.
+- `scripts/self_improve_loop.py` — end-to-end pipeline: read recent
+  successful traces -> SFT pairs -> Unsloth QLoRA -> agent_eval ->
+  promote if delta > 5pp vs frozen baseline.
+
+Designed to be triggered by the heartbeat scheduler as a nightly job.

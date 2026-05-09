@@ -1,5 +1,67 @@
-<!-- Purpose: Track notable changes to jimAI repository. Date: 2026-03-11 -->
+<!-- Purpose: Track notable changes to jimAI repository. Date: 2026-05-09 -->
 # Changelog
+
+## 2026-05-09
+
+### Added — Autonomy primitives (`backend/agent_space/autonomy/`)
+- `EpisodicMemory`: persistent (run, agent, event, outcome, summary) records
+  with nomic-embed-text similarity search. Survives restarts.
+- `SkillLibrary`: verifier-gated capture of winning artifacts from successful
+  runs, retrieved by similarity for new objectives. Compounding capability
+  without fine-tuning (Voyager / AutoSkill pattern).
+- `ReflectionEngine`: Reflexion-style verbal critique loop. After verifier
+  rejection, generate a short lesson and inject into the next attempt.
+- `ReplanEngine`: mid-run goal re-evaluation that returns structured patches
+  (drop / replace / insert_after) for the in-flight plan
+  (Magentic-One progress ledger).
+- `HeartbeatScheduler`: tick-driven scheduler with self-callable cron tool
+  so agents can schedule their own future wake-ups.
+- New API: `/api/autonomy/*` (20 endpoints). Wired into orchestrator via
+  `add_run_complete_hook` so every run lands in episodic memory and
+  successful runs feed the skill library.
+
+### Added — Defensive security agents (`backend/agent_space/security/`)
+- `PromptShield`: regex pre-filter for injection / jailbreak patterns +
+  optional guardrail-model verdict (Granite Guardian, Llama Guard, ShieldGemma).
+- `SecretScanner`: high-confidence regex detector for AWS/GCP/GitHub/OpenAI/
+  Anthropic/Slack/Stripe/Twilio keys, JWTs, PEM blocks, generic api_key/password
+  assignments, DB connection strings.
+- `ToolGate`: PEP enforcing capability allowlist + arg-shape policy +
+  per-(agent, tool) rate limit + secret scan on tool args.
+- `EgressGuardian`: URL allowlist + PII redaction (email, phone, SSN, credit
+  card, IBAN) for outbound traffic.
+- `BehaviorMonitor`: per-run heuristic watchdog — iteration cap, wall-clock
+  cap, token budget, step dedup, n-gram tool-sequence repeat detector.
+- `SupplyChainSentinel`: pip-audit + npm audit scanner with baseline diff.
+- New API: `/api/security/*` (22 endpoints). Wired into orchestrator via
+  new `add_pre_action_hook` so every tool call passes through ToolGate
+  and every outbound URL through EgressGuardian.
+
+### Added — Self-improvement pipeline (`scripts/`)
+- `agent_trace_logger.py`: append-only ReAct trace logger with daily JSONL
+  files (data/agent_space/autonomy/traces).
+- `agent_eval.py`: tau-bench-inspired lightweight local eval with mocked
+  tools. Reports success_rate, avg_steps_to_success, tool_error_rate.
+- `self_improve_loop.py`: end-to-end pipeline — read recent successful
+  traces -> SFT pairs -> Unsloth QLoRA -> agent_eval -> promote if delta
+  > 5pp vs frozen baseline. Designed to be triggered by the heartbeat
+  scheduler as a nightly job.
+
+### Added — Frontend (`frontend/src/pages/`)
+- `Autonomy.tsx`: live dashboard for episodic memory, skill library,
+  reflections, and the heartbeat scheduler. Memory search, skill list,
+  lesson lookup, heartbeat job CRUD.
+- `Security.tsx`: live dashboard for the six defensive agents — overview
+  health grid, paste-to-test prompt shield, paste-to-scan secret scanner,
+  tool-gate policy + audit, egress URL check, supply-chain CVE diff vs
+  baseline.
+- New nav entries: `/autonomy` and `/security`.
+
+### Tests
+- `backend/tests/test_autonomy.py` — 18 tests covering all five
+  autonomy primitives.
+- `backend/tests/test_security.py` — 24 tests covering all six security
+  agents.
 
 ## 2026-03-11
 

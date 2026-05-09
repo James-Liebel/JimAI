@@ -49,6 +49,8 @@ The stack is designed to run primarily on your own machine:
 - `SelfCode`: self-improvement runs against the repo
 - `Automation`: local workflow builder and optional n8n-compatible flows
 - `Agent Studio`: team setup, skills, orchestration
+- `Autonomy`: episodic memory, skill library, reflections, heartbeat scheduler
+- `Security`: prompt shield, secret scanner, tool gate, egress guardian, behavior monitor, supply-chain sentinel
 - `Settings`: runtime, policy, and integration controls
 
 ## Quick Start
@@ -112,6 +114,19 @@ npm run build
 
 ```powershell
 python scripts/run_all_phases_validation.py
+```
+
+### Autonomy + security tests
+
+```powershell
+cd backend
+python -m pytest tests/test_autonomy.py tests/test_security.py -v
+```
+
+### Self-improvement loop (dry run)
+
+```powershell
+python scripts/self_improve_loop.py --base-model qwen2.5-coder:14b --dry-run
 ```
 
 ## Security Notes

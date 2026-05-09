@@ -88,7 +88,7 @@ def _parse_action(raw: str) -> dict[str, Any]:
     try:
         return dict(json.loads(text))
     except Exception:
-        return {"action": "talk", "thought": f"Could not parse model output: {raw[:120]}", "response": "I had trouble understanding that page. Could you describe what you see or try again?"}
+        return {"action": "talk", "thought": f"Could not parse model output: {str(raw or '')[:120]}", "response": "I had trouble understanding that page. Could you describe what you see or try again?"}
 
 
 def _parse_action_strict(raw: str) -> dict[str, Any] | None:
@@ -181,6 +181,14 @@ def _normalize_chat_action(
         params = {"selector": "a h3"}
         if not response:
             response = "Opening the top search result."
+
+    # Coerce string indices to int — LLMs occasionally emit "0" instead of 0.
+    for idx_action in ("click_index", "type_index"):
+        if action == idx_action and "index" in params:
+            try:
+                params["index"] = int(params["index"])
+            except (TypeError, ValueError):
+                params["index"] = -1
 
     # Fill in minimal defaults so frontend executor always has valid params.
     if action == "click_index":

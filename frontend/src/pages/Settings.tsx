@@ -20,6 +20,8 @@ export default function Settings() {
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [showLogs, setShowLogs] = useState(false);
 
     const load = useCallback(async () => {
         try {
@@ -182,18 +184,6 @@ export default function Settings() {
         }
     };
 
-    const tickProactive = async () => {
-        setMessage('');
-        setError('');
-        try {
-            const data = await agentApi.tickProactive();
-            setMessage(`Proactive tick complete. triggered=${(data.triggered || []).length}`);
-            await load();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed proactive tick.');
-        }
-    };
-
     const addGoal = async () => {
         setMessage('');
         setError('');
@@ -299,11 +289,12 @@ export default function Settings() {
                             onClick={resetRuntimeData}
                             className="px-3 py-2 rounded-btn border border-accent-red/40 text-accent-red text-xs"
                         >
-                            Reset Runtime Data (Clear Diffs/Runs)
+                            Reset Runtime Data
                         </button>
                     }
                 />
 
+                {/* ── Credentials & model ── */}
                 <div className="mt-5 grid md:grid-cols-2 gap-4">
                     <InputField
                         label="Default Model"
@@ -318,22 +309,32 @@ export default function Settings() {
                         onChange={(value) => patchSetting({ command_profile: value })}
                     />
                     <InputField
-                        label="Max Actions"
-                        value={String(settings.max_actions ?? 40)}
-                        onChange={(value) => patchSetting({ max_actions: Number(value) || 40 })}
+                        label="Ollama URL"
+                        value={String(settings.ollama_url ?? 'http://localhost:11434')}
+                        onChange={(value) => patchSetting({ ollama_url: value.trim() || 'http://localhost:11434' })}
+                        placeholder="http://localhost:11434"
                     />
                     <InputField
-                        label="Max Seconds"
-                        value={String(settings.max_seconds ?? 1200)}
-                        onChange={(value) => patchSetting({ max_seconds: Number(value) || 1200 })}
+                        label="GitHub Token"
+                        value={String(settings.github_token ?? '')}
+                        onChange={(value) => {
+                            const next = value.trim();
+                            setStoredGitHubToken(next);
+                            patchSetting({ github_token: next });
+                        }}
+                        placeholder="Used by the GitHub panel"
+                        type="password"
                     />
                     <InputField
-                        label="Subagent Retries"
-                        value={String(settings.subagent_retry_attempts ?? 2)}
-                        onChange={(value) => patchSetting({ subagent_retry_attempts: Math.max(0, Number(value) || 0) })}
+                        label="Anthropic API Key"
+                        value={String(settings.anthropic_api_key ?? '')}
+                        onChange={(value) => patchSetting({ anthropic_api_key: value.trim() })}
+                        placeholder="Optional cloud key"
+                        type="password"
                     />
                 </div>
 
+                {/* ── Safety & feature toggles ── */}
                 <div className="mt-4 grid md:grid-cols-3 gap-3">
                     <ToggleChip
                         label="Review Gate"
@@ -346,13 +347,6 @@ export default function Settings() {
                         onToggle={() => patchSetting({ allow_shell: !settings.allow_shell })}
                     />
                     <ToggleChip
-                        label="Release GPU on OFF"
-                        enabled={Boolean(settings.release_gpu_on_off)}
-                        onToggle={() => patchSetting({ release_gpu_on_off: !settings.release_gpu_on_off })}
-                    />
-                </div>
-                <div className="mt-4 grid md:grid-cols-2 gap-3">
-                    <ToggleChip
                         label="Self Learning"
                         enabled={Boolean(settings.self_learning_enabled ?? true)}
                         onToggle={() => patchSetting({ self_learning_enabled: !(settings.self_learning_enabled ?? true) })}
@@ -363,24 +357,9 @@ export default function Settings() {
                         onToggle={() => patchSetting({ autonomous_web_research_enabled: !(settings.autonomous_web_research_enabled ?? true) })}
                     />
                     <ToggleChip
-                        label="Smart Chat Web Search"
-                        enabled={Boolean(settings.chat_auto_web_research_enabled ?? true)}
-                        onToggle={() => patchSetting({ chat_auto_web_research_enabled: !(settings.chat_auto_web_research_enabled ?? true) })}
-                    />
-                    <ToggleChip
                         label="Smart Run Research"
                         enabled={Boolean(settings.run_auto_force_research_enabled ?? true)}
                         onToggle={() => patchSetting({ run_auto_force_research_enabled: !(settings.run_auto_force_research_enabled ?? true) })}
-                    />
-                    <ToggleChip
-                        label="Strict Verification"
-                        enabled={Boolean(settings.strict_verification ?? false)}
-                        onToggle={() => patchSetting({ strict_verification: !(settings.strict_verification ?? false) })}
-                    />
-                    <ToggleChip
-                        label="Continue on Subagent Failure"
-                        enabled={Boolean(settings.continue_on_subagent_failure ?? true)}
-                        onToggle={() => patchSetting({ continue_on_subagent_failure: !(settings.continue_on_subagent_failure ?? true) })}
                     />
                     <ToggleChip
                         label="Deep Research Before Build"
@@ -395,125 +374,137 @@ export default function Settings() {
                     <ToggleChip
                         label="Auto Improve on Fail"
                         enabled={Boolean(settings.auto_self_improve_on_failure_enabled ?? true)}
-                        onToggle={() =>
-                            patchSetting({
-                                auto_self_improve_on_failure_enabled: !(settings.auto_self_improve_on_failure_enabled ?? true),
-                            })
-                        }
+                        onToggle={() => patchSetting({ auto_self_improve_on_failure_enabled: !(settings.auto_self_improve_on_failure_enabled ?? true) })}
                     />
                     <ToggleChip
-                        label="Include Stopped Runs"
-                        enabled={Boolean(settings.auto_self_improve_on_failure_include_stopped ?? false)}
-                        onToggle={() =>
-                            patchSetting({
-                                auto_self_improve_on_failure_include_stopped: !(settings.auto_self_improve_on_failure_include_stopped ?? false),
-                            })
-                        }
+                        label="Smart Chat Web Search"
+                        enabled={Boolean(settings.chat_auto_web_research_enabled ?? true)}
+                        onToggle={() => patchSetting({ chat_auto_web_research_enabled: !(settings.chat_auto_web_research_enabled ?? true) })}
                     />
                 </div>
-                <div className="mt-4 grid md:grid-cols-2 gap-4">
-                    <InputField
-                        label="Ollama URL"
-                        value={String(settings.ollama_url ?? 'http://localhost:11434')}
-                        onChange={(value) => patchSetting({ ollama_url: value.trim() || 'http://localhost:11434' })}
-                        placeholder="http://localhost:11434"
-                    />
-                    <InputField
-                        label="Anthropic API Key"
-                        value={String(settings.anthropic_api_key ?? '')}
-                        onChange={(value) => patchSetting({ anthropic_api_key: value.trim() })}
-                        placeholder="Optional local key"
-                        type="password"
-                    />
-                    <InputField
-                        label="GitHub Token"
-                        value={String(settings.github_token ?? '')}
-                        onChange={(value) => {
-                            const next = value.trim();
-                            setStoredGitHubToken(next);
-                            patchSetting({ github_token: next });
-                        }}
-                        placeholder="Used by the GitHub panel"
-                        type="password"
-                    />
-                    <InputField
-                        label="Self Learning Focus"
-                        value={String(settings.self_learning_focus ?? 'general')}
-                        onChange={(value) => patchSetting({ self_learning_focus: value || 'general' })}
-                        placeholder="general"
-                    />
-                    <InputField
-                        label="Deep Research Min Queries"
-                        value={String(settings.deep_research_min_queries ?? 3)}
-                        onChange={(value) => patchSetting({ deep_research_min_queries: Math.max(1, Number(value) || 1) })}
-                        placeholder="3"
-                    />
-                    <InputField
-                        label="Overnight Max Hours"
-                        value={String(settings.overnight_max_hours ?? 10)}
-                        onChange={(value) => patchSetting({ overnight_max_hours: Math.max(1, Number(value) || 1) })}
-                        placeholder="10"
-                    />
-                    <InputField
-                        label="Overnight Max Actions"
-                        value={String(settings.overnight_max_actions ?? 320)}
-                        onChange={(value) => patchSetting({ overnight_max_actions: Math.max(40, Number(value) || 40) })}
-                        placeholder="320"
-                    />
-                    <InputField
-                        label="Failure Improve Cooldown (s)"
-                        value={String(settings.auto_self_improve_on_failure_cooldown_seconds ?? 180)}
-                        onChange={(value) =>
-                            patchSetting({
-                                auto_self_improve_on_failure_cooldown_seconds: Math.max(0, Number(value) || 0),
-                            })
-                        }
-                        placeholder="180"
-                    />
-                    <InputField
-                        label="Failure Improve Max/Day"
-                        value={String(settings.auto_self_improve_on_failure_max_per_day ?? 12)}
-                        onChange={(value) =>
-                            patchSetting({
-                                auto_self_improve_on_failure_max_per_day: Math.max(0, Number(value) || 0),
-                            })
-                        }
-                        placeholder="12"
-                    />
-                </div>
-                <div className="mt-4 rounded-btn border border-surface-4 bg-surface-0 p-4">
-                    <p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent Model Map (JSON)</p>
-                    <p className="text-[11px] text-text-muted mt-1">
-                        Keys supported: `planner`, `verifier`, `coder`, `role:planner`, `id:agent-name`.
-                    </p>
-                    <textarea
-                        rows={5}
-                        value={agentModelsText}
-                        onChange={(e) => {
-                            setAgentModelsText(e.target.value);
-                            if (jsonError) setJsonError(null);
-                        }}
-                        onBlur={(e) => {
-                            try {
-                                JSON.parse(e.target.value || '{}');
-                                setJsonError(null);
-                            } catch {
-                                setJsonError('Invalid JSON format.');
-                            }
-                        }}
-                        className={`mt-2 w-full bg-surface-1 border rounded-btn px-3 py-2 text-xs text-text-primary ${jsonError ? 'border-accent-red/60' : 'border-surface-4'}`}
-                    />
-                    {jsonError && (
-                        <p className="mt-1 text-xs text-accent-red">{jsonError}</p>
-                    )}
+
+                {/* ── Advanced (collapsed by default) ── */}
+                <div className="mt-5">
                     <button
                         type="button"
-                        onClick={saveAgentModelMap}
-                        disabled={saving || jsonError !== null}
-                        className={`mt-3 px-3 py-2 rounded-btn border border-accent/40 text-accent text-xs ${(saving || jsonError !== null) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                        onClick={() => setShowAdvanced((v) => !v)}
+                        className="flex items-center gap-2 text-xs text-text-secondary hover:text-text-primary"
                     >
-                        {saving ? 'Saving...' : 'Save Agent Model Map'}
+                        <span className={`transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>▶</span>
+                        Advanced Settings
                     </button>
+
+                    {showAdvanced && (
+                        <div className="mt-4 space-y-4">
+                            <div className="grid md:grid-cols-3 gap-3">
+                                <InputField
+                                    label="Max Actions"
+                                    value={String(settings.max_actions ?? 40)}
+                                    onChange={(value) => patchSetting({ max_actions: Number(value) || 40 })}
+                                />
+                                <InputField
+                                    label="Max Seconds"
+                                    value={String(settings.max_seconds ?? 1200)}
+                                    onChange={(value) => patchSetting({ max_seconds: Number(value) || 1200 })}
+                                />
+                                <InputField
+                                    label="Subagent Retries"
+                                    value={String(settings.subagent_retry_attempts ?? 2)}
+                                    onChange={(value) => patchSetting({ subagent_retry_attempts: Math.max(0, Number(value) || 0) })}
+                                />
+                                <InputField
+                                    label="Self Learning Focus"
+                                    value={String(settings.self_learning_focus ?? 'general')}
+                                    onChange={(value) => patchSetting({ self_learning_focus: value || 'general' })}
+                                    placeholder="general"
+                                />
+                                <InputField
+                                    label="Deep Research Min Queries"
+                                    value={String(settings.deep_research_min_queries ?? 3)}
+                                    onChange={(value) => patchSetting({ deep_research_min_queries: Math.max(1, Number(value) || 1) })}
+                                    placeholder="3"
+                                />
+                                <InputField
+                                    label="Overnight Max Hours"
+                                    value={String(settings.overnight_max_hours ?? 10)}
+                                    onChange={(value) => patchSetting({ overnight_max_hours: Math.max(1, Number(value) || 1) })}
+                                    placeholder="10"
+                                />
+                                <InputField
+                                    label="Overnight Max Actions"
+                                    value={String(settings.overnight_max_actions ?? 320)}
+                                    onChange={(value) => patchSetting({ overnight_max_actions: Math.max(40, Number(value) || 40) })}
+                                    placeholder="320"
+                                />
+                                <InputField
+                                    label="Failure Improve Cooldown (s)"
+                                    value={String(settings.auto_self_improve_on_failure_cooldown_seconds ?? 180)}
+                                    onChange={(value) => patchSetting({ auto_self_improve_on_failure_cooldown_seconds: Math.max(0, Number(value) || 0) })}
+                                    placeholder="180"
+                                />
+                                <InputField
+                                    label="Failure Improve Max/Day"
+                                    value={String(settings.auto_self_improve_on_failure_max_per_day ?? 12)}
+                                    onChange={(value) => patchSetting({ auto_self_improve_on_failure_max_per_day: Math.max(0, Number(value) || 0) })}
+                                    placeholder="12"
+                                />
+                            </div>
+                            <div className="grid md:grid-cols-3 gap-3">
+                                <ToggleChip
+                                    label="Strict Verification"
+                                    enabled={Boolean(settings.strict_verification ?? false)}
+                                    onToggle={() => patchSetting({ strict_verification: !(settings.strict_verification ?? false) })}
+                                />
+                                <ToggleChip
+                                    label="Continue on Subagent Failure"
+                                    enabled={Boolean(settings.continue_on_subagent_failure ?? true)}
+                                    onToggle={() => patchSetting({ continue_on_subagent_failure: !(settings.continue_on_subagent_failure ?? true) })}
+                                />
+                                <ToggleChip
+                                    label="Include Stopped Runs"
+                                    enabled={Boolean(settings.auto_self_improve_on_failure_include_stopped ?? false)}
+                                    onToggle={() => patchSetting({ auto_self_improve_on_failure_include_stopped: !(settings.auto_self_improve_on_failure_include_stopped ?? false) })}
+                                />
+                                <ToggleChip
+                                    label="Release GPU on OFF"
+                                    enabled={Boolean(settings.release_gpu_on_off)}
+                                    onToggle={() => patchSetting({ release_gpu_on_off: !settings.release_gpu_on_off })}
+                                />
+                            </div>
+                            <div className="rounded-btn border border-surface-4 bg-surface-0 p-4">
+                                <p className="text-[11px] uppercase tracking-wide text-text-secondary">Agent Model Map (JSON)</p>
+                                <p className="text-[11px] text-text-muted mt-1">
+                                    Keys: <code>planner</code>, <code>verifier</code>, <code>coder</code>, <code>role:planner</code>, <code>id:agent-name</code>
+                                </p>
+                                <textarea
+                                    rows={5}
+                                    value={agentModelsText}
+                                    onChange={(e) => {
+                                        setAgentModelsText(e.target.value);
+                                        if (jsonError) setJsonError(null);
+                                    }}
+                                    onBlur={(e) => {
+                                        try {
+                                            JSON.parse(e.target.value || '{}');
+                                            setJsonError(null);
+                                        } catch {
+                                            setJsonError('Invalid JSON format.');
+                                        }
+                                    }}
+                                    className={`mt-2 w-full bg-surface-1 border rounded-btn px-3 py-2 text-xs text-text-primary ${jsonError ? 'border-accent-red/60' : 'border-surface-4'}`}
+                                />
+                                {jsonError && <p className="mt-1 text-xs text-accent-red">{jsonError}</p>}
+                                <button
+                                    type="button"
+                                    onClick={saveAgentModelMap}
+                                    disabled={saving || jsonError !== null}
+                                    className={`mt-3 px-3 py-2 rounded-btn border border-accent/40 text-accent text-xs ${(saving || jsonError !== null) ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                >
+                                    {saving ? 'Saving…' : 'Save Agent Model Map'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </section>
 
@@ -630,9 +621,6 @@ export default function Settings() {
                     <button type="button" onClick={() => setProactiveRunning(false)} className="px-3 py-2 rounded-btn border border-accent-red/40 text-accent-red text-xs">
                         Stop Proactive
                     </button>
-                    <button type="button" onClick={tickProactive} className="px-3 py-2 rounded-btn border border-accent/40 text-accent text-xs">
-                        Tick Once
-                    </button>
                     <button type="button" onClick={runSelfImproveNow} className="px-3 py-2 rounded-btn border border-accent-amber/40 text-accent-amber text-xs">
                         Run Self-Improve Now
                     </button>
@@ -681,22 +669,32 @@ export default function Settings() {
             </section>
 
             <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
-                <h2 className="text-sm font-semibold text-text-primary">Action Logs</h2>
-                <div className="mt-3 max-h-[300px] overflow-auto space-y-2">
-                    {logs.map((row, idx) => (
-                        <div key={idx} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
-                            <p className="text-text-primary">
-                                run {String(row.run_id || '').slice(0, 8)} • {String(row.agent_id || '')}
-                            </p>
-                            <p className="text-text-secondary mt-1">
-                                {String((row.action?.type as string | undefined) || 'unknown action')}
-                            </p>
-                            <p className="text-text-muted mt-1">
-                                {row.result && row.result.success === false ? 'failure' : 'success'}
-                            </p>
-                        </div>
-                    ))}
-                </div>
+                <button
+                    type="button"
+                    onClick={() => setShowLogs((v) => !v)}
+                    className="flex items-center gap-2 text-sm font-semibold text-text-primary w-full text-left"
+                >
+                    <span className={`transition-transform text-xs ${showLogs ? 'rotate-90' : ''}`}>▶</span>
+                    Action Logs
+                    <span className="ml-auto text-xs text-text-muted font-normal">{logs.length} entries</span>
+                </button>
+                {showLogs && (
+                    <div className="mt-3 max-h-[300px] overflow-auto space-y-2">
+                        {logs.map((row, idx) => (
+                            <div key={idx} className="rounded-btn border border-surface-4 bg-surface-0 p-3 text-xs">
+                                <p className="text-text-primary">
+                                    run {String(row.run_id || '').slice(0, 8)} • {String(row.agent_id || '')}
+                                </p>
+                                <p className="text-text-secondary mt-1">
+                                    {String((row.action?.type as string | undefined) || 'unknown action')}
+                                </p>
+                                <p className="text-text-muted mt-1">
+                                    {row.result && row.result.success === false ? 'failure' : 'success'}
+                                </p>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </section>
 
             {message && <p className="text-sm text-accent-green">{message}</p>}

@@ -250,3 +250,76 @@ class TestBehaviorMonitor:
         assert report["status"] == "completed"
         assert report["step_count"] == 1
         assert report["run_id"] == "r1"
+
+
+# ------------------------------------------------------ Sensitive path / shell blocks
+
+
+class TestSensitivePathDeny:
+    """Defense-in-depth: agent must never reach .env / settings / browser profile."""
+
+    def test_resolve_repo_path_blocks_dotenv(self):
+        from agent_space.orchestrator import AgentSpaceOrchestrator
+        # Build a minimal orchestrator instance shell — _resolve_repo_path is
+        # static-y, doesn't need full deps wired.
+        orch = AgentSpaceOrchestrator.__new__(AgentSpaceOrchestrator)
+        orch.runs = {}
+        with pytest.raises(RuntimeError, match="denied to agents"):
+            orch._resolve_repo_path(".env")
+
+    def test_resolve_repo_path_blocks_settings(self):
+        from agent_space.orchestrator import AgentSpaceOrchestrator
+        orch = AgentSpaceOrchestrator.__new__(AgentSpaceOrchestrator)
+        orch.runs = {}
+        with pytest.raises(RuntimeError, match="denied to agents"):
+            orch._resolve_repo_path("data/agent_space/settings.json")
+
+    def test_resolve_repo_path_blocks_browser_profile_subdir(self):
+        from agent_space.orchestrator import AgentSpaceOrchestrator
+        orch = AgentSpaceOrchestrator.__new__(AgentSpaceOrchestrator)
+        orch.runs = {}
+        with pytest.raises(RuntimeError, match="denied to agents"):
+            orch._resolve_repo_path("data/agent_space/browser_profile/Default/Cookies")
+
+    def test_shell_policy_blocks_dotenv_read(self):
+        from agent_space.policies import validate_command, PolicyError
+        from pathlib import Path
+        with pytest.raises(PolicyError):
+            validate_command(
+                "type .env", "safe", str(Path.cwd()), Path.cwd(), allow_shell=True
+            )
+
+    def test_shell_policy_blocks_settings_read(self):
+        from agent_space.policies import validate_command, PolicyError
+        from pathlib import Path
+        with pytest.raises(PolicyError):
+            validate_command(
+                "type data\\agent_space\\settings.json",
+                "safe",
+                str(Path.cwd()),
+                Path.cwd(),
+                allow_shell=True,
+            )
+
+
+# ----------------------------------------------------- Settings redaction
+
+
+class TestSettingsRedaction:
+    def test_redact_replaces_secret_keys(self):
+        from agent_space.api import _redact_secret_settings
+        out = _redact_secret_settings(
+            {"model": "qwen2.5-coder:14b", "anthropic_api_key": "sk-ant-real-secret-xxx"}
+        )
+        assert out["model"] == "qwen2.5-coder:14b"
+        assert out["anthropic_api_key"] == "***SET***"
+        assert "sk-ant-real-secret-xxx" not in str(out)
+
+    def test_redact_empty_value_marked_unset(self):
+        from agent_space.api import _redact_secret_settings
+        out = _redact_secret_settings({"github_token": ""})
+        assert out["github_token"] == ""
+
+    def test_redact_passes_through_non_dict(self):
+        from agent_space.api import _redact_secret_settings
+        assert _redact_secret_settings([1, 2]) == [1, 2]

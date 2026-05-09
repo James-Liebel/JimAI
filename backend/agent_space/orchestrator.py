@@ -3032,6 +3032,22 @@ class AgentSpaceOrchestrator:
     def _is_path_allowed(rel_path: str, allowed_paths: list[str]) -> bool:
         return orch_helpers._is_path_allowed(rel_path, allowed_paths)
 
+    # Files an agent must never read, write, or replace under any run.
+    # Defense-in-depth against prompt injection that tries to coerce the agent
+    # into exfiltrating credentials or session state via read_file -> chat.
+    _SENSITIVE_PATHS: frozenset[str] = frozenset({
+        ".env",
+        ".env.local",
+        ".env.production",
+        "data/agent_space/settings.json",
+        "data/agent_space/settings_audit.jsonl",
+    })
+    _SENSITIVE_PATH_PREFIXES: tuple[str, ...] = (
+        "data/agent_space/secure/",
+        "data/agent_space/browser_profile/",
+        "data/agent_space/runtime/",
+    )
+
     def _resolve_repo_path(self, path_text: str, run_id: str | None = None) -> tuple[str, Path]:
         if not path_text:
             raise RuntimeError("Action path is required.")
@@ -3043,6 +3059,10 @@ class AgentSpaceOrchestrator:
         if not str(abs_path).startswith(str(PROJECT_ROOT.resolve())):
             raise RuntimeError(f"Path '{path_text}' is outside repository.")
         rel = abs_path.relative_to(PROJECT_ROOT).as_posix()
+        if rel in self._SENSITIVE_PATHS or any(rel.startswith(p) for p in self._SENSITIVE_PATH_PREFIXES):
+            raise RuntimeError(
+                f"Path '{rel}' is denied to agents (contains credentials or session state)."
+            )
         if run_id:
             run = self.runs.get(run_id) or {}
             allowed_paths = list(run.get("allowed_paths") or [])

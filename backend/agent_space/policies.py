@@ -43,6 +43,16 @@ BLOCKED_FRAGMENTS = (
     "poweroff",
     "git reset --hard",
     "git checkout --",
+    # Defense-in-depth: prevent agent shell commands from reading
+    # credential / session-state files even if a print-style tool
+    # would otherwise be allowed by SAFE_PREFIXES.
+    ".env",
+    "settings.json",
+    "settings_audit.jsonl",
+    "secure/",
+    "secure\\",
+    "browser_profile/",
+    "browser_profile\\",
 )
 
 BLOCKED_CHAIN_TOKENS = (

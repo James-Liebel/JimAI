@@ -71,12 +71,43 @@ register_browser_routes(router, browser_manager=browser_manager)
 
 _SETTINGS_AUDIT_FILE = DATA_ROOT / "settings_audit.jsonl"
 
+# Settings keys whose VALUES must never appear in audit log, GET responses, or any
+# server-emitted text. The frontend only needs to know whether they are set.
+_SECRET_SETTINGS_KEYS: frozenset[str] = frozenset({
+    "anthropic_api_key",
+    "github_token",
+    "free_stack_gotify_token",
+    "openai_api_key",
+    "huggingface_token",
+})
+
+
+def _redact_secret_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    """Replace secret values with a fixed string indicating presence only.
+
+    Used both before persisting audit-log entries and before returning settings
+    over the wire. The replacement is deliberately constant so log diffs don't
+    leak the length or shape of the original secret.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    out: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in _SECRET_SETTINGS_KEYS:
+            out[key] = "***SET***" if value else ""
+        else:
+            out[key] = value
+    return out
+
 
 def _append_settings_audit(changes: dict[str, Any]) -> None:
-    """Append a single audit entry to the settings audit log."""
+    """Append a single audit entry to the settings audit log.
+
+    Secret-valued keys are redacted before writing to disk.
+    """
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "changes": changes,
+        "changes": _redact_secret_settings(changes),
         "user": "local",
     }
     try:
@@ -1788,7 +1819,7 @@ async def set_power(req: PowerUpdateRequest) -> dict[str, Any]:
 
 @router.get("/settings")
 async def get_settings() -> dict[str, Any]:
-    return settings_store.get()
+    return _redact_secret_settings(settings_store.get())
 
 
 @router.post("/settings")
@@ -1829,12 +1860,17 @@ async def update_settings(req: SettingsUpdateRequest) -> dict[str, Any]:
     result = settings_store.update(updates)
     if updates:
         _append_settings_audit(updates)
-    return result
+    return _redact_secret_settings(result)
 
 
 @router.get("/settings/history")
 async def get_settings_history(limit: int = Query(default=50, ge=1, le=500)) -> list[dict[str, Any]]:
-    """Return the last N settings audit log entries."""
+    """Return the last N settings audit log entries.
+
+    Secret-shaped keys are redacted at read time as well as write time, so
+    pre-existing log lines that captured raw values cannot leak via this
+    endpoint.
+    """
     if not _SETTINGS_AUDIT_FILE.exists():
         return []
     try:
@@ -1845,9 +1881,13 @@ async def get_settings_history(limit: int = Query(default=50, ge=1, le=500)) -> 
             if not line:
                 continue
             try:
-                entries.append(json.loads(line))
+                entry = json.loads(line)
             except Exception:
                 logger.warning("Failed to parse audit log line as JSON", exc_info=True)
+                continue
+            if isinstance(entry, dict) and isinstance(entry.get("changes"), dict):
+                entry["changes"] = _redact_secret_settings(entry["changes"])
+            entries.append(entry)
         return entries[-limit:]
     except Exception:
         logger.warning("Failed to read settings audit log", exc_info=True)

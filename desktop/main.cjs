@@ -1,18 +1,31 @@
 const { spawn } = require('child_process');
 const http = require('http');
+const net = require('net');
 const path = require('path');
+const fs = require('fs');
 const { app, BrowserWindow, Menu, shell } = require('electron');
 
 // 127.0.0.1 avoids Windows resolving "localhost" to ::1 while Vite is IPv4-only.
 const DEFAULT_UI_URL = process.env.AGENTSPACE_UI_URL || 'http://127.0.0.1:5173';
+const BACKEND_URL = process.env.AGENTSPACE_BACKEND_URL || 'http://127.0.0.1:8000';
+const BACKEND_HEALTH_URL = `${BACKEND_URL}/health`;
 const ALLOW_DEVTOOLS = process.env.AGENTSPACE_DEVTOOLS === '1';
 const REPO_ROOT = path.resolve(__dirname, '..');
 const PYTHON_BIN = process.env.AGENTSPACE_PYTHON || 'python';
 const AUTO_STOP_SERVICES = process.env.AGENTSPACE_AUTO_STOP === '1';
+// JIMAI_MANAGE_SERVICES=1 — Electron itself spawns backend + frontend and
+// terminates them on quit. Used by the top-level "Start JimAI.cmd" launcher
+// so closing the window ends every process tree we created.
+const MANAGE_SERVICES = process.env.JIMAI_MANAGE_SERVICES === '1';
+const BACKEND_PORT = Number(process.env.JIMAI_BACKEND_PORT || 8000);
+const FRONTEND_PORT = Number(process.env.JIMAI_FRONTEND_PORT || 5173);
 
 let mainWindow = null;
 let stopRequested = false;
 let reloadInFlight = false;
+// Track services we started so we can kill them in the right order on quit.
+// Each entry: { name, child, killed }
+const managedServices = [];
 
 // Keep GPU free for AI inference — the UI is text-heavy and renders fine on CPU.
 app.disableHardwareAcceleration();
@@ -46,6 +59,141 @@ function requestStopOnQuit() {
     } catch (error) {
         console.error('Failed to stop JimAI services on close:', error);
     }
+}
+
+// ----- Self-managed service lifecycle (JIMAI_MANAGE_SERVICES=1) ----------
+
+function isPortListening(port) {
+    return new Promise((resolve) => {
+        const sock = net.createConnection({ host: '127.0.0.1', port }, () => {
+            sock.destroy();
+            resolve(true);
+        });
+        sock.on('error', () => {
+            resolve(false);
+        });
+        sock.setTimeout(800, () => {
+            sock.destroy();
+            resolve(false);
+        });
+    });
+}
+
+async function waitForPort(port, deadlineMs) {
+    const deadline = Date.now() + deadlineMs;
+    while (Date.now() < deadline) {
+        if (await isPortListening(port)) return true;
+        await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
+}
+
+function spawnService({ name, command, args, cwd, env, logFile }) {
+    const stdoutFd = logFile
+        ? fs.openSync(logFile, 'a')
+        : 'ignore';
+    const stderrFd = logFile
+        ? fs.openSync(logFile, 'a')
+        : 'ignore';
+    const child = spawn(command, args, {
+        cwd,
+        env: { ...process.env, ...(env || {}) },
+        // detached:false on Windows so killing the process group via taskkill works.
+        detached: false,
+        windowsHide: true,
+        stdio: ['ignore', stdoutFd, stderrFd],
+    });
+    const entry = { name, child, killed: false };
+    managedServices.push(entry);
+    child.on('exit', (code, signal) => {
+        entry.killed = true;
+        console.log(`[${name}] exited code=${code} signal=${signal}`);
+    });
+    child.on('error', (err) => {
+        console.error(`[${name}] spawn error:`, err);
+    });
+    return entry;
+}
+
+async function startManagedServices() {
+    if (!MANAGE_SERVICES) return;
+    const logsDir = path.join(REPO_ROOT, 'data', 'agent_space', 'logs', 'launcher');
+    try {
+        fs.mkdirSync(logsDir, { recursive: true });
+    } catch {}
+
+    // Backend (uvicorn) — only if port 8000 is not already serving JimAI.
+    const backendUp = await isPortListening(BACKEND_PORT);
+    if (!backendUp) {
+        console.log('[launcher] starting backend on port', BACKEND_PORT);
+        spawnService({
+            name: 'backend',
+            command: PYTHON_BIN,
+            args: [
+                '-m', 'uvicorn', 'main:app',
+                '--host', '127.0.0.1',
+                '--port', String(BACKEND_PORT),
+                '--log-level', 'info',
+            ],
+            cwd: path.join(REPO_ROOT, 'backend'),
+            logFile: path.join(logsDir, 'backend.log'),
+        });
+    } else {
+        console.log('[launcher] backend already responding on', BACKEND_PORT, '— not spawning');
+    }
+
+    // Frontend (vite) — only if port 5173 is not already serving.
+    const frontendUp = await isPortListening(FRONTEND_PORT);
+    if (!frontendUp) {
+        console.log('[launcher] starting frontend on port', FRONTEND_PORT);
+        const nodeBin = process.execPath; // electron's own node — vite runs via JS, not bin shim
+        // Use a real node executable if available; fall back to system node.
+        const systemNode = process.env.NODE_BINARY || 'node';
+        spawnService({
+            name: 'frontend',
+            command: systemNode,
+            args: [path.join('scripts', 'start_frontend_dev.mjs')],
+            cwd: REPO_ROOT,
+            env: {
+                FRONTEND_HOST: '127.0.0.1',
+                FRONTEND_PORT: String(FRONTEND_PORT),
+            },
+            logFile: path.join(logsDir, 'frontend.log'),
+        });
+    } else {
+        console.log('[launcher] frontend already responding on', FRONTEND_PORT, '— not spawning');
+    }
+}
+
+function killManagedService(entry, { force = false } = {}) {
+    if (!entry || entry.killed || !entry.child || !entry.child.pid) return;
+    const pid = entry.child.pid;
+    try {
+        if (process.platform === 'win32') {
+            // taskkill /T kills the entire process tree (uvicorn + node + workers).
+            const args = ['/PID', String(pid), '/T'];
+            if (force) args.push('/F');
+            spawn('taskkill', args, { windowsHide: true, stdio: 'ignore' });
+        } else {
+            entry.child.kill(force ? 'SIGKILL' : 'SIGTERM');
+        }
+    } catch (err) {
+        console.error(`[${entry.name}] kill error:`, err);
+    }
+}
+
+function stopManagedServices() {
+    if (!MANAGE_SERVICES) return;
+    if (managedServices.length === 0) return;
+    console.log('[launcher] stopping', managedServices.length, 'managed service(s)');
+    // First pass: graceful TERM.
+    for (const entry of managedServices) killManagedService(entry, { force: false });
+    // Hard kill any survivors after a short grace period.
+    setTimeout(() => {
+        for (const entry of managedServices) {
+            if (!entry.killed) killManagedService(entry, { force: true });
+        }
+    }, 2500);
 }
 
 function buildUnavailableHtml(message) {
@@ -285,7 +433,17 @@ if (!gotSingleInstanceLock) {
         }
     });
 
-    app.whenReady().then(createWindow);
+    app.whenReady().then(async () => {
+        // If the launcher set JIMAI_MANAGE_SERVICES=1, spawn backend + frontend
+        // ourselves before opening the window, so closing the window kills the
+        // whole stack via stopManagedServices().
+        try {
+            await startManagedServices();
+        } catch (err) {
+            console.error('[launcher] failed to start managed services:', err);
+        }
+        createWindow();
+    });
 
     app.on('activate', () => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -297,7 +455,12 @@ if (!gotSingleInstanceLock) {
     });
 
     app.on('before-quit', () => {
+        // Two cleanup paths exist intentionally:
+        //   - AGENTSPACE_AUTO_STOP=1: defer to scripts/agentspace_lifecycle.py stop
+        //     (used by the older 'Open JimAI.cmd' launcher)
+        //   - JIMAI_MANAGE_SERVICES=1: kill the children we spawned in this process
         requestStopOnQuit();
+        stopManagedServices();
     });
 
     app.on('window-all-closed', () => {

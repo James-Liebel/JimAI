@@ -1,9 +1,9 @@
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const http = require('http');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, session } = require('electron');
 
 // 127.0.0.1 avoids Windows resolving "localhost" to ::1 while Vite is IPv4-only.
 const DEFAULT_UI_URL = process.env.AGENTSPACE_UI_URL || 'http://127.0.0.1:5173';
@@ -19,6 +19,7 @@ const AUTO_STOP_SERVICES = process.env.AGENTSPACE_AUTO_STOP === '1';
 const MANAGE_SERVICES = process.env.JIMAI_MANAGE_SERVICES === '1';
 const BACKEND_PORT = Number(process.env.JIMAI_BACKEND_PORT || 8000);
 const FRONTEND_PORT = Number(process.env.JIMAI_FRONTEND_PORT || 5173);
+const OLLAMA_PORT = Number(process.env.JIMAI_OLLAMA_PORT || 11434);
 
 let mainWindow = null;
 let stopRequested = false;
@@ -29,6 +30,27 @@ const managedServices = [];
 
 // Keep GPU free for AI inference — the UI is text-heavy and renders fine on CPU.
 app.disableHardwareAcceleration();
+
+// Atlas browser tab lives in <webview partition="persist:atlas">. Google's
+// sign-in "secure browser" check rejects any UA containing "Electron" with
+// "Couldn't sign you in — this browser may not be secure." Strip Electron +
+// jimAI tokens so accounts.google.com treats us as plain Chrome. Also pre-
+// creates the session before any webview mounts, so cookies persist on first
+// run (without this the first sign-in would land in an unconfigured session).
+function configureAtlasSession() {
+    try {
+        const atlasSession = session.fromPartition('persist:atlas');
+        const cleanUa = atlasSession
+            .getUserAgent()
+            .replace(/\sElectron\/[^\s]+/gi, '')
+            .replace(/\sjimAI\/[^\s]+/gi, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        atlasSession.setUserAgent(cleanUa);
+    } catch (err) {
+        console.error('[atlas] failed to configure session UA:', err);
+    }
+}
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -115,12 +137,66 @@ function spawnService({ name, command, args, cwd, env, logFile }) {
     return entry;
 }
 
+function findOllamaExe() {
+    if (process.platform !== 'win32') return 'ollama';
+    // Prefer PATH so the user's chosen ollama install wins.
+    try {
+        const out = execSync('where ollama', { encoding: 'utf8', windowsHide: true }).trim();
+        const first = out.split(/\r?\n/)[0].trim();
+        if (first && fs.existsSync(first)) return first;
+    } catch {
+        // not on PATH — fall through to default install location
+    }
+    const localApp = process.env.LOCALAPPDATA;
+    if (localApp) {
+        const candidate = path.join(localApp, 'Programs', 'Ollama', 'ollama.exe');
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
+}
+
+async function maybeStartOllama(logsDir) {
+    if (await isPortListening(OLLAMA_PORT)) {
+        // Already running (e.g. user launched the Ollama tray app). Don't spawn,
+        // and crucially don't track it in managedServices so we don't kill an
+        // instance the user owns when Electron quits.
+        console.log('[launcher] ollama already running on', OLLAMA_PORT, '— not spawning');
+        return;
+    }
+    const exe = findOllamaExe();
+    if (!exe) {
+        console.log('[launcher] ollama not found on PATH — local-model features will be unavailable');
+        return;
+    }
+    console.log('[launcher] starting ollama on', OLLAMA_PORT);
+    spawnService({
+        name: 'ollama',
+        command: exe,
+        args: ['serve'],
+        cwd: REPO_ROOT,
+        // Push more model layers onto the GPU and shrink the KV cache so less
+        // work falls back to CPU (which is what's heating the laptop). Both
+        // are safe defaults on Ollama 0.3+; KV cache quantization requires
+        // flash attention, hence the pair.
+        env: {
+            OLLAMA_FLASH_ATTENTION: process.env.OLLAMA_FLASH_ATTENTION || '1',
+            OLLAMA_KV_CACHE_TYPE: process.env.OLLAMA_KV_CACHE_TYPE || 'q8_0',
+        },
+        logFile: path.join(logsDir, 'ollama.log'),
+    });
+}
+
 async function startManagedServices() {
     if (!MANAGE_SERVICES) return;
     const logsDir = path.join(REPO_ROOT, 'data', 'agent_space', 'logs', 'launcher');
     try {
         fs.mkdirSync(logsDir, { recursive: true });
     } catch {}
+
+    // Ollama first — backend health checks call it on startup, so race-free
+    // ordering matters. If we spawned it, stopManagedServices() will taskkill
+    // /T it (and any model-runner child processes) on quit.
+    await maybeStartOllama(logsDir);
 
     // Backend (uvicorn) — only if port 8000 is not already serving JimAI.
     const backendUp = await isPortListening(BACKEND_PORT);
@@ -434,6 +510,7 @@ if (!gotSingleInstanceLock) {
     });
 
     app.whenReady().then(async () => {
+        configureAtlasSession();
         // If the launcher set JIMAI_MANAGE_SERVICES=1, spawn backend + frontend
         // ourselves before opening the window, so closing the window kills the
         // whole stack via stopManagedServices().

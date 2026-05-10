@@ -53,19 +53,9 @@ if not exist "%ELECTRON_EXE%" if not exist "%ELECTRON_CLI%" (
     exit /b 1
 )
 
-REM --- Start Ollama in the background if not already running ---------------
-REM Probe via tasklist; ollama serve is auto-started by the desktop app on
-REM Windows, but if the user hasn't done that yet we kick it off here.
-tasklist /FI "IMAGENAME eq ollama.exe" /FI "STATUS eq RUNNING" 2>nul | find /I "ollama.exe" >nul
-if errorlevel 1 (
-    where ollama >nul 2>nul
-    if not errorlevel 1 (
-        echo [JimAI] starting ollama serve in background...
-        start "ollama" /B ollama serve
-    ) else (
-        echo [JimAI] WARNING: ollama not on PATH; local-model features will be unavailable.
-    )
-)
+REM --- Ollama is started by desktop\main.cjs (maybeStartOllama) so closing
+REM     the Electron window kills it via taskkill /T. Don't spawn it here —
+REM     a "start /B" instance would be detached and survive Electron quit.
 
 REM --- Launch Electron with self-managed children ---------------------------
 set "AGENTSPACE_PYTHON=%PY%"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
-    Bot, User, X, Plus, MousePointer2, ListChecks, ChevronRight, FlaskConical,
+    Bot, User, X, Plus, MousePointer2, ListChecks, ChevronRight, FlaskConical, LogIn,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchWithTimeout, logIssue } from '../lib/api';
@@ -290,6 +290,16 @@ export default function BrowserAtlas() {
         wv.addEventListener('new-window', (e) => {
             const url = (e as unknown as { url: string }).url;
             if (url?.startsWith('http')) openNewTab(url);
+        });
+        // ERR_ABORTED (-3) fires whenever a navigation is interrupted: redirects,
+        // the agent issuing loadURL while a previous nav is in flight, the user
+        // clicking another link mid-load. Without a listener Electron surfaces
+        // it as "Error in handler for 'guest view manager'" in DevTools. Swallow
+        // it — real load failures (DNS, cert, etc.) still log via the default
+        // handler when we don't return early.
+        wv.addEventListener('did-fail-load', (e) => {
+            const ev = e as unknown as { errorCode: number; isMainFrame: boolean };
+            if (ev.errorCode === -3) return;
         });
     }, [openNewTab]);
 
@@ -1034,6 +1044,13 @@ export default function BrowserAtlas() {
                     title={loading ? 'Stop' : 'Reload'}
                 >
                     <RotateCcw size={12} className={cn(loading && 'animate-spin')} />
+                </button>
+                <button
+                    onClick={() => openNewTab('https://accounts.google.com/signin')}
+                    className="p-1.5 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 transition-colors"
+                    title="Sign in to Google (opens new tab — cookies persist across the Atlas session)"
+                >
+                    <LogIn size={12} />
                 </button>
 
                 <form

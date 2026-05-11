@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 from .log_store import LogStore
 from .paths import DATA_ROOT, ensure_layout
 from .power import PowerManager
+from config.role_prompts import recovery_suggestions_for
 
 PROACTIVE_FILE = DATA_ROOT / "proactive_goals.json"
 AUTO_SELF_IMPROVE_STATE_FILE = DATA_ROOT / "runtime" / "auto_self_improve_state.json"
@@ -318,6 +319,46 @@ class ProactiveEngine:
                     f"Source failed run id: {parent_run_id}",
                 ]
             )
+        # Architect → coder → verifier team. Each role has its own action and
+        # a dependency edge so the orchestrator runs them in order.
+        subagents = [
+            {
+                "id": "architect",
+                "role": "architect",
+                "depends_on": [],
+                "actions": [
+                    {
+                        "type": "self_improve_plan",
+                        "prompt": cleaned_prompt,
+                        "confirmed_suggestions": suggestions,
+                    }
+                ],
+            },
+            {
+                "id": "coder",
+                "role": "coder",
+                "depends_on": ["architect"],
+                "actions": [
+                    {
+                        "type": "self_improve",
+                        "prompt": cleaned_prompt,
+                        "confirmed_suggestions": suggestions,
+                    }
+                ],
+            },
+            {
+                "id": "verifier",
+                "role": "verifier",
+                "depends_on": ["coder"],
+                "actions": [
+                    {
+                        "type": "self_improve_verify",
+                        "prompt": cleaned_prompt,
+                        "confirmed_suggestions": suggestions,
+                    }
+                ],
+            },
+        ]
         payload = {
             "objective": "\n".join(objective_lines).strip(),
             "autonomous": False,
@@ -329,20 +370,7 @@ class ProactiveEngine:
             "auto_failure_self_improve_run": bool(auto_recovery),
             "auto_failure_parent_run_id": str(parent_run_id or "").strip(),
             "skip_auto_failure_self_improve": bool(auto_recovery),
-            "subagents": [
-                {
-                    "id": "self-improver",
-                    "role": "coder",
-                    "depends_on": [],
-                    "actions": [
-                        {
-                            "type": "self_improve",
-                            "prompt": cleaned_prompt,
-                            "confirmed_suggestions": suggestions,
-                        }
-                    ],
-                }
-            ],
+            "subagents": subagents,
         }
         return await self.orchestrator.start_run(payload)
 
@@ -392,11 +420,11 @@ class ProactiveEngine:
             return {"triggered": False, "reason": "daily_cap", "run_id": run_id, "max_per_day": max_per_day}
 
         prompt = self._build_auto_failure_prompt(run=run, completion_summary=completion_summary)
-        suggestions = [
-            "Harden failure path with bounded retries and deterministic fallback behavior.",
-            "Improve observability so future failures include actionable root-cause details.",
-            "Keep review-gated safety and rollback support intact while fixing this issue class.",
-        ]
+        error_text = " ".join(
+            str(completion_summary.get(k) or "")
+            for k in ("error", "last_error", "failure_reason", "summary")
+        )
+        suggestions = recovery_suggestions_for(error_text)
         try:
             queued = await self.run_self_improvement(
                 prompt=prompt,

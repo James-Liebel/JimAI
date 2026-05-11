@@ -21,6 +21,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from models import ollama_client
+from config.role_prompts import (
+    SELF_IMPROVE_GENERATOR,
+    SELF_IMPROVE_CRITIC,
+    SELF_IMPROVE_STRENGTHEN,
+    SELF_IMPROVE_ARCHITECT,
+    SELF_IMPROVE_CODER,
+    SELF_IMPROVE_VERIFIER,
+)
 from .config import DEFAULT_SETTINGS
 from .exporter import export_items
 from .api_routes_browser import register_browser_routes
@@ -603,6 +611,75 @@ def _fallback_self_improve_suggestions(prompt: str, focus: str, *, max_items: in
     return _specificify_suggestions(base, prompt_hint, max_items=max_items)
 
 
+def _generator_user_prompt(prompt: str, focus: str, max_suggestions: int) -> str:
+    return (
+        f"User improvement prompt:\n{prompt.strip()}\n\n"
+        f"Current self-learning focus: {focus}\n"
+        f"Generate 8–{max(8, max_suggestions + 2)} candidates per the schema in your system prompt."
+    )
+
+
+def _critic_user_prompt(candidates_json: str, max_suggestions: int) -> str:
+    return (
+        f"Score and rank these candidates per the schema in your system prompt. "
+        f"Keep at most {max_suggestions} candidates with verdict='keep'.\n\n"
+        f"Candidates:\n{candidates_json}"
+    )
+
+
+async def _critic_prune(
+    raw_candidates: list[dict[str, Any]],
+    model: str,
+    max_suggestions: int,
+) -> list[dict[str, Any]]:
+    """Second pass: same model, lower temperature, scores and prunes candidates.
+
+    Returns ranked entries (verdict=='keep') ordered best-first. On failure,
+    falls back to the input order truncated to max_suggestions.
+    """
+    if not raw_candidates:
+        return []
+    try:
+        text = await ollama_client.chat_full(
+            model=model,
+            messages=[
+                {"role": "system", "content": SELF_IMPROVE_CRITIC},
+                {"role": "user", "content": _critic_user_prompt(
+                    json.dumps({"candidates": raw_candidates}, ensure_ascii=False),
+                    max_suggestions,
+                )},
+            ],
+            temperature=0.05,
+        )
+        parsed = _safe_parse_json_object(text) or {}
+        ranked = parsed.get("ranked") if isinstance(parsed, dict) else []
+        if not isinstance(ranked, list):
+            ranked = []
+        kept = [r for r in ranked if isinstance(r, dict) and str(r.get("verdict")) == "keep"]
+        kept.sort(key=lambda r: int(r.get("overall") or 0), reverse=True)
+        return kept[:max_suggestions]
+    except Exception:
+        return raw_candidates[:max_suggestions]
+
+
+def _candidates_to_strings(candidates: list[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for c in candidates:
+        title = str(c.get("title") or "").strip()
+        if not title:
+            continue
+        scope = c.get("scope_files") or []
+        scope_str = ", ".join(str(s) for s in scope if s) if isinstance(scope, list) else ""
+        acceptance = str(c.get("acceptance") or "").strip()
+        bits = [title]
+        if scope_str:
+            bits.append(f"Scope: {scope_str}.")
+        if acceptance:
+            bits.append(f"Done when: {acceptance}.")
+        out.append(" ".join(bits))
+    return out
+
+
 async def _generate_self_improve_suggestions(prompt: str, max_suggestions: int) -> dict[str, Any]:
     settings = settings_store.get()
     model = str(settings.get("model", "qwen2.5-coder:14b"))
@@ -611,37 +688,29 @@ async def _generate_self_improve_suggestions(prompt: str, max_suggestions: int) 
     suggestions = list(fallback)
     autonomous_notes: list[str] = []
 
-    llm_prompt = (
-        "You are generating improvement proposals for a local autonomous coding platform.\n"
-        "Propose practical, high-impact self-improvements for the current repository.\n"
-        "Suggestions must be relatively specific: include target component/file/flow and expected outcome.\n"
-        "Return strict JSON object only with keys:\n"
-        "suggestions: array of short strings\n"
-        "autonomous_notes: array of short strings\n"
-        f"Limit suggestions to at most {max_suggestions}.\n\n"
-        f"User self-improvement prompt:\n{prompt.strip()}\n\n"
-        f"Current self-learning focus: {focus}\n"
-    )
     try:
-        text = await ollama_client.chat_full(
+        gen_text = await ollama_client.chat_full(
             model=model,
             messages=[
-                {"role": "system", "content": "Return strict JSON only."},
-                {"role": "user", "content": llm_prompt},
+                {"role": "system", "content": SELF_IMPROVE_GENERATOR},
+                {"role": "user", "content": _generator_user_prompt(prompt, focus, max_suggestions)},
             ],
-            temperature=0.2,
+            temperature=0.4,
         )
-        parsed = _safe_parse_json_object(text) or {}
-        raw_suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else []
-        raw_notes = parsed.get("autonomous_notes") if isinstance(parsed, dict) else []
-        merged: list[str] = []
-        if isinstance(raw_suggestions, list):
-            for item in raw_suggestions:
-                merged.append(str(item or ""))
-        merged.extend(fallback)
-        suggestions = _specificify_suggestions(merged, prompt, max_items=max_suggestions)
-        if isinstance(raw_notes, list):
-            autonomous_notes = _normalize_suggestion_texts([str(item or "") for item in raw_notes], max_items=8)
+        parsed = _safe_parse_json_object(gen_text) or {}
+        candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
+        if not isinstance(candidates, list):
+            candidates = []
+
+        ranked = await _critic_prune(candidates, model, max_suggestions)
+        kept_strings = _candidates_to_strings(ranked)
+        if kept_strings:
+            suggestions = _specificify_suggestions(kept_strings, prompt, max_items=max_suggestions)
+        else:
+            suggestions = fallback
+        autonomous_notes = [
+            f"critic verdict: {len(ranked)} kept of {len(candidates)} generated"
+        ] if candidates else []
     except Exception:
         suggestions = fallback
         autonomous_notes = []
@@ -667,27 +736,17 @@ async def _stream_self_improve_suggestions(
     yield {"type": "meta", "model": model, "focus": focus}
     yield {"type": "action", "stage": "ollama", "label": "Calling local model (streaming)…"}
 
-    llm_prompt = (
-        "You are generating improvement proposals for a local autonomous coding platform.\n"
-        "Propose practical, high-impact self-improvements for the current repository.\n"
-        "Suggestions must be relatively specific: include target component/file/flow and expected outcome.\n"
-        "Return strict JSON object only with keys:\n"
-        "suggestions: array of short strings\n"
-        "autonomous_notes: array of short strings\n"
-        f"Limit suggestions to at most {max_suggestions}.\n\n"
-        f"User self-improvement prompt:\n{prompt.strip()}\n\n"
-        f"Current self-learning focus: {focus}\n"
-    )
+    llm_prompt = _generator_user_prompt(prompt, focus, max_suggestions)
     parts: list[str] = []
     progress_mark = 0
     try:
         async for piece in ollama_client.chat_stream(
             model=model,
             messages=[
-                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "system", "content": SELF_IMPROVE_GENERATOR},
                 {"role": "user", "content": llm_prompt},
             ],
-            temperature=0.2,
+            temperature=0.4,
         ):
             parts.append(piece)
             yield {"type": "chunk", "text": piece}
@@ -712,16 +771,24 @@ async def _stream_self_improve_suggestions(
     autonomous_notes: list[str] = []
     try:
         parsed = _safe_parse_json_object(text) or {}
-        raw_suggestions = parsed.get("suggestions") if isinstance(parsed, dict) else []
-        raw_notes = parsed.get("autonomous_notes") if isinstance(parsed, dict) else []
-        merged: list[str] = []
-        if isinstance(raw_suggestions, list):
-            for item in raw_suggestions:
-                merged.append(str(item or ""))
-        merged.extend(fallback)
-        suggestions = _specificify_suggestions(merged, prompt, max_items=max_suggestions)
-        if isinstance(raw_notes, list):
-            autonomous_notes = _normalize_suggestion_texts([str(item or "") for item in raw_notes], max_items=8)
+        candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
+        if not isinstance(candidates, list):
+            candidates = []
+
+        yield {
+            "type": "action",
+            "stage": "critic",
+            "label": f"Scoring {len(candidates)} candidates with critic pass…",
+        }
+        ranked = await _critic_prune(candidates, model, max_suggestions)
+        kept_strings = _candidates_to_strings(ranked)
+        if kept_strings:
+            suggestions = _specificify_suggestions(kept_strings, prompt, max_items=max_suggestions)
+        else:
+            suggestions = fallback
+        autonomous_notes = [
+            f"critic verdict: {len(ranked)} kept of {len(candidates)} generated"
+        ] if candidates else []
     except Exception:
         suggestions = fallback
         autonomous_notes = []
@@ -742,33 +809,53 @@ async def _stream_self_improve_suggestions(
 
 
 async def _strengthen_self_improve_prompt(prompt: str) -> dict[str, Any]:
-    """Use the configured local model to rewrite a vague user request into a clearer self-improve instruction."""
+    """Rewrite a vague user request into a structured self-improve spec.
+
+    Returns: strengthened_prompt (backward-compatible), objective,
+    acceptance_criteria, scope_files, risks, model.
+    """
     settings = settings_store.get()
     model = str(settings.get("model", "qwen2.5-coder:14b"))
     cleaned = str(prompt or "").strip()
-    llm_user = (
-        "Rewrite the following user request into a single clear instruction for an autonomous coding agent "
-        "improving this repository (jimAI: FastAPI agent orchestration + React frontend). "
-        "Keep the user's goals; add concrete scope, acceptance hints, and file/area targets when reasonable. "
-        'Return strict JSON only with key "strengthened_prompt" (string).\n\n'
-        f"User request:\n{cleaned}"
-    )
+    llm_user = f"User request to strengthen:\n{cleaned}"
+    base_result = {
+        "strengthened_prompt": cleaned,
+        "objective": "",
+        "acceptance_criteria": [],
+        "scope_files": [],
+        "risks": [],
+        "model": model,
+    }
     try:
         text = await ollama_client.chat_full(
             model=model,
             messages=[
-                {"role": "system", "content": "Return strict JSON only."},
+                {"role": "system", "content": SELF_IMPROVE_STRENGTHEN},
                 {"role": "user", "content": llm_user},
             ],
             temperature=0.2,
         )
         parsed = _safe_parse_json_object(text) or {}
-        strengthened = str(parsed.get("strengthened_prompt") or "").strip()
-        if not strengthened:
-            strengthened = cleaned
-        return {"strengthened_prompt": strengthened, "model": model}
+        if not isinstance(parsed, dict):
+            return base_result
+
+        def _str_list(key: str) -> list[str]:
+            v = parsed.get(key)
+            if not isinstance(v, list):
+                return []
+            return [str(item).strip() for item in v if str(item or "").strip()]
+
+        strengthened = str(parsed.get("strengthened_prompt") or "").strip() or cleaned
+        return {
+            "strengthened_prompt": strengthened,
+            "objective": str(parsed.get("objective") or "").strip(),
+            "acceptance_criteria": _str_list("acceptance_criteria"),
+            "scope_files": _str_list("scope_files"),
+            "risks": _str_list("risks"),
+            "model": model,
+        }
     except Exception:
-        return {"strengthened_prompt": cleaned, "model": model}
+        return base_result
 
 
 def _fallback_builder_team() -> list[dict[str, Any]]:

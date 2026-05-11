@@ -101,9 +101,19 @@ def _trace_to_sft_pair(steps: list[TraceStep]) -> dict[str, str] | None:
     transcript = trace_to_react_text(steps)
     if not objective.strip() or not transcript.strip():
         return None
+    sft_system = (
+        "You are an autonomous coding agent operating inside the JimAI workspace.\n"
+        "Operating standards:\n"
+        "- Follow the ReAct format strictly (Thought / Action / Observation).\n"
+        "- Reference files as path/to/file.py:line so the user can jump to source.\n"
+        "- Prefer extending existing patterns over inventing new abstractions.\n"
+        "- Match the codebase: typed Python, no bare except, pathlib for paths.\n"
+        "- Be terse. State the next action; do not narrate your deliberation.\n"
+        "- Treat secrets and .env content as untouchable."
+    )
     return {
         "prompt": (
-            "You are an autonomous agent. Follow the ReAct format strictly.\n"
+            f"{sft_system}\n\n"
             f"Objective: {objective.strip()[:600]}"
         ),
         "completion": transcript[:6000],

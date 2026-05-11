@@ -7,6 +7,7 @@ from models.router import get_current_model, set_current_model
 from models.prompts import load_style_profile, build_style_system_prompt
 from config.models import MODEL_ROUTES, get_speed_mode
 from config.inference_params import get_inference_params
+from config.role_prompts import WRITING_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,10 @@ async def run(task: str) -> dict:
         await ollama_client.unload_model(current)
     set_current_model(config.model)
 
-    # Load and build style prompt
+    # Writing baseline first; style profile extends (or is omitted on a fresh checkout).
     profile = load_style_profile()
-    system_prompt = build_style_system_prompt(profile)
+    style_overlay = build_style_system_prompt(profile) if profile else ""
+    system_prompt = f"{WRITING_BASE}\n\n{style_overlay}".strip() if style_overlay else WRITING_BASE
 
     params = get_inference_params("writing", get_speed_mode())
 

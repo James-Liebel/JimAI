@@ -6,6 +6,7 @@ from models import ollama_client
 from models.router import get_current_model, set_current_model
 from config.models import MODEL_ROUTES, get_speed_mode
 from config.inference_params import get_inference_params
+from config.role_prompts import RESEARCH as RESEARCH_SYSTEM_PROMPT
 from tools import web_search
 from memory import vectordb
 
@@ -50,7 +51,7 @@ async def run(query: str) -> dict:
         summary = await ollama_client.generate_full(
             model=config.model,
             prompt=summary_prompt,
-            system="You are a research assistant. Summarize findings clearly and cite sources.",
+            system=RESEARCH_SYSTEM_PROMPT,
             temperature=0.5,
             num_ctx=params.get("num_ctx"),
             num_predict=params.get("num_predict"),

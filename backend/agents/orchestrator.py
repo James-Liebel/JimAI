@@ -7,6 +7,7 @@ from models import ollama_client
 from models.router import get_current_model, set_current_model
 from config.models import MODEL_ROUTES, get_speed_mode
 from config.inference_params import get_inference_params
+from config.role_prompts import SYNTHESIZE as SYNTHESIZE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ async def synthesize(task: str, results: dict[str, dict]) -> str:
     return await ollama_client.generate_full(
         model=config.model,
         prompt=synthesis_prompt,
-        system="Combine the specialist agent outputs into a clear, unified answer.",
+        system=SYNTHESIZE_SYSTEM_PROMPT,
         temperature=0.5,
         num_ctx=synth_params.get("num_ctx"),
         num_predict=synth_params.get("num_predict"),

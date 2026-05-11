@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Optional
 
 from config.models import get_speed_mode, SpeedMode
+from config.role_prompts import JUDGE as JUDGE_SYSTEM_PROMPT
 from models import ollama_client
 
 
@@ -144,7 +145,7 @@ async def judge_response(
     async for chunk in ollama_client.generate(
         model=judge_model,
         prompt=prompt,
-        system="You are a strict quality evaluator. Return only valid JSON.",
+        system=JUDGE_SYSTEM_PROMPT,
         stream=True,
         temperature=0.1,
         num_ctx=8192,

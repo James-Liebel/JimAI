@@ -81,8 +81,9 @@ def append_pending(note: str) -> None:
     if len(pending) >= _PENDING_MERGE_THRESHOLD:
         try:
             import asyncio
-
-            asyncio.get_running_loop().create_task(consolidate_pending())
+            asyncio.get_running_loop()  # raises RuntimeError if no loop
+            from agent_space.background_tasks import spawn
+            spawn(consolidate_pending(), name="cross_chat_consolidate")
         except RuntimeError:
             pass
 

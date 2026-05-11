@@ -17,6 +17,29 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from config.settings import LOG_LEVEL
 from models import ollama_client
+from agent_space import background_tasks
+from observability.logging_config import configure as configure_logging
+from observability.middleware import RequestIdMiddleware
+
+import httpx as _httpx
+
+_HEALTH_HTTP: _httpx.AsyncClient | None = None
+_CHROMA_CLIENT = None
+
+
+def _health_client() -> _httpx.AsyncClient:
+    global _HEALTH_HTTP
+    if _HEALTH_HTTP is None or _HEALTH_HTTP.is_closed:
+        _HEALTH_HTTP = _httpx.AsyncClient(timeout=5.0)
+    return _HEALTH_HTTP
+
+
+def _chroma_client():
+    global _CHROMA_CLIENT
+    if _CHROMA_CLIENT is None:
+        import chromadb
+        _CHROMA_CLIENT = chromadb.Client()
+    return _CHROMA_CLIENT
 
 # Suppress known upstream Chroma/Pydantic Python 3.14 compatibility warning noise.
 warnings.filterwarnings(
@@ -25,11 +48,8 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+# Configure logging (LOG_FORMAT=json for structured output; otherwise text with request_id).
+configure_logging(LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 
@@ -56,7 +76,9 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Agent Space startup warning: %s", exc)
 
-    agent_space_bg = asyncio.create_task(_agent_space_startup_task())
+    agent_space_bg = background_tasks.spawn(
+        _agent_space_startup_task(), name="agent_space_startup"
+    )
     try:
         yield
     finally:
@@ -65,12 +87,16 @@ async def lifespan(app: FastAPI):
                 await agent_space_bg
             except Exception as exc:
                 logger.warning("Agent Space background startup did not finish cleanly: %s", exc)
+        await background_tasks.drain(timeout=5.0)
         try:
             from agent_space.runtime import shutdown as agent_space_shutdown
 
             await agent_space_shutdown()
         except Exception as exc:
             logger.warning("Agent Space shutdown warning: %s", exc)
+        global _HEALTH_HTTP
+        if _HEALTH_HTTP is not None and not _HEALTH_HTTP.is_closed:
+            await _HEALTH_HTTP.aclose()
         await ollama_client.close()
         logger.info("Backend shut down cleanly")
 
@@ -151,6 +177,7 @@ app.add_middleware(_NormalizeCorsPreflightMiddleware)
 
 from agent_space.csrf_middleware import CSRFMiddleware
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(RequestIdMiddleware)
 
 
 # ── API key auth (scaffolded — disabled by default) ──────────────────
@@ -222,8 +249,6 @@ async def connection_error_handler(request: Request, exc: ConnectionError):
 @app.get("/health")
 async def health():
     """System health check — reports status of Ollama, ChromaDB, and Qdrant."""
-    import httpx
-
     from config.settings import OLLAMA_BASE_URL, normalize_ollama_base_url
 
     try:
@@ -237,18 +262,15 @@ async def health():
     # Check Ollama (probe via IPv4 loopback when URL uses localhost — Windows IPv6 mismatch)
     ollama_ok = False
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{ollama_probe_url}/api/tags")
-            ollama_ok = resp.status_code < 500
+        resp = await _health_client().get(f"{ollama_probe_url}/api/tags")
+        ollama_ok = resp.status_code < 500
     except Exception:
         ollama_ok = False
 
     # Check ChromaDB
     chromadb_ok = False
     try:
-        import chromadb
-        chroma_client = chromadb.Client()
-        chroma_client.heartbeat()
+        _chroma_client().heartbeat()
         chromadb_ok = True
     except Exception:
         chromadb_ok = False

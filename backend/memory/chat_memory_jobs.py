@@ -106,7 +106,8 @@ def schedule_after_turn(
         except Exception:
             logger.warning("chat_memory_jobs.after_turn failed", exc_info=True)
 
-    loop.create_task(_run())
+    from agent_space.background_tasks import spawn
+    spawn(_run(), name=f"chat_memory:{session_id}")
 
 
 def normalize_snapshot(history: list[dict[str, Any]]) -> list[dict[str, str]]:

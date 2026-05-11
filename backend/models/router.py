@@ -39,6 +39,7 @@ MATH_PATTERNS = [
     r'\bkl divergence\b', r'\bentropy\b', r'\bmle\b', r'\bmap estimate\b',
     r'\bmcmc\b', r'\bstochastic\b', r'\bfourier\b', r'\blaplace\b',
 ]
+MATH_RES = [re.compile(p, re.IGNORECASE) for p in MATH_PATTERNS]
 
 CODE_PATTERNS = [
     r'\bwrite\b.{0,20}\b(code|function|class|script)\b',
@@ -51,6 +52,7 @@ CODE_PATTERNS = [
     r'\b(train|model\.fit|model\.predict|DataLoader)\b',
     r'\b(conda|pip install|requirements)\b',
 ]
+CODE_RES = [re.compile(p, re.IGNORECASE) for p in CODE_PATTERNS]
 
 DATA_SCIENCE_PATTERNS = [
     r'\b(dataset|dataframe|csv|parquet)\b',
@@ -64,6 +66,7 @@ DATA_SCIENCE_PATTERNS = [
     r'\b(missing values|imputation|normalization|standardization)\b',
     r'\b(SHAP|feature importance|interpretability)\b',
 ]
+DATA_SCIENCE_RES = [re.compile(p, re.IGNORECASE) for p in DATA_SCIENCE_PATTERNS]
 
 FINANCE_PATTERNS = [
     r'\b(DCF|discounted cash flow|WACC|terminal value|free cash flow|FCF)\b',
@@ -77,6 +80,7 @@ FINANCE_PATTERNS = [
     r'\b(VaR|value at risk|drawdown|volatility|Sortino|information ratio)\b',
     r'\b(comparable company|comps|precedent transaction|trading multiple|valuation)\b',
 ]
+FINANCE_RES = [re.compile(p, re.IGNORECASE) for p in FINANCE_PATTERNS]
 
 
 def _make_decision(
@@ -107,8 +111,8 @@ def classify_message(message: str, has_image: bool = False) -> RoutingDecision:
     msg_lower = message.lower()
 
     if has_image:
-        has_math = any(re.search(p, msg_lower) for p in MATH_PATTERNS)
-        has_code = any(re.search(p, msg_lower) for p in CODE_PATTERNS)
+        has_math = any(r.search(msg_lower) for r in MATH_RES)
+        has_code = any(r.search(msg_lower) for r in CODE_RES)
         if has_math or has_code:
             second = "math" if has_math else "code"
             return _make_decision(
@@ -118,10 +122,10 @@ def classify_message(message: str, has_image: bool = False) -> RoutingDecision:
             )
         return _make_decision("vision", ["vision"], False, 0.99, "Image content", ["vision"])
 
-    math_score = sum(1 for p in MATH_PATTERNS if re.search(p, msg_lower))
-    code_score = sum(1 for p in CODE_PATTERNS if re.search(p, msg_lower))
-    ds_score = sum(1 for p in DATA_SCIENCE_PATTERNS if re.search(p, msg_lower))
-    finance_score = sum(1 for p in FINANCE_PATTERNS if re.search(p, msg_lower))
+    math_score = sum(1 for r in MATH_RES if r.search(msg_lower))
+    code_score = sum(1 for r in CODE_RES if r.search(msg_lower))
+    ds_score = sum(1 for r in DATA_SCIENCE_RES if r.search(msg_lower))
+    finance_score = sum(1 for r in FINANCE_RES if r.search(msg_lower))
 
     is_ds_hybrid = ds_score >= 2 or (math_score >= 2 and code_score >= 2)
 

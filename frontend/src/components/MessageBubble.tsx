@@ -20,14 +20,6 @@ function normalizeSourceScore(score: number): number {
     return Math.max(0, Math.min(1, score));
 }
 
-function sourceConfidence(score: number): string {
-    const normalized = normalizeSourceScore(score);
-    if (normalized >= 0.8) return 'high';
-    if (normalized >= 0.5) return 'medium';
-    if (normalized > 0) return 'low';
-    return 'unscored';
-}
-
 function normalizeSourceUrl(source: { source?: string; url?: string }): string {
     const candidate = String(source.url || source.source || '').trim();
     return /^https?:\/\//i.test(candidate) ? candidate : '';

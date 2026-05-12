@@ -144,6 +144,10 @@ async def chat_stream(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    seed: int | None = None,
     json_format: bool = False,
     keep_alive: str = "5m",
     base_url: str | None = None,
@@ -160,6 +164,14 @@ async def chat_stream(
         options["think"] = think
     if num_gpu is not None:
         options["num_gpu"] = num_gpu
+    if top_p is not None:
+        options["top_p"] = top_p
+    if top_k is not None:
+        options["top_k"] = top_k
+    if min_p is not None:
+        options["min_p"] = min_p
+    if seed is not None:
+        options["seed"] = seed
     payload: dict = {
         "model": model,
         "messages": messages,
@@ -190,6 +202,10 @@ async def chat_full(
     repeat_penalty: float = 1.1,
     think: bool | None = None,
     num_gpu: int | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    seed: int | None = None,
     json_format: bool = False,
     keep_alive: str = "5m",
     base_url: str | None = None,
@@ -207,6 +223,10 @@ async def chat_full(
         repeat_penalty=repeat_penalty,
         think=think,
         num_gpu=num_gpu,
+        top_p=top_p,
+        top_k=top_k,
+        min_p=min_p,
+        seed=seed,
         json_format=json_format,
         keep_alive=keep_alive,
         base_url=base_url,

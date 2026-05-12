@@ -1359,6 +1359,9 @@ async def _stream_chat(
             num_batch=params.get("num_batch"),
             repeat_penalty=params.get("repeat_penalty", 1.1),
             think=params.get("think"),
+            top_p=params.get("top_p"),
+            top_k=params.get("top_k"),
+            min_p=params.get("min_p"),
         ):
             full_response.append(chunk)
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"

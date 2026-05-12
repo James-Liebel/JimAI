@@ -543,41 +543,34 @@ def _normalize_suggestion_texts(items: list[str], *, max_items: int) -> list[str
     return cleaned
 
 
-def _specificify_suggestion(text: str, prompt: str) -> str:
-    cleaned = " ".join(str(text or "").strip().split())
-    if not cleaned:
-        return ""
-    lower = cleaned.lower()
-    has_target_signal = any(
-        token in lower
-        for token in (
-            "frontend/",
-            "backend/",
-            "page",
-            "endpoint",
-            "workflow",
-            "review",
-            "builder",
-            "self-code",
-            "settings",
-            "metric",
-            "event",
-            "summary",
-            "retry",
-        )
-    )
-    if has_target_signal and len(cleaned.split()) >= 8:
-        return cleaned
-    prompt_hint = " ".join(str(prompt or "").strip().split())[:90]
-    return (
-        f"{cleaned} Target: Improve this scope -> {prompt_hint}. "
-        "Expected result: measurable reliability or UX gain."
-    ).strip()
+_TARGET_SIGNAL_TOKENS = (
+    "frontend/", "backend/", "page", "endpoint", "workflow", "review",
+    "builder", "self-code", "settings", "metric", "event", "summary", "retry",
+)
 
 
 def _specificify_suggestions(items: list[str], prompt: str, *, max_items: int) -> list[str]:
-    specific = [_specificify_suggestion(item, prompt) for item in items]
-    return _normalize_suggestion_texts(specific, max_items=max_items)
+    """Normalize, dedup, and ensure each suggestion has a concrete target.
+
+    Suggestions that already mention a file path / known UI surface are left
+    alone; vague ones get a trailing 'Target: ... Expected result: ...' hint
+    derived from the original user prompt so the downstream coder has scope.
+    """
+    prompt_hint = " ".join(str(prompt or "").strip().split())[:90]
+    out: list[str] = []
+    for item in items:
+        cleaned = " ".join(str(item or "").strip().split())
+        if not cleaned:
+            continue
+        lower = cleaned.lower()
+        if any(tok in lower for tok in _TARGET_SIGNAL_TOKENS) and len(cleaned.split()) >= 8:
+            out.append(cleaned)
+        else:
+            out.append(
+                f"{cleaned} Target: Improve this scope -> {prompt_hint}. "
+                "Expected result: measurable reliability or UX gain."
+            )
+    return _normalize_suggestion_texts(out, max_items=max_items)
 
 
 def _fallback_self_improve_suggestions(prompt: str, focus: str, *, max_items: int) -> list[str]:
@@ -611,12 +604,107 @@ def _fallback_self_improve_suggestions(prompt: str, focus: str, *, max_items: in
     return _specificify_suggestions(base, prompt_hint, max_items=max_items)
 
 
-def _generator_user_prompt(prompt: str, focus: str, max_suggestions: int) -> str:
-    return (
-        f"User improvement prompt:\n{prompt.strip()}\n\n"
-        f"Current self-learning focus: {focus}\n"
-        f"Generate 8–{max(8, max_suggestions + 2)} candidates per the schema in your system prompt."
+def _build_codebase_signal(max_chars: int = 2400) -> str:
+    """Compact, model-friendly summary of *current* codebase pain points.
+
+    Three sections, each capped to keep the payload short:
+      1. Run metrics — actions/runs failure rates from the LogStore.
+      2. Recent issues — last 15 entries from issues.jsonl with source+type+message.
+      3. Heaviest files — top files by line count under backend/agent_space,
+         backend/api, frontend/src/pages so the model knows where complexity sits.
+
+    Returns "" if nothing meaningful is available (fresh checkout, no logs).
+    """
+    lines: list[str] = []
+    try:
+        metrics = log_store.get_metrics()
+        if metrics:
+            failed_actions = int(metrics.get("actions_failed", 0))
+            total_actions = int(metrics.get("actions_total", 0))
+            fail_pct = (100.0 * failed_actions / total_actions) if total_actions else 0.0
+            lines.append(
+                "Run metrics: "
+                f"runs_started={metrics.get('runs_started', 0)} "
+                f"completed={metrics.get('runs_completed', 0)} "
+                f"failed={metrics.get('runs_failed', 0)} "
+                f"actions_failed={failed_actions}/{total_actions} ({fail_pct:.1f}%) "
+                f"rollbacks={metrics.get('rollbacks', 0)}"
+            )
+    except Exception:
+        pass
+
+    try:
+        issues = log_store.list_issues(60)[-15:]
+        if issues:
+            lines.append("Recent issues (newest last):")
+            for entry in issues:
+                src = str(entry.get("source", ""))[:24]
+                kind = str(entry.get("type", ""))[:32]
+                msg = " ".join(str(entry.get("message", "")).split())[:120]
+                lines.append(f"  - [{src}/{kind}] {msg}")
+    except Exception:
+        pass
+
+    try:
+        targets = [
+            PROJECT_ROOT / "backend" / "agent_space",
+            PROJECT_ROOT / "backend" / "api",
+            PROJECT_ROOT / "frontend" / "src" / "pages",
+        ]
+        sized: list[tuple[int, str]] = []
+        for root in targets:
+            if not root.exists():
+                continue
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                suffix = path.suffix.lower()
+                if suffix not in {".py", ".ts", ".tsx"}:
+                    continue
+                try:
+                    n_lines = sum(1 for _ in path.open("r", encoding="utf-8", errors="ignore"))
+                except Exception:
+                    continue
+                rel = path.relative_to(PROJECT_ROOT).as_posix()
+                sized.append((n_lines, rel))
+        sized.sort(reverse=True)
+        top = sized[:12]
+        if top:
+            lines.append("Heaviest source files (lines):")
+            for n_lines, rel in top:
+                lines.append(f"  - {rel} ({n_lines} lines)")
+    except Exception:
+        pass
+
+    if not lines:
+        return ""
+    blob = "\n".join(lines)
+    if len(blob) > max_chars:
+        blob = blob[: max_chars - 3] + "..."
+    return blob
+
+
+def _generator_user_prompt(
+    prompt: str,
+    focus: str,
+    max_suggestions: int,
+    signal: str = "",
+) -> str:
+    parts = [
+        f"User improvement prompt:\n{prompt.strip()}",
+        f"Current self-learning focus: {focus}",
+    ]
+    if signal:
+        parts.append(
+            "Current codebase signal (use this to anchor concrete proposals — "
+            "prefer files/issues that appear here over generic ideas):\n" + signal
+        )
+    parts.append(
+        f"Generate 8–{max(8, max_suggestions + 2)} candidates per the schema in your system prompt. "
+        "Every candidate must name at least one file in scope_files; prefer files appearing in the "
+        "codebase signal above. If you propose a fix for a listed issue, mention the issue type in rationale."
     )
+    return "\n\n".join(parts)
 
 
 def _critic_user_prompt(candidates_json: str, max_suggestions: int) -> str:
@@ -688,12 +776,13 @@ async def _generate_self_improve_suggestions(prompt: str, max_suggestions: int) 
     suggestions = list(fallback)
     autonomous_notes: list[str] = []
 
+    signal = _build_codebase_signal()
     try:
         gen_text = await ollama_client.chat_full(
             model=model,
             messages=[
                 {"role": "system", "content": SELF_IMPROVE_GENERATOR},
-                {"role": "user", "content": _generator_user_prompt(prompt, focus, max_suggestions)},
+                {"role": "user", "content": _generator_user_prompt(prompt, focus, max_suggestions, signal)},
             ],
             temperature=0.4,
         )
@@ -736,7 +825,14 @@ async def _stream_self_improve_suggestions(
     yield {"type": "meta", "model": model, "focus": focus}
     yield {"type": "action", "stage": "ollama", "label": "Calling local model (streaming)…"}
 
-    llm_prompt = _generator_user_prompt(prompt, focus, max_suggestions)
+    signal = _build_codebase_signal()
+    if signal:
+        yield {
+            "type": "action",
+            "stage": "signal",
+            "label": f"Loaded codebase signal · {signal.count(chr(10)) + 1} lines",
+        }
+    llm_prompt = _generator_user_prompt(prompt, focus, max_suggestions, signal)
     parts: list[str] = []
     progress_mark = 0
     try:

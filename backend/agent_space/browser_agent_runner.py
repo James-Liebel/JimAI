@@ -25,12 +25,14 @@ MAX_STEPS_DEFAULT = 20
 # Legacy run_browser_agent model (unused by Atlas chat panel)
 AGENT_MODEL = "qwen2.5-coder:1.5b"
 
-# Atlas chat panel — single lightweight model, no swapping.
+# Atlas chat panel — single mid-weight model, no swapping.
 # Using one model eliminates the load/unload cycle between executor and planner,
-# which was the main source of fan spin-up.
-BROWSER_MODEL = "qwen2.5-coder:3b"
+# which was the main source of fan spin-up. 7b was chosen over 3b because the
+# 3b model frequently mis-selected element indices on dense pages (Google
+# results, login forms) — the extra reasoning headroom is worth the ~600MB.
+BROWSER_MODEL = "qwen2.5-coder:7b"
 BROWSER_NUM_GPU = 99          # push all layers to GPU — faster and far less CPU heat
-BROWSER_KEEP_ALIVE = "5m"     # stay warm between steps so there is no reload cost
+BROWSER_KEEP_ALIVE = "10m"    # longer keep-warm: Atlas sessions easily exceed 5m of think time
 BROWSER_VISION_ENABLED = False  # vision adds heavy model swaps; enable only if needed
 
 # Known service → URL lookup. Injected into the prompt so the model never guesses.
@@ -536,6 +538,12 @@ Strategy:
    the page may render it lazily — wait, then re-check.
 8. Use done when the user's goal is satisfied or definitively impossible.
 9. Use talk when the user only asked a question and no browser action is needed.
+10. After 2 consecutive no-effect FEEDBACK messages on the same target, change
+    strategy entirely: switch to a direct URL navigate, pick a different element
+    index, or scroll to expose new elements — never retry the same index a third
+    time.
+11. Prefer one decisive action per step. Do not narrate plans in `response` —
+    keep it to what the user will see ("Searching X…", "Opening Y…").
 """
 
 
@@ -751,7 +759,7 @@ async def chat_browser_step(
         f"URL: {url or '(unknown)'}\n"
         f"Title: {title or '(unknown)'}\n"
         f"{vision_block}"
-        f"Page:\n{(page_text or '(empty)').strip()[:1500]}"
+        f"Page:\n{(page_text or '(empty)').strip()[:2400]}"
     )
 
     user_prompt = (
@@ -762,8 +770,9 @@ async def chat_browser_step(
     )
 
     messages: list[dict] = [{"role": "system", "content": _BROWSER_SYSTEM}]
-    # Include last 2 agent turns for minimal but useful context
-    for turn in history[-4:]:
+    # Include last 3 agent turns — wider window helps the model see two failed
+    # attempts and the original user goal at the same time.
+    for turn in history[-6:]:
         role = str(turn.get("role", "user"))
         content = str(turn.get("content", "")).strip()
         if content and role in ("user", "agent", "assistant"):
@@ -776,11 +785,14 @@ async def chat_browser_step(
                 model=BROWSER_MODEL,
                 messages=messages,
                 temperature=0.1,
-                num_ctx=4096,       # system prompt ~700 chars + history + page context
-                num_predict=150,    # JSON action + response field (bumped from 120)
-                num_batch=512,      # higher parallelism during prefill (was 128)
+                num_ctx=6144,       # 7b w/ richer page context — 6k keeps full prompt+history+page+JSON
+                num_predict=256,    # JSON action + thought + response — 150 truncated on long labels
+                num_batch=1024,     # higher prefill parallelism on 7b
                 repeat_penalty=1.05,
                 think=False,
+                top_p=0.8,          # qwen non-thinking sampling — sharper action selection
+                top_k=20,
+                min_p=0.0,
                 num_gpu=BROWSER_NUM_GPU,
                 json_format=True,
                 keep_alive=BROWSER_KEEP_ALIVE,

@@ -31,6 +31,14 @@ def normalize_ollama_base_url(url: str) -> str:
 
 _DEFAULT_OLLAMA = "http://127.0.0.1:11434"
 OLLAMA_BASE_URL: str = normalize_ollama_base_url(os.getenv("OLLAMA_BASE_URL", _DEFAULT_OLLAMA))
+# How long Ollama should keep a model resident after its last request. Short value =
+# less VRAM held idle and the GPU cools off between roles. Pass any Ollama-accepted
+# duration string ("60s", "5m") or "0" to evict immediately. Used as the default by
+# every ollama_client call that doesn't override it.
+OLLAMA_KEEP_ALIVE_DEFAULT: str = os.getenv("OLLAMA_KEEP_ALIVE_DEFAULT", "60s")
+# Browser/Atlas agent — its loop spans many short requests with think-time gaps,
+# so it gets its own knob. Still much shorter than the previous 10m default.
+OLLAMA_BROWSER_KEEP_ALIVE: str = os.getenv("OLLAMA_BROWSER_KEEP_ALIVE", "120s")
 BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
 N8N_BASE_URL: str = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 QDRANT_BASE_URL: str = os.getenv("QDRANT_BASE_URL", "http://localhost:6333")

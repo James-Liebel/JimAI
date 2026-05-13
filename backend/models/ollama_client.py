@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 
 import httpx
 
-from config.settings import OLLAMA_BASE_URL, OLLAMA_NPU_BASE_URL
+from config.settings import OLLAMA_BASE_URL, OLLAMA_KEEP_ALIVE_DEFAULT, OLLAMA_NPU_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +149,7 @@ async def chat_stream(
     min_p: float | None = None,
     seed: int | None = None,
     json_format: bool = False,
-    keep_alive: str = "5m",
+    keep_alive: str = OLLAMA_KEEP_ALIVE_DEFAULT,
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream assistant reply using Ollama /api/chat. base_url: use NPU/second instance when set (e.g. OLLAMA_NPU_BASE_URL)."""
@@ -207,7 +207,7 @@ async def chat_full(
     min_p: float | None = None,
     seed: int | None = None,
     json_format: bool = False,
-    keep_alive: str = "5m",
+    keep_alive: str = OLLAMA_KEEP_ALIVE_DEFAULT,
     base_url: str | None = None,
 ) -> str:
     """Non-streaming: return full assistant reply from /api/chat. base_url: NPU/second instance when set."""
@@ -246,7 +246,7 @@ async def generate(
     num_predict: int | None = None,
     num_batch: int | None = None,
     repeat_penalty: float = 1.1,
-    keep_alive: str = "5m",
+    keep_alive: str = OLLAMA_KEEP_ALIVE_DEFAULT,
     base_url: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream text chunks from Ollama /api/generate. base_url: NPU/second instance when set."""
@@ -352,19 +352,24 @@ async def unload_model(model: str) -> None:
 
 
 async def unload_all_models() -> None:
-    """Unload all models to free VRAM before loading the 32B deep model."""
-    for model in [
-        "qwen3:14b",
-        "qwen2.5-coder:14b",
-        "qwen3:8b",
-        "qwen2.5vl:7b",
-        "qwen2-math:7b-instruct",
-        "qwen2.5-coder:7b",
-        "qwen2.5-coder:3b",
-        # legacy names — harmless if not loaded
-        "deepseek-r1:14b",
-        "qwen2.5:32b",
-    ]:
+    """Unload every model Ollama has resident. Used before loading the 32B deep model
+    and at shutdown so the GPU is cool when the next session starts.
+
+    Discovers what's actually loaded via /api/ps so we don't have to hardcode a stale
+    list — unloading a name Ollama doesn't know is a cheap 404, but discovery means
+    legacy models (granite3-guardian, qwen3.5, llama3.2, deepseek-r1, qwen2.5:32b)
+    still get freed if some background path loaded them.
+    """
+    loaded: list[str] = []
+    try:
+        client = await _get_client()
+        resp = await client.get("/api/ps")
+        resp.raise_for_status()
+        loaded = [m.get("name") or m.get("model") for m in resp.json().get("models", [])]
+        loaded = [n for n in loaded if n]
+    except Exception as exc:
+        logger.debug("Could not query /api/ps for loaded models: %s", exc)
+    for model in loaded:
         try:
             await unload_model(model)
         except Exception:

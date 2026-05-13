@@ -103,6 +103,128 @@ class BrowserWaitForRequest(BaseModel):
     timeout_ms: int = 30000
 
 
+class BrowserUploadRequest(BaseModel):
+    selector: str
+    paths: list[str]
+
+
+class BrowserFileChooserRequest(BaseModel):
+    trigger_selector: str
+    paths: list[str]
+    timeout_ms: int = 15000
+
+
+class BrowserDownloadRequest(BaseModel):
+    selector: str
+    save_as: str = ""
+    timeout_ms: int = 60000
+
+
+class BrowserReadDownloadRequest(BaseModel):
+    filename: str
+    max_bytes: int = 524288
+
+
+class BrowserHoverActionRequest(BaseModel):
+    selector: str = ""
+    x: float | None = None
+    y: float | None = None
+
+
+class BrowserRightClickRequest(BaseModel):
+    selector: str
+
+
+class BrowserDoubleClickRequest(BaseModel):
+    selector: str
+
+
+class BrowserDragRequest(BaseModel):
+    source: str
+    target: str
+
+
+class BrowserKeyChordRequest(BaseModel):
+    keys: list[str]
+    selector: str = ""
+
+
+class BrowserSelectTextRequest(BaseModel):
+    selector: str
+    start: int = 0
+    end: int = -1
+
+
+class BrowserClipboardCopyRequest(BaseModel):
+    selector: str = ""
+
+
+class BrowserClipboardPasteRequest(BaseModel):
+    selector: str = ""
+    text: str = ""
+
+
+class BrowserNewTabRequest(BaseModel):
+    url: str = ""
+
+
+class BrowserSwitchIframeRequest(BaseModel):
+    selector: str
+
+
+class BrowserDialogRequest(BaseModel):
+    action: str = "accept"
+    prompt_text: str = ""
+
+
+class BrowserFindInPageRequest(BaseModel):
+    query: str
+    case_sensitive: bool = False
+
+
+class BrowserSavePdfRequest(BaseModel):
+    filename: str = "page.pdf"
+
+
+class BrowserZoomRequest(BaseModel):
+    factor: float = 1.0
+
+
+class BrowserCookiesQueryRequest(BaseModel):
+    urls: list[str] | None = None
+
+
+class BrowserSetCookieRequest(BaseModel):
+    name: str
+    value: str
+    url: str = ""
+    domain: str = ""
+    path: str = "/"
+
+
+class BrowserGeolocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy: float = 50.0
+
+
+class BrowserWheelRequest(BaseModel):
+    dx: float = 0.0
+    dy: float = 400.0
+    x: float | None = None
+    y: float | None = None
+
+
+class BrowserTouchTapRequest(BaseModel):
+    x: float
+    y: float
+
+
+class BrowserWaitForUrlRequest(BaseModel):
+    pattern: str
+    timeout_ms: int = 30000
+
+
 class AtlasChatRequest(BaseModel):
     message: str
     url: str = ""
@@ -275,6 +397,152 @@ def register_browser_routes(
     @router.get("/browser/sessions/{session_id}/interactive")
     async def browser_interactive(session_id: str, limit: int = Query(default=80, ge=1, le=200)) -> dict[str, Any]:
         return await browser_manager.list_interactive(session_id, limit=limit)
+
+    @router.post("/browser/sessions/{session_id}/upload")
+    async def browser_upload(session_id: str, req: BrowserUploadRequest) -> dict[str, Any]:
+        return await browser_manager.upload_file(
+            session_id,
+            selector=req.selector,
+            paths=req.paths,
+        )
+
+    @router.post("/browser/sessions/{session_id}/file-chooser")
+    async def browser_file_chooser(session_id: str, req: BrowserFileChooserRequest) -> dict[str, Any]:
+        return await browser_manager.accept_next_file_chooser(
+            session_id,
+            trigger_selector=req.trigger_selector,
+            paths=req.paths,
+            timeout_ms=req.timeout_ms,
+        )
+
+    @router.post("/browser/sessions/{session_id}/download")
+    async def browser_download(session_id: str, req: BrowserDownloadRequest) -> dict[str, Any]:
+        return await browser_manager.download_via_click(
+            session_id,
+            selector=req.selector,
+            save_as=req.save_as,
+            timeout_ms=req.timeout_ms,
+        )
+
+    @router.get("/browser/sessions/{session_id}/downloads")
+    async def browser_list_downloads(session_id: str) -> dict[str, Any]:
+        return await browser_manager.list_downloads(session_id)
+
+    @router.post("/browser/sessions/{session_id}/downloads/read")
+    async def browser_read_download(session_id: str, req: BrowserReadDownloadRequest) -> dict[str, Any]:
+        return await browser_manager.read_download(
+            session_id,
+            filename=req.filename,
+            max_bytes=req.max_bytes,
+        )
+
+    @router.post("/browser/sessions/{session_id}/hover-action")
+    async def browser_hover_action(session_id: str, req: BrowserHoverActionRequest) -> dict[str, Any]:
+        return await browser_manager.hover(session_id, selector=req.selector, x=req.x, y=req.y)
+
+    @router.post("/browser/sessions/{session_id}/right-click")
+    async def browser_right_click(session_id: str, req: BrowserRightClickRequest) -> dict[str, Any]:
+        return await browser_manager.right_click(session_id, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/double-click")
+    async def browser_double_click(session_id: str, req: BrowserDoubleClickRequest) -> dict[str, Any]:
+        return await browser_manager.double_click(session_id, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/drag")
+    async def browser_drag(session_id: str, req: BrowserDragRequest) -> dict[str, Any]:
+        return await browser_manager.drag_and_drop(session_id, source=req.source, target=req.target)
+
+    @router.post("/browser/sessions/{session_id}/key-chord")
+    async def browser_key_chord(session_id: str, req: BrowserKeyChordRequest) -> dict[str, Any]:
+        return await browser_manager.key_chord(session_id, keys=req.keys, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/select-text")
+    async def browser_select_text(session_id: str, req: BrowserSelectTextRequest) -> dict[str, Any]:
+        return await browser_manager.select_text(session_id, selector=req.selector, start=req.start, end=req.end)
+
+    @router.post("/browser/sessions/{session_id}/clipboard/copy")
+    async def browser_clipboard_copy(session_id: str, req: BrowserClipboardCopyRequest) -> dict[str, Any]:
+        return await browser_manager.clipboard_copy(session_id, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/clipboard/paste")
+    async def browser_clipboard_paste(session_id: str, req: BrowserClipboardPasteRequest) -> dict[str, Any]:
+        return await browser_manager.clipboard_paste(session_id, selector=req.selector, text=req.text)
+
+    @router.post("/browser/sessions/{session_id}/history/back")
+    async def browser_go_back(session_id: str) -> dict[str, Any]:
+        return await browser_manager.go_back(session_id)
+
+    @router.post("/browser/sessions/{session_id}/history/forward")
+    async def browser_go_forward(session_id: str) -> dict[str, Any]:
+        return await browser_manager.go_forward(session_id)
+
+    @router.post("/browser/sessions/{session_id}/reload")
+    async def browser_reload(session_id: str) -> dict[str, Any]:
+        return await browser_manager.reload(session_id)
+
+    @router.post("/browser/sessions/{session_id}/new-tab")
+    async def browser_new_tab(session_id: str, req: BrowserNewTabRequest) -> dict[str, Any]:
+        return await browser_manager.new_tab(session_id, url=req.url)
+
+    @router.post("/browser/sessions/{session_id}/iframe/enter")
+    async def browser_iframe_enter(session_id: str, req: BrowserSwitchIframeRequest) -> dict[str, Any]:
+        return await browser_manager.switch_to_iframe(session_id, selector=req.selector)
+
+    @router.post("/browser/sessions/{session_id}/iframe/leave")
+    async def browser_iframe_leave(session_id: str) -> dict[str, Any]:
+        return await browser_manager.switch_to_top(session_id)
+
+    @router.post("/browser/sessions/{session_id}/dialog")
+    async def browser_handle_dialog(session_id: str, req: BrowserDialogRequest) -> dict[str, Any]:
+        return await browser_manager.handle_next_dialog(session_id, action=req.action, prompt_text=req.prompt_text)
+
+    @router.post("/browser/sessions/{session_id}/find")
+    async def browser_find_in_page(session_id: str, req: BrowserFindInPageRequest) -> dict[str, Any]:
+        return await browser_manager.find_in_page(session_id, query=req.query, case_sensitive=req.case_sensitive)
+
+    @router.post("/browser/sessions/{session_id}/save-pdf")
+    async def browser_save_pdf(session_id: str, req: BrowserSavePdfRequest) -> dict[str, Any]:
+        return await browser_manager.save_as_pdf(session_id, filename=req.filename)
+
+    @router.post("/browser/sessions/{session_id}/zoom")
+    async def browser_set_zoom(session_id: str, req: BrowserZoomRequest) -> dict[str, Any]:
+        return await browser_manager.set_zoom(session_id, factor=req.factor)
+
+    @router.post("/browser/sessions/{session_id}/cookies/query")
+    async def browser_cookies_query(session_id: str, req: BrowserCookiesQueryRequest) -> dict[str, Any]:
+        return await browser_manager.get_cookies(session_id, urls=req.urls)
+
+    @router.post("/browser/sessions/{session_id}/cookies/set")
+    async def browser_cookies_set(session_id: str, req: BrowserSetCookieRequest) -> dict[str, Any]:
+        return await browser_manager.set_cookie(
+            session_id, name=req.name, value=req.value, url=req.url, domain=req.domain, path=req.path,
+        )
+
+    @router.post("/browser/sessions/{session_id}/cookies/clear")
+    async def browser_cookies_clear(session_id: str) -> dict[str, Any]:
+        return await browser_manager.clear_cookies(session_id)
+
+    @router.post("/browser/sessions/{session_id}/geolocation")
+    async def browser_set_geolocation(session_id: str, req: BrowserGeolocationRequest) -> dict[str, Any]:
+        return await browser_manager.set_geolocation(
+            session_id, latitude=req.latitude, longitude=req.longitude, accuracy=req.accuracy,
+        )
+
+    @router.get("/browser/sessions/{session_id}/source")
+    async def browser_view_source(session_id: str) -> dict[str, Any]:
+        return await browser_manager.view_source(session_id)
+
+    @router.post("/browser/sessions/{session_id}/wheel")
+    async def browser_wheel(session_id: str, req: BrowserWheelRequest) -> dict[str, Any]:
+        return await browser_manager.mouse_wheel(session_id, dx=req.dx, dy=req.dy, x=req.x, y=req.y)
+
+    @router.post("/browser/sessions/{session_id}/touch-tap")
+    async def browser_touch_tap(session_id: str, req: BrowserTouchTapRequest) -> dict[str, Any]:
+        return await browser_manager.touch_tap(session_id, x=req.x, y=req.y)
+
+    @router.post("/browser/sessions/{session_id}/wait-for-url")
+    async def browser_wait_for_url(session_id: str, req: BrowserWaitForUrlRequest) -> dict[str, Any]:
+        return await browser_manager.wait_for_url(session_id, pattern=req.pattern, timeout_ms=req.timeout_ms)
 
     @router.post("/browser/sessions/{session_id}/close")
     async def browser_close(session_id: str) -> dict[str, Any]:

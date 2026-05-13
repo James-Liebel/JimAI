@@ -3,7 +3,7 @@ const http = require('http');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, Menu, shell, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, session, ipcMain, webContents } = require('electron');
 
 // 127.0.0.1 avoids Windows resolving "localhost" to ::1 while Vite is IPv4-only.
 const DEFAULT_UI_URL = process.env.AGENTSPACE_UI_URL || 'http://127.0.0.1:5173';
@@ -119,6 +119,7 @@ function configureAtlasSession() {
     } catch (err) {
         console.error('[atlas] failed to configure session:', err);
     }
+    try { configureAtlasDownloads(); } catch (err) { console.error('[atlas] download routing setup failed:', err); }
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -449,6 +450,181 @@ async function loadUi(window, { ignoreCache = false } = {}) {
     }
 }
 
+// ----- Atlas bridge: file uploads + download tracking ----------------------
+//
+// The renderer cannot construct File objects from arbitrary disk paths (web
+// security), so it asks main to do it on its behalf. We use Chrome DevTools
+// Protocol against the webview's WebContents — that lets us drop files onto
+// any <input type=file> regardless of how the page surfaces it.
+
+const ATLAS_DOWNLOAD_DIR = path.join(REPO_ROOT, 'data', 'agent_space', 'atlas_downloads', 'electron');
+try { fs.mkdirSync(ATLAS_DOWNLOAD_DIR, { recursive: true }); } catch (_) {}
+
+function configureAtlasDownloads() {
+    if (!atlasSessionRef) return;
+    atlasSessionRef.on('will-download', (_event, item) => {
+        try {
+            const suggested = item.getFilename() || 'download.bin';
+            let target = path.join(ATLAS_DOWNLOAD_DIR, suggested);
+            // Avoid clobber: append -N before the extension if the target exists.
+            if (fs.existsSync(target)) {
+                const ext = path.extname(suggested);
+                const stem = path.basename(suggested, ext);
+                for (let i = 1; i < 1000; i++) {
+                    const candidate = path.join(ATLAS_DOWNLOAD_DIR, `${stem}-${i}${ext}`);
+                    if (!fs.existsSync(candidate)) { target = candidate; break; }
+                }
+            }
+            item.setSavePath(target);
+        } catch (err) {
+            console.error('[atlas] download routing failed:', err);
+        }
+    });
+}
+
+async function uploadFilesToWebview({ webContentsId, selector, paths: filePaths }) {
+    const wc = webContents.fromId(Number(webContentsId));
+    if (!wc) throw new Error(`No webContents for id ${webContentsId}`);
+    const cleanPaths = (filePaths || []).map(String).filter(Boolean);
+    if (cleanPaths.length === 0) throw new Error('paths is empty');
+    for (const p of cleanPaths) {
+        if (!fs.existsSync(p)) throw new Error(`File not found: ${p}`);
+    }
+    const wasAttached = wc.debugger.isAttached();
+    if (!wasAttached) {
+        wc.debugger.attach('1.3');
+    }
+    try {
+        // Resolve the DOM node ID for the target selector.
+        const { root } = await wc.debugger.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+        const { nodeId } = await wc.debugger.sendCommand('DOM.querySelector', {
+            nodeId: root.nodeId,
+            selector,
+        });
+        if (!nodeId) throw new Error(`Selector did not match any node: ${selector}`);
+        await wc.debugger.sendCommand('DOM.setFileInputFiles', { nodeId, files: cleanPaths });
+        return { ok: true, files: cleanPaths };
+    } finally {
+        if (!wasAttached) {
+            try { wc.debugger.detach(); } catch (_) {}
+        }
+    }
+}
+
+function listAtlasDownloads() {
+    try {
+        const entries = fs.readdirSync(ATLAS_DOWNLOAD_DIR, { withFileTypes: true });
+        return entries
+            .filter((e) => e.isFile())
+            .map((e) => {
+                const full = path.join(ATLAS_DOWNLOAD_DIR, e.name);
+                let size = 0;
+                try { size = fs.statSync(full).size; } catch (_) {}
+                return { filename: e.name, path: full, size_bytes: size };
+            });
+    } catch (_) {
+        return [];
+    }
+}
+
+function readAtlasDownload({ filename, maxBytes }) {
+    const safe = path.basename(String(filename || ''));
+    if (!safe) throw new Error('filename is required');
+    const target = path.resolve(ATLAS_DOWNLOAD_DIR, safe);
+    // Defense in depth — ensure the resolved path stays in the sandbox.
+    if (!target.startsWith(path.resolve(ATLAS_DOWNLOAD_DIR))) {
+        throw new Error('filename escapes sandbox');
+    }
+    if (!fs.existsSync(target)) throw new Error(`No such download: ${safe}`);
+    const cap = Math.max(1024, Math.min(Number(maxBytes) || 524288, 4 * 1024 * 1024));
+    const buf = fs.readFileSync(target);
+    const truncated = buf.length > cap;
+    const payload = truncated ? buf.subarray(0, cap) : buf;
+    return {
+        filename: safe,
+        path: target,
+        size_bytes: buf.length,
+        truncated,
+        content_base64: payload.toString('base64'),
+    };
+}
+
+async function saveWebviewAsPdf({ webContentsId, filename }) {
+    const wc = webContents.fromId(Number(webContentsId));
+    if (!wc) throw new Error(`No webContents for id ${webContentsId}`);
+    const safe = path.basename(String(filename || 'page.pdf')) || 'page.pdf';
+    const named = safe.toLowerCase().endsWith('.pdf') ? safe : `${safe}.pdf`;
+    let target = path.join(ATLAS_DOWNLOAD_DIR, named);
+    if (fs.existsSync(target)) {
+        const ext = path.extname(named);
+        const stem = path.basename(named, ext);
+        for (let i = 1; i < 1000; i++) {
+            const candidate = path.join(ATLAS_DOWNLOAD_DIR, `${stem}-${i}${ext}`);
+            if (!fs.existsSync(candidate)) { target = candidate; break; }
+        }
+    }
+    const pdfData = await wc.printToPDF({ printBackground: true });
+    fs.writeFileSync(target, pdfData);
+    return { ok: true, path: target, filename: path.basename(target), size_bytes: pdfData.length };
+}
+
+// CDP-driven element indexer — returns indexed interactive nodes including
+// elements buried inside CLOSED shadow roots. Renderer JS cannot reach those,
+// only the debugger protocol can. Each entry is annotated with a stable backend
+// node ID that the executor can resolve back to a CDP click/type.
+async function cdpIndexInteractive({ webContentsId }) {
+    const wc = webContents.fromId(Number(webContentsId));
+    if (!wc) throw new Error(`No webContents for id ${webContentsId}`);
+    const wasAttached = wc.debugger.isAttached();
+    if (!wasAttached) wc.debugger.attach('1.3');
+    try {
+        // Pierce: true walks into both open and closed shadow roots and into
+        // iframes whose process is in the same target.
+        const { root } = await wc.debugger.sendCommand('DOM.getDocument', { depth: -1, pierce: true });
+        const interactiveTags = new Set(['a', 'button', 'input', 'select', 'textarea']);
+        const out = [];
+        function walk(node) {
+            if (!node || out.length >= 60) return;
+            const name = (node.localName || '').toLowerCase();
+            const attrs = {};
+            for (let i = 0; node.attributes && i < node.attributes.length; i += 2) {
+                attrs[node.attributes[i]] = node.attributes[i + 1];
+            }
+            const role = (attrs.role || '').toLowerCase();
+            const isInteractive = interactiveTags.has(name)
+                || ['button', 'link', 'tab', 'menuitem', 'option', 'checkbox', 'radio'].includes(role)
+                || attrs['contenteditable'] === 'true';
+            if (isInteractive) {
+                out.push({
+                    backendNodeId: node.backendNodeId,
+                    tag: name,
+                    type: (attrs.type || '').toLowerCase(),
+                    role,
+                    label: (attrs['aria-label'] || attrs.placeholder || attrs.name || attrs.value || '').slice(0, 80),
+                    href: attrs.href || '',
+                });
+            }
+            for (const child of node.children || []) walk(child);
+            // shadowRoots is what makes closed-shadow visible to us.
+            for (const sr of node.shadowRoots || []) walk(sr);
+            // contentDocument is what makes iframes visible.
+            if (node.contentDocument) walk(node.contentDocument);
+        }
+        walk(root);
+        return { ok: true, elements: out };
+    } finally {
+        if (!wasAttached) {
+            try { wc.debugger.detach(); } catch (_) {}
+        }
+    }
+}
+
+ipcMain.handle('atlas:upload-to-webview', async (_event, args) => uploadFilesToWebview(args));
+ipcMain.handle('atlas:list-downloads', () => listAtlasDownloads());
+ipcMain.handle('atlas:read-download', (_event, args) => readAtlasDownload(args));
+ipcMain.handle('atlas:save-webview-pdf', async (_event, args) => saveWebviewAsPdf(args));
+ipcMain.handle('atlas:cdp-index', async (_event, args) => cdpIndexInteractive(args));
+
 function createWindow() {
     if (mainWindow && !mainWindow.isDestroyed()) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -476,6 +652,9 @@ function createWindow() {
             allowRunningInsecureContent: false,
             // Required for <webview> tag used by Atlas browser tab.
             webviewTag: true,
+            // Preload exposes window.jimaiBridge — used by Atlas for file uploads
+            // and download listing into the embedded webview via CDP.
+            preload: path.join(__dirname, 'preload.cjs'),
         },
     });
     mainWindow = window;

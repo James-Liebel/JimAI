@@ -16,21 +16,33 @@ foreach ($port in @(11434, 8000, 5173)) {
 }
 Start-Sleep 1
 
-# Ollama performance env vars — must be set before ollama serve starts
-$env:OLLAMA_FLASH_ATTENTION   = "1"    # Flash Attention 2: faster long-context inference
-$env:OLLAMA_KV_CACHE_TYPE     = "q8_0" # Quantize KV cache: frees VRAM, more layers on GPU
-$env:OLLAMA_NUM_PARALLEL      = "1"    # Single-user: no VRAM thrashing from concurrent requests
-$env:OLLAMA_MAX_LOADED_MODELS = "1"    # Never silently split a model across GPU/CPU
-$env:OLLAMA_KEEP_ALIVE        = "5m"   # Unload model after 5 min idle so GPU cools down
+# Ollama performance env vars — must be set before ollama serve starts.
+# These are also exported to backend processes via the FastAPI app so the Python
+# default keep_alive (in config/settings.py) lines up with what Ollama enforces.
+$env:OLLAMA_FLASH_ATTENTION   = "1"     # Flash Attention 2: faster long-context inference
+$env:OLLAMA_KV_CACHE_TYPE     = "q8_0"  # Quantize KV cache: frees VRAM, more layers on GPU
+$env:OLLAMA_NUM_PARALLEL      = "1"     # Single-user: no VRAM thrashing from concurrent requests
+$env:OLLAMA_MAX_LOADED_MODELS = "1"     # One model in VRAM at a time — GPU stays cool
+$env:OLLAMA_KEEP_ALIVE        = "60s"   # Idle eviction window — drops VRAM hold sooner
+$env:OLLAMA_KEEP_ALIVE_DEFAULT = "60s"  # Mirror for the backend Python client
+$env:OLLAMA_BROWSER_KEEP_ALIVE = "120s" # Atlas/browser agent — slightly longer for think-time
 
-# Check Ollama
+# Ollama runs as a Windows tray app for many users — its env was captured at
+# tray-launch time and won't include the values we just set. Kill any existing
+# instance (including the tray service) before starting a fresh `ollama serve`
+# so OLLAMA_MAX_LOADED_MODELS=1 actually applies. Without this, the user can
+# end up with multiple big models resident and a hot GPU.
+Get-Process -Name "ollama", "ollama app", "ollama_llama_server" -ErrorAction SilentlyContinue |
+    Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep 1
+Write-Host "Starting Ollama with single-model VRAM limit..." -ForegroundColor Yellow
+Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
+Start-Sleep 3
 try {
     Invoke-RestMethod -Uri "http://localhost:11434/api/tags" | Out-Null
-    Write-Host "Ollama: Running" -ForegroundColor Green
+    Write-Host "Ollama: Running (OLLAMA_MAX_LOADED_MODELS=1, KEEP_ALIVE=60s)" -ForegroundColor Green
 } catch {
-    Write-Host "Ollama not running. Starting..." -ForegroundColor Yellow
-    Start-Process "ollama" -ArgumentList "serve" -WindowStyle Hidden
-    Start-Sleep 3
+    Write-Host "Ollama failed to start — check 'ollama serve' manually" -ForegroundColor Red
 }
 
 # ── Model verification ─────────────────────────────────────────────

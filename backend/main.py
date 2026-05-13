@@ -115,6 +115,13 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Free VRAM/RAM on shutdown — without this the GPU keeps holding whichever
+        # model was last used for OLLAMA_KEEP_ALIVE_DEFAULT, even though no client
+        # is connected. Best-effort; failures are non-fatal.
+        try:
+            await ollama_client.unload_all_models()
+        except Exception as exc:
+            logger.debug("unload_all_models on shutdown skipped: %s", exc)
         if not agent_space_bg.done():
             try:
                 await agent_space_bg

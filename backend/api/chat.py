@@ -1236,10 +1236,14 @@ async def _stream_chat(
             max_history_turns=chat_context.CHAT_MAX_HISTORY_MESSAGES,
             max_total_chars=chat_context.CHAT_MAX_HISTORY_CHARS,
         )
-        # Run model A (GPU) and B (NPU if OLLAMA_NPU_BASE_URL set, else GPU)
+        # Run model A (GPU) and B (NPU if OLLAMA_NPU_BASE_URL set, else GPU).
+        # If both run on the same Ollama instance, evict A before B so we don't
+        # rely on Ollama's max-loaded-models eviction (which is opportunistic).
         response_a = await ollama_client.chat_full(
             cfg_a.model, chat_messages_compare, temperature=cfg_a.temperature
         )
+        if not OLLAMA_NPU_BASE_URL and cfg_a.model != cfg_b.model:
+            await ollama_client.unload_model(cfg_a.model)
         response_b = await ollama_client.chat_full(
             cfg_b.model, chat_messages_compare, temperature=cfg_b.temperature,
             base_url=OLLAMA_NPU_BASE_URL,

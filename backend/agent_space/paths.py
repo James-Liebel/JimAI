@@ -49,6 +49,9 @@ SKILLS_DIR = DATA_ROOT / "skills"
 SECURE_DIR = DATA_ROOT / "secure"
 GENERATED_DIR = DATA_ROOT / "generated"
 SELF_IMPROVEMENT_DIR = DATA_ROOT / "self_improvement"
+# Atlas downloads are scoped per browser session so the agent can list/read
+# only what the current task produced — and a session close can prune them.
+ATLAS_DOWNLOADS_DIR = DATA_ROOT / "atlas_downloads"
 
 
 def ensure_layout() -> None:
@@ -69,5 +72,6 @@ def ensure_layout() -> None:
         SECURE_DIR,
         GENERATED_DIR,
         SELF_IMPROVEMENT_DIR,
+        ATLAS_DOWNLOADS_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)

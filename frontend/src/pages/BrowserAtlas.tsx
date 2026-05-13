@@ -104,6 +104,16 @@ function actionSignature(action: string, params: Record<string, unknown> | null 
     if (a === 'type_and_submit') return `type_and_submit:${String(get('selector') || '').trim()}`;
     if (a === 'press_key') return `press_key:${String(get('key') || '').trim()}`;
     if (a === 'scroll') return `scroll:${get('dy') ?? ''}`;
+    if (a === 'hover_index' || a === 'rightclick_index' || a === 'doubleclick_index'
+        || a === 'upload_index' || a === 'download_index'
+        || a === 'select_text_index' || a === 'enter_iframe') {
+        return `${a}:${get('index') ?? ''}`;
+    }
+    if (a === 'drag_index') return `drag_index:${get('from_index') ?? ''}->${get('to_index') ?? ''}`;
+    if (a === 'press_chord') {
+        const keys = Array.isArray(get('keys')) ? (get('keys') as unknown[]).map(String) : [];
+        return `press_chord:${keys.join('+')}`;
+    }
     return a || 'unknown';
 }
 
@@ -509,12 +519,33 @@ export default function BrowserAtlas() {
                         marked.forEach(el => el.removeAttribute('data-jimai-id'));
                     }
 
+                    // Walk into open shadow roots so web-component apps (LitElement,
+                    // Stencil, Salesforce LWC, etc.) become reachable. We can't see
+                    // closed shadow roots — that's a deliberate web-platform limit.
+                    function walkAllRoots(root, sink) {
+                        let nodes;
+                        try { nodes = root.querySelectorAll('*'); } catch (e) { return; }
+                        for (const el of nodes) {
+                            if (el.shadowRoot && el.shadowRoot.mode === 'open') {
+                                sink.push(el.shadowRoot);
+                                walkAllRoots(el.shadowRoot, sink);
+                            }
+                        }
+                    }
+
                     function collect(doc, frame) {
                         const W = (frame && frame.clientWidth) || window.innerWidth;
                         const H = (frame && frame.clientHeight) || window.innerHeight;
                         const out = [];
-                        let nodes;
-                        try { nodes = doc.querySelectorAll(SELECTOR); } catch (e) { return out; }
+                        const roots = [doc];
+                        try { walkAllRoots(doc, roots); } catch (e) {}
+                        let nodes = [];
+                        try {
+                            for (const root of roots) {
+                                const found = root.querySelectorAll ? root.querySelectorAll(SELECTOR) : [];
+                                for (const n of found) nodes.push(n);
+                            }
+                        } catch (e) { return out; }
                         for (const el of nodes) {
                             let r;
                             try { r = el.getBoundingClientRect(); } catch (e) { continue; }
@@ -986,10 +1017,517 @@ export default function BrowserAtlas() {
                 await new Promise((r) => setTimeout(r, 600));
                 break;
             }
+
+            case 'hover_index': {
+                const idx = Number(params.index ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                const point = await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return null;
+                        el.scrollIntoView({behavior:'instant', block:'center'});
+                        const r = el.getBoundingClientRect();
+                        ['pointerover','mouseover','pointerenter','mouseenter','pointermove','mousemove'].forEach(t =>
+                            el.dispatchEvent(new (t.startsWith('pointer') ? PointerEvent : MouseEvent)(t, { bubbles: true, cancelable: true, view: window }))
+                        );
+                        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+                    })()
+                `).catch(() => null) as { x: number; y: number } | null;
+                if (point && point.x > 0 && point.y > 0) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 60));
+                    wv.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+                }
+                // Hover-triggered tooltips/menus often render ~200-400ms later.
+                await new Promise((r) => setTimeout(r, 400));
+                break;
+            }
+
+            case 'rightclick_index': {
+                const idx = Number(params.index ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                const point = await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return null;
+                        el.scrollIntoView({behavior:'instant', block:'center'});
+                        const r = el.getBoundingClientRect();
+                        // JS-side contextmenu event for SPA listeners.
+                        el.dispatchEvent(new MouseEvent('contextmenu', {
+                            bubbles: true, cancelable: true, view: window, button: 2,
+                            clientX: Math.round(r.left + r.width/2), clientY: Math.round(r.top + r.height/2),
+                        }));
+                        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+                    })()
+                `).catch(() => null) as { x: number; y: number } | null;
+                if (point && point.x > 0 && point.y > 0) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 60));
+                    wv.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'right', clickCount: 1 });
+                    wv.sendInputEvent({ type: 'mouseUp',   x: point.x, y: point.y, button: 'right', clickCount: 1 });
+                }
+                await new Promise((r) => setTimeout(r, 400));
+                break;
+            }
+
+            case 'doubleclick_index': {
+                const idx = Number(params.index ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                const point = await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return null;
+                        el.scrollIntoView({behavior:'instant', block:'center'});
+                        const r = el.getBoundingClientRect();
+                        return { x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2) };
+                    })()
+                `).catch(() => null) as { x: number; y: number } | null;
+                if (point && point.x > 0 && point.y > 0) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 60));
+                    wv.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 2 });
+                    wv.sendInputEvent({ type: 'mouseUp',   x: point.x, y: point.y, button: 'left', clickCount: 2 });
+                }
+                await new Promise((r) => setTimeout(r, 400));
+                break;
+            }
+
+            case 'drag_index': {
+                const from = Number(params.from_index ?? -1);
+                const to   = Number(params.to_index ?? -1);
+                if (!Number.isFinite(from) || from < 0 || !Number.isFinite(to) || to < 0) break;
+                const fromSel = `[data-jimai-id="${from}"]`;
+                const toSel   = `[data-jimai-id="${to}"]`;
+                const points = await wv.executeJavaScript(`
+                    (function(){
+                        const a = document.querySelector(${JSON.stringify(fromSel)});
+                        const b = document.querySelector(${JSON.stringify(toSel)});
+                        if (!a || !b) return null;
+                        a.scrollIntoView({behavior:'instant', block:'center'});
+                        const ra = a.getBoundingClientRect();
+                        const rb = b.getBoundingClientRect();
+                        return {
+                            ax: Math.round(ra.left + ra.width/2), ay: Math.round(ra.top + ra.height/2),
+                            bx: Math.round(rb.left + rb.width/2), by: Math.round(rb.top + rb.height/2),
+                        };
+                    })()
+                `).catch(() => null) as { ax: number; ay: number; bx: number; by: number } | null;
+                if (points) {
+                    wv.focus();
+                    await new Promise((r) => setTimeout(r, 60));
+                    wv.sendInputEvent({ type: 'mouseDown', x: points.ax, y: points.ay, button: 'left', clickCount: 1 });
+                    // Stepped mouseMove — many drag-drop libs require multiple intermediate events.
+                    const steps = 12;
+                    for (let i = 1; i <= steps; i++) {
+                        const x = Math.round(points.ax + (points.bx - points.ax) * (i / steps));
+                        const y = Math.round(points.ay + (points.by - points.ay) * (i / steps));
+                        wv.sendInputEvent({ type: 'mouseMove', x, y });
+                        await new Promise((r) => setTimeout(r, 25));
+                    }
+                    wv.sendInputEvent({ type: 'mouseUp', x: points.bx, y: points.by, button: 'left', clickCount: 1 });
+                }
+                await new Promise((r) => setTimeout(r, 500));
+                break;
+            }
+
+            case 'press_chord': {
+                const rawKeys = Array.isArray(params.keys) ? (params.keys as unknown[]).map(String) : [];
+                if (rawKeys.length === 0) break;
+                const norm = (k: string) => {
+                    const low = k.trim().toLowerCase();
+                    if (low === 'ctrl' || low === 'control') return 'Control';
+                    if (low === 'shift') return 'Shift';
+                    if (low === 'alt' || low === 'option') return 'Alt';
+                    if (low === 'meta' || low === 'cmd' || low === 'command' || low === 'super') return 'Meta';
+                    return k;
+                };
+                const keys = rawKeys.map(norm);
+                const modifiers: string[] = [];
+                let finalKey = '';
+                for (const k of keys) {
+                    if (['Control','Shift','Alt','Meta'].includes(k)) modifiers.push(k);
+                    else finalKey = k;
+                }
+                if (!finalKey) finalKey = modifiers.pop() || '';
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 50));
+                // Hold modifiers down via Electron sendInputEvent.
+                for (const m of modifiers) wv.sendInputEvent({ type: 'keyDown', keyCode: m });
+                wv.sendInputEvent({ type: 'keyDown', keyCode: finalKey, modifiers: modifiers.map(m => m.toLowerCase()) as ('control'|'shift'|'alt'|'meta')[] });
+                wv.sendInputEvent({ type: 'keyUp',   keyCode: finalKey, modifiers: modifiers.map(m => m.toLowerCase()) as ('control'|'shift'|'alt'|'meta')[] });
+                for (const m of [...modifiers].reverse()) wv.sendInputEvent({ type: 'keyUp', keyCode: m });
+                await new Promise((r) => setTimeout(r, 300));
+                break;
+            }
+
+            case 'select_text_index': {
+                const idx = Number(params.index ?? -1);
+                const start = Number(params.start ?? 0);
+                const end = Number(params.end ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                const sel = `[data-jimai-id="${idx}"]`;
+                await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (!el) return false;
+                        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                            el.focus();
+                            const len = (el.value || '').length;
+                            el.setSelectionRange(${Number.isFinite(start) ? start : 0}, ${end < 0 ? 'len' : end});
+                            return true;
+                        }
+                        const range = document.createRange();
+                        const tn = el.firstChild;
+                        if (!tn) return false;
+                        const len = (tn.textContent || '').length;
+                        const s = Math.min(${Number.isFinite(start) ? start : 0}, len);
+                        const e = ${end < 0 ? 'len' : `Math.min(${end}, len)`};
+                        range.setStart(tn, s);
+                        range.setEnd(tn, e);
+                        const w = window.getSelection();
+                        w.removeAllRanges();
+                        w.addRange(range);
+                        return true;
+                    })()
+                `).catch(() => {});
+                break;
+            }
+
+            case 'copy': {
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 40));
+                wv.sendInputEvent({ type: 'keyDown', keyCode: 'c', modifiers: ['control'] });
+                wv.sendInputEvent({ type: 'keyUp',   keyCode: 'c', modifiers: ['control'] });
+                await new Promise((r) => setTimeout(r, 150));
+                break;
+            }
+
+            case 'cut': {
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 40));
+                wv.sendInputEvent({ type: 'keyDown', keyCode: 'x', modifiers: ['control'] });
+                wv.sendInputEvent({ type: 'keyUp',   keyCode: 'x', modifiers: ['control'] });
+                await new Promise((r) => setTimeout(r, 150));
+                break;
+            }
+
+            case 'paste': {
+                const text = String(params.text ?? '');
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 40));
+                if (text) {
+                    // Direct insert — bypasses system clipboard so cross-platform/sandbox issues don't bite.
+                    await wv.executeJavaScript(`
+                        (function(){
+                            const el = document.activeElement;
+                            if (!el) return false;
+                            const t = ${JSON.stringify(text)};
+                            if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+                                const s = el.selectionStart ?? el.value.length;
+                                const e = el.selectionEnd ?? el.value.length;
+                                const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                                const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                                const newVal = el.value.slice(0, s) + t + el.value.slice(e);
+                                if (desc && desc.set) desc.set.call(el, newVal); else el.value = newVal;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                            } else if (el.isContentEditable) {
+                                document.execCommand('insertText', false, t);
+                            }
+                            return true;
+                        })()
+                    `).catch(() => {});
+                } else {
+                    wv.sendInputEvent({ type: 'keyDown', keyCode: 'v', modifiers: ['control'] });
+                    wv.sendInputEvent({ type: 'keyUp',   keyCode: 'v', modifiers: ['control'] });
+                }
+                await new Promise((r) => setTimeout(r, 200));
+                break;
+            }
+
+            case 'go_back': {
+                try { (wv as unknown as { goBack: () => void }).goBack(); } catch {}
+                await waitForLoad(wv, 4000);
+                break;
+            }
+            case 'go_forward': {
+                try { (wv as unknown as { goForward: () => void }).goForward(); } catch {}
+                await waitForLoad(wv, 4000);
+                break;
+            }
+            case 'reload': {
+                try { (wv as unknown as { reload: () => void }).reload(); } catch {}
+                await waitForLoad(wv, 5000);
+                break;
+            }
+
+            case 'enter_iframe': {
+                // The webview executor resolves elements via document.querySelector,
+                // so iframe scoping is handled at the indexer level. We just record
+                // the iframe id so the next getPageState only indexes inside it.
+                const idx = Number(params.index ?? -1);
+                if (Number.isFinite(idx) && idx >= 0) {
+                    await wv.executeJavaScript(`
+                        (function(){
+                            const el = document.querySelector('[data-jimai-id="${idx}"]');
+                            if (el && el.tagName === 'IFRAME') {
+                                window.__jimaiIframeScope = el;
+                                return true;
+                            }
+                            return false;
+                        })()
+                    `).catch(() => {});
+                }
+                break;
+            }
+            case 'leave_iframe': {
+                await wv.executeJavaScript(`window.__jimaiIframeScope = null; true;`).catch(() => {});
+                break;
+            }
+
+            case 'upload_index': {
+                const idx = Number(params.index ?? -1);
+                const rawPaths = Array.isArray(params.paths) ? (params.paths as unknown[]).map(String) : [];
+                if (!Number.isFinite(idx) || idx < 0 || rawPaths.length === 0) break;
+                // Bridge to main process via window.jimaiBridge (preload). Main reads
+                // the files and sets them on the webview's <input type=file> via the
+                // Chrome DevTools Protocol (Page.setInterceptFileChooserDialog +
+                // DOM.setFileInputFiles). If the preload bridge isn't loaded, we
+                // surface a useful error rather than silently failing.
+                const bridge = (window as unknown as { jimaiBridge?: { uploadToWebview: (id: number, sel: string, paths: string[]) => Promise<unknown> } }).jimaiBridge;
+                if (!bridge || typeof bridge.uploadToWebview !== 'function') {
+                    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: 'Upload skipped — Electron preload bridge not active. Restart the desktop app.' }]);
+                    break;
+                }
+                try {
+                    const webContentsId = (wv as unknown as { getWebContentsId: () => number }).getWebContentsId();
+                    await bridge.uploadToWebview(webContentsId, `[data-jimai-id="${idx}"]`, rawPaths);
+                    await new Promise((r) => setTimeout(r, 500));
+                } catch (e) {
+                    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: `Upload failed: ${String((e as Error)?.message || e)}` }]);
+                }
+                break;
+            }
+
+            case 'download_index': {
+                const idx = Number(params.index ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                // The webview's will-download event handler in main.cjs saves the
+                // file under data/agent_space/atlas_downloads/<sessionId>/. We just
+                // need to click the trigger here; main routes the download.
+                const sel = `[data-jimai-id="${idx}"]`;
+                await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector(${JSON.stringify(sel)});
+                        if (el) { el.click(); return true; }
+                        return false;
+                    })()
+                `).catch(() => {});
+                // Downloads take longer than typical clicks; settle a bit before
+                // the next observation so the agent's next prompt knows it landed.
+                await new Promise((r) => setTimeout(r, 1500));
+                break;
+            }
+
+            case 'handle_dialog': {
+                // Webview JS dialogs (window.alert/confirm/prompt) — intercept at the
+                // page level. Future dialogs from this page will resolve to the
+                // armed answer until cleared.
+                const dlgAction = String(params.dialog_action ?? params.action ?? 'accept').toLowerCase();
+                const promptText = String(params.prompt_text ?? '');
+                await wv.executeJavaScript(`
+                    (function(){
+                        const accept = ${dlgAction === 'dismiss' ? 'false' : 'true'};
+                        const pt = ${JSON.stringify(promptText)};
+                        window.alert = function(){ /* swallowed */ };
+                        window.confirm = function(){ return accept; };
+                        window.prompt = function(){ return accept ? (pt || '') : null; };
+                        return true;
+                    })()
+                `).catch(() => {});
+                break;
+            }
+
+            case 'find_in_page': {
+                const query = String(params.query ?? '');
+                if (!query) break;
+                const cs = Boolean(params.case_sensitive);
+                try {
+                    (wv as unknown as { findInPage: (q: string, opts: { matchCase?: boolean }) => void }).findInPage(query, { matchCase: cs });
+                } catch {
+                    // Fall back to JS highlight when the webview's native find is unavailable.
+                    await wv.executeJavaScript(`
+                        (function(){
+                            const q = ${JSON.stringify(query)};
+                            const re = new RegExp(q.replace(/[-\\^$*+?.()|[\\]{}]/g, '\\\\$&'), ${cs ? "'g'" : "'gi'"});
+                            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                            let n;
+                            while ((n = walker.nextNode())) {
+                                if (re.test(n.textContent)) {
+                                    const r = document.createRange();
+                                    r.selectNode(n);
+                                    const sel = window.getSelection();
+                                    sel.removeAllRanges();
+                                    sel.addRange(r);
+                                    n.parentElement.scrollIntoView({ block: 'center' });
+                                    return true;
+                                }
+                            }
+                            return false;
+                        })()
+                    `).catch(() => {});
+                }
+                await new Promise((r) => setTimeout(r, 400));
+                break;
+            }
+
+            case 'save_pdf': {
+                // The webview can print to PDF directly — Electron exposes
+                // printToPDF on the underlying WebContents via the bridge.
+                const bridge = (window as unknown as { jimaiBridge?: { saveWebviewPdf?: (id: number, filename: string) => Promise<unknown> } }).jimaiBridge;
+                const filename = String(params.filename ?? 'page.pdf');
+                if (bridge && typeof bridge.saveWebviewPdf === 'function') {
+                    try {
+                        const id = (wv as unknown as { getWebContentsId: () => number }).getWebContentsId();
+                        await bridge.saveWebviewPdf(id, filename);
+                    } catch {/* fallthrough */}
+                } else {
+                    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: 'Save-PDF bridge unavailable. Restart the desktop app.' }]);
+                }
+                break;
+            }
+
+            case 'set_zoom': {
+                const factor = Math.max(0.25, Math.min(Number(params.factor ?? 1.0), 5.0));
+                try {
+                    (wv as unknown as { setZoomFactor: (f: number) => void }).setZoomFactor(factor);
+                } catch {
+                    // Fallback: apply via CSS zoom in the page itself.
+                    await wv.executeJavaScript(`document.body.style.zoom = ${factor};`).catch(() => {});
+                }
+                break;
+            }
+
+            case 'view_source': {
+                const html = await wv.executeJavaScript(`document.documentElement.outerHTML`).catch(() => '');
+                const trimmed = String(html || '').slice(0, 8000);
+                setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: `Source (first 8KB):\n\`\`\`html\n${trimmed}\n\`\`\`` }]);
+                break;
+            }
+
+            case 'wheel': {
+                const dx = Number(params.dx ?? 0);
+                const dy = Number(params.dy ?? 400);
+                const cx = Number(params.x ?? 0);
+                const cy = Number(params.y ?? 0);
+                wv.focus();
+                await new Promise((r) => setTimeout(r, 40));
+                // Electron's mouseWheel input event lets us hit a specific point —
+                // matters for custom-scroll widgets that bind to wheel rather than
+                // listening for scrollbar movement.
+                // Electron supports mouseWheel input events at runtime, but the
+                // type definitions on this version only enumerate down/up/move.
+                (wv as unknown as { sendInputEvent: (e: Record<string, unknown>) => void }).sendInputEvent({
+                    type: 'mouseWheel',
+                    x: cx > 0 ? cx : 1,
+                    y: cy > 0 ? cy : 1,
+                    deltaX: dx,
+                    deltaY: dy,
+                });
+                await new Promise((r) => setTimeout(r, 200));
+                break;
+            }
+
+            case 'touch_tap': {
+                const tx = Number(params.x ?? 0);
+                const ty = Number(params.y ?? 0);
+                if (tx <= 0 || ty <= 0) break;
+                // Synthesize the touchstart/touchend pair via JS — Electron's
+                // input-event API doesn't expose touch directly.
+                await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.elementFromPoint(${tx}, ${ty});
+                        if (!el) return false;
+                        const Touch = window.Touch || function(){};
+                        const t = new (window.Touch || function(o){ return o; })({
+                            identifier: 1, target: el, clientX: ${tx}, clientY: ${ty},
+                            screenX: ${tx}, screenY: ${ty}, pageX: ${tx}, pageY: ${ty},
+                            radiusX: 5, radiusY: 5, rotationAngle: 0, force: 1,
+                        });
+                        for (const type of ['touchstart','touchend']) {
+                            const evt = new TouchEvent(type, {
+                                bubbles: true, cancelable: true, view: window,
+                                touches: type === 'touchstart' ? [t] : [],
+                                targetTouches: type === 'touchstart' ? [t] : [],
+                                changedTouches: [t],
+                            });
+                            el.dispatchEvent(evt);
+                        }
+                        // Many sites also expect a synthetic click after a tap.
+                        el.click();
+                        return true;
+                    })()
+                `).catch(() => {});
+                await new Promise((r) => setTimeout(r, 250));
+                break;
+            }
+
+            case 'scroll_into_view': {
+                const idx = Number(params.index ?? -1);
+                if (!Number.isFinite(idx) || idx < 0) break;
+                await wv.executeJavaScript(`
+                    (function(){
+                        const el = document.querySelector('[data-jimai-id="${idx}"]');
+                        if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+                        return !!el;
+                    })()
+                `).catch(() => {});
+                await new Promise((r) => setTimeout(r, 300));
+                break;
+            }
+
+            case 'wait_for_url': {
+                const pattern = String(params.pattern ?? '');
+                if (!pattern) break;
+                const timeoutMs = Math.min(Math.max(Number(params.timeout_ms ?? 30000), 1000), 300000);
+                const start = Date.now();
+                // Glob-ish: treat trailing '*' as a prefix wildcard, otherwise substring.
+                const matcher = pattern.endsWith('*')
+                    ? (u: string) => u.startsWith(pattern.slice(0, -1))
+                    : (u: string) => u.includes(pattern);
+                while (Date.now() - start < timeoutMs) {
+                    const cur = wv.getURL();
+                    if (matcher(cur)) break;
+                    await new Promise((r) => setTimeout(r, 400));
+                }
+                break;
+            }
+
+            case 'list_downloads': {
+                const bridge = (window as unknown as { jimaiBridge?: { listDownloads: () => Promise<string[]> } }).jimaiBridge;
+                if (bridge && typeof bridge.listDownloads === 'function') {
+                    try {
+                        const files = await bridge.listDownloads();
+                        setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: `Downloads: ${(files as unknown as Array<{filename: string}>).length ? (files as unknown as Array<{filename: string}>).map(f => f.filename).join(', ') : '(none)'}` }]);
+                    } catch {
+                        setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: 'Could not list downloads.' }]);
+                    }
+                } else {
+                    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role: 'system', content: 'Downloads bridge unavailable.' }]);
+                }
+                break;
+            }
         }
     }, [getWv, waitForLoad]);
 
     // ── Chat helpers ─────────────────────────────────────────────────────────
+    // Defined here (not via useRef) so subsequent callbacks can depend on a stable
+    // reference. The few executor cases that need to surface a user-facing notice
+    // (upload bridge missing, download list) do so by side-channel via setMessages
+    // directly to avoid a forward-reference into addMsg from executeAction.
     const addMsg = useCallback((role: ChatMessage['role'], content: string, actionLabel?: string) => {
         setMessages(prev => {
             const next = [...prev, { id: `${Date.now()}-${Math.random()}`, role, content, actionLabel }];

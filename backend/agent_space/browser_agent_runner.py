@@ -17,6 +17,7 @@ import re
 import urllib.parse
 from typing import Any, AsyncGenerator
 
+from config.settings import OLLAMA_BROWSER_KEEP_ALIVE
 from models import ollama_client
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,9 @@ AGENT_MODEL = "qwen2.5-coder:1.5b"
 # results, login forms) — the extra reasoning headroom is worth the ~600MB.
 BROWSER_MODEL = "qwen2.5-coder:7b"
 BROWSER_NUM_GPU = 99          # push all layers to GPU — faster and far less CPU heat
-BROWSER_KEEP_ALIVE = "10m"    # longer keep-warm: Atlas sessions easily exceed 5m of think time
+# Env-controlled (default 120s) — short enough that idle Atlas sessions release
+# VRAM so the chat model can use it, long enough to cover the user reading a page.
+BROWSER_KEEP_ALIVE = OLLAMA_BROWSER_KEEP_ALIVE
 BROWSER_VISION_ENABLED = False  # vision adds heavy model swaps; enable only if needed
 
 # Known service → URL lookup. Injected into the prompt so the model never guesses.
@@ -160,6 +163,39 @@ def _normalize_chat_action(
         "wait",
         "talk",
         "done",
+        "upload_index",
+        "download_index",
+        "list_downloads",
+        # Human-parity additions: pointer, keyboard, navigation, frames.
+        "hover_index",
+        "rightclick_index",
+        "doubleclick_index",
+        "drag_index",
+        "press_chord",
+        "select_text_index",
+        "copy",
+        "paste",
+        "cut",
+        "go_back",
+        "go_forward",
+        "reload",
+        "new_tab",
+        "enter_iframe",
+        "leave_iframe",
+        # Dialogs, find-in-page, PDF, zoom, cookies, geolocation, wheel, touch.
+        "handle_dialog",
+        "find_in_page",
+        "save_pdf",
+        "set_zoom",
+        "get_cookies",
+        "set_cookie",
+        "clear_cookies",
+        "set_geolocation",
+        "view_source",
+        "wheel",
+        "touch_tap",
+        "scroll_into_view",
+        "wait_for_url",
     }
     if action not in allowed:
         action = "wait"
@@ -216,11 +252,123 @@ def _normalize_chat_action(
         params.setdefault("key", "Enter")
     elif action == "scroll":
         params.setdefault("dy", 400)
+    elif action == "upload_index":
+        params.setdefault("index", -1)
+        # paths must be a list of strings — single string promoted, anything else cleared.
+        raw_paths = params.get("paths")
+        if isinstance(raw_paths, str):
+            params["paths"] = [raw_paths] if raw_paths.strip() else []
+        elif isinstance(raw_paths, list):
+            params["paths"] = [str(p) for p in raw_paths if str(p).strip()]
+        else:
+            params["paths"] = []
+    elif action == "download_index":
+        params.setdefault("index", -1)
+        params.setdefault("save_as", "")
+    elif action in {"hover_index", "rightclick_index", "doubleclick_index"}:
+        params.setdefault("index", -1)
+    elif action == "drag_index":
+        params.setdefault("from_index", params.get("source_index", -1))
+        params.setdefault("to_index", params.get("target_index", -1))
+    elif action == "press_chord":
+        raw_keys = params.get("keys")
+        if isinstance(raw_keys, str):
+            # "ctrl+a" → ["Control", "a"]
+            params["keys"] = [p.strip().capitalize() if p.strip().lower() in {"ctrl","control","shift","alt","meta","cmd"} else p.strip() for p in raw_keys.split("+") if p.strip()]
+        elif isinstance(raw_keys, list):
+            params["keys"] = [str(k).strip() for k in raw_keys if str(k).strip()]
+        else:
+            params["keys"] = []
+    elif action == "select_text_index":
+        params.setdefault("index", -1)
+        params.setdefault("start", 0)
+        params.setdefault("end", -1)
+    elif action == "paste":
+        params.setdefault("text", "")
+    elif action == "new_tab":
+        params.setdefault("url", "")
+    elif action == "enter_iframe":
+        params.setdefault("index", -1)
+    elif action == "handle_dialog":
+        params.setdefault("dialog_action", params.get("action_for_dialog", "accept"))
+        params.setdefault("prompt_text", "")
+    elif action == "find_in_page":
+        params.setdefault("query", "")
+        params.setdefault("case_sensitive", False)
+    elif action == "save_pdf":
+        params.setdefault("filename", "page.pdf")
+    elif action == "set_zoom":
+        try:
+            params["factor"] = float(params.get("factor", 1.0))
+        except (TypeError, ValueError):
+            params["factor"] = 1.0
+    elif action == "get_cookies":
+        urls = params.get("urls")
+        if isinstance(urls, str):
+            params["urls"] = [urls] if urls.strip() else None
+        elif not isinstance(urls, list):
+            params["urls"] = None
+    elif action == "set_cookie":
+        params.setdefault("name", "")
+        params.setdefault("value", "")
+        params.setdefault("url", "")
+        params.setdefault("domain", "")
+        params.setdefault("path", "/")
+    elif action == "set_geolocation":
+        params.setdefault("latitude", 0.0)
+        params.setdefault("longitude", 0.0)
+        params.setdefault("accuracy", 50.0)
+    elif action == "wheel":
+        params.setdefault("dx", 0.0)
+        params.setdefault("dy", 400.0)
+    elif action == "touch_tap":
+        params.setdefault("x", 0.0)
+        params.setdefault("y", 0.0)
+    elif action == "scroll_into_view":
+        params.setdefault("index", -1)
+    elif action == "wait_for_url":
+        params.setdefault("pattern", "")
+        params.setdefault("timeout_ms", 30000)
     # Reject malformed click_index / type_index up front so the executor
     # doesn't waste a step on an invalid index.
     if action == "click_index" and (not isinstance(params.get("index"), int) or params.get("index", -1) < 0):
         action = "wait"
     if action == "type_index" and (not isinstance(params.get("index"), int) or params.get("index", -1) < 0 or not params.get("text")):
+        action = "wait"
+    if action == "upload_index" and (
+        not isinstance(params.get("index"), int)
+        or params.get("index", -1) < 0
+        or not params.get("paths")
+    ):
+        action = "wait"
+    if action == "download_index" and (
+        not isinstance(params.get("index"), int) or params.get("index", -1) < 0
+    ):
+        action = "wait"
+    if action in {"hover_index", "rightclick_index", "doubleclick_index", "enter_iframe"} and (
+        not isinstance(params.get("index"), int) or params.get("index", -1) < 0
+    ):
+        action = "wait"
+    if action == "drag_index" and (
+        not isinstance(params.get("from_index"), int) or params.get("from_index", -1) < 0
+        or not isinstance(params.get("to_index"), int) or params.get("to_index", -1) < 0
+    ):
+        action = "wait"
+    if action == "press_chord" and not params.get("keys"):
+        action = "wait"
+    if action == "select_text_index" and (
+        not isinstance(params.get("index"), int) or params.get("index", -1) < 0
+    ):
+        action = "wait"
+    if action == "find_in_page" and not str(params.get("query", "")).strip():
+        action = "wait"
+    if action == "set_cookie" and not str(params.get("name", "")).strip():
+        action = "wait"
+    if action == "wait_for_url" and not str(params.get("pattern", "")).strip():
+        action = "wait"
+    if action == "scroll_into_view" and (
+        not isinstance(params.get("index"), int) or params.get("index", -1) < 0
+    ):
         action = "wait"
 
     # If parse failed, do not expose raw parser error to users; recover gracefully.
@@ -510,15 +658,49 @@ Address elements ONLY by their numeric index. Do not write CSS selectors or pixe
 coordinates — the executor resolves the index to the real DOM node.
 
 Actions:
-  navigate    {"url": "https://..."}                — load a URL in the current tab
-  click_index {"index": N}                          — click element [N] from the listing
-  type_index  {"index": N, "text": "...", "submit": true|false}
+  navigate          {"url": "https://..."}          — load a URL in the current tab
+  click_index       {"index": N}                    — click element [N]
+  type_index        {"index": N, "text": "...", "submit": true|false}
                                                     — focus element [N], type text, optionally press Enter
-  press_key   {"key": "Enter"|"Tab"|"Escape"|...}  — send a key to the focused element
-  scroll      {"dy": 400}                           — scroll down (positive) or up (negative)
-  wait        {}                                    — wait ~1.5s for SPA rendering
-  done        {}                                    — goal complete or impossible
-  talk        {}                                    — answer the user without acting
+  press_key         {"key": "Enter"|"Tab"|"Escape"} — send a single key
+  press_chord       {"keys": ["Control", "a"]}      — modifier chord (Ctrl/Shift/Alt/Meta + key)
+                                                      Use for: select-all, copy, paste, find, save, etc.
+  hover_index       {"index": N}                    — hover (reveals tooltips, dropdown menus)
+  rightclick_index  {"index": N}                    — open the element's context menu
+  doubleclick_index {"index": N}                    — double-click (text edit, file open, word-select)
+  drag_index        {"from_index": A, "to_index": B} — drag element [A] onto element [B]
+  select_text_index {"index": N, "start": 0, "end": 10}
+                                                    — select a substring inside [N] (use end=-1 for to-end)
+  copy              {}                              — Ctrl+C on the current selection
+  cut               {}                              — Ctrl+X
+  paste             {"text": "optional override"}   — Ctrl+V; if text given, seed it then paste
+  upload_index      {"index": N, "paths": ["abs/path"]} — attach files to file input [N] (or trigger button)
+  download_index    {"index": N, "save_as": "name"} — click [N] expecting a download; saved to sandbox
+  list_downloads    {}                              — list files this session has downloaded
+  scroll            {"dy": 400}                     — scroll viewport (positive = down)
+  go_back           {}                              — browser back-button
+  go_forward        {}                              — browser forward-button
+  reload            {}                              — reload current page
+  new_tab           {"url": "optional"}             — open and switch to a new tab
+  enter_iframe      {"index": N}                    — descend into iframe [N] for subsequent actions
+  leave_iframe      {}                              — return to the top frame
+  handle_dialog     {"dialog_action": "accept"|"dismiss", "prompt_text": "..."}
+                                                    — arm one-shot answer for next alert/confirm/prompt
+  find_in_page      {"query": "term"}               — Ctrl+F: scroll first match into view
+  save_pdf          {"filename": "name.pdf"}        — save the current page as PDF in sandbox
+  set_zoom          {"factor": 1.25}                — zoom level (0.25–5.0)
+  view_source       {}                              — return rendered HTML (post-JS)
+  get_cookies       {}                              — inspect cookies the page can see
+  set_cookie        {"name": "n", "value": "v"}     — add / overwrite a cookie
+  clear_cookies     {}                              — wipe all cookies for this context
+  set_geolocation   {"latitude": 40.7, "longitude": -74.0} — override geolocation
+  wheel             {"dy": 400, "x": 200, "y": 300} — real wheel event (for custom-scroll widgets)
+  touch_tap         {"x": 100, "y": 200}            — touch event (mobile-only handlers)
+  scroll_into_view  {"index": N}                    — force-scroll element [N] into view
+  wait_for_url      {"pattern": "callback*"}        — block until URL matches (OAuth redirects)
+  wait              {}                              — wait ~1.5s for SPA rendering
+  done              {}                              — goal complete or impossible
+  talk              {}                              — answer the user without acting
 
 Strategy:
 1. If you are not on the right site, navigate to a known URL first. Prefer direct
@@ -611,8 +793,17 @@ def _action_signature(action: str, params: dict | None) -> str:
         except Exception:
             target = url.lower()
         return f"navigate:{target}" if target else "navigate"
-    if a in {"click_index", "type_index"}:
+    if a in {
+        "click_index", "type_index", "upload_index", "download_index",
+        "hover_index", "rightclick_index", "doubleclick_index",
+        "select_text_index", "enter_iframe",
+    }:
         return f"{a}:{p.get('index', '')}"
+    if a == "drag_index":
+        return f"drag_index:{p.get('from_index', '')}->{p.get('to_index', '')}"
+    if a == "press_chord":
+        keys = p.get("keys") if isinstance(p.get("keys"), list) else []
+        return f"press_chord:{'+'.join(str(k) for k in keys)}"
     if a == "click_xy" or a == "type_xy":
         return f"{a}:{p.get('x', '')},{p.get('y', '')}"
     if a == "click_selector":

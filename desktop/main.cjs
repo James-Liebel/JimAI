@@ -32,23 +32,92 @@ const managedServices = [];
 app.disableHardwareAcceleration();
 
 // Atlas browser tab lives in <webview partition="persist:atlas">. Google's
-// sign-in "secure browser" check rejects any UA containing "Electron" with
-// "Couldn't sign you in — this browser may not be secure." Strip Electron +
-// jimAI tokens so accounts.google.com treats us as plain Chrome. Also pre-
-// creates the session before any webview mounts, so cookies persist on first
-// run (without this the first sign-in would land in an unconfigured session).
+// sign-in "secure browser" check rejects any UA that looks like an embedded
+// browser ("Couldn't sign you in — this browser may not be secure"). To pass:
+//   1. Use a fully-formed desktop Chrome UA (not just an Electron-stripped one).
+//   2. Send matching Sec-CH-UA / Sec-CH-UA-Platform client hints — Google reads
+//      these and will reject if the brand list contains "Electron".
+//   3. Drop "X-Requested-With" (browsers don't send it; some sites use it as a
+//      bot signal).
+//   4. Allow permissions a normal browser would prompt for (notifications,
+//      clipboard, media) so logged-in sites that require them work.
+// We also pre-create the session before any webview mounts so cookies persist
+// on first run.
+const ATLAS_PARTITION = 'persist:atlas';
+
+function buildChromeUserAgent() {
+    // Pin to whatever Chromium version Electron is shipping — that way Sec-CH-UA
+    // and the UA string are consistent and we don't have to bump strings on Electron upgrades.
+    const chromeVer = (process.versions && process.versions.chrome) || '134.0.0.0';
+    const major = String(chromeVer).split('.')[0] || '134';
+    let platformTag = 'Windows NT 10.0; Win64; x64';
+    if (process.platform === 'darwin') platformTag = 'Macintosh; Intel Mac OS X 10_15_7';
+    else if (process.platform === 'linux') platformTag = 'X11; Linux x86_64';
+    return {
+        ua: `Mozilla/5.0 (${platformTag}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromeVer} Safari/537.36`,
+        major,
+    };
+}
+
+function buildClientHints(major) {
+    const platform =
+        process.platform === 'darwin' ? '"macOS"' :
+        process.platform === 'linux' ? '"Linux"' : '"Windows"';
+    // Match Chrome's GREASE'd brand list format. Critically: no "Electron" entry.
+    return {
+        secChUa: `"Chromium";v="${major}", "Not(A:Brand";v="24", "Google Chrome";v="${major}"`,
+        secChUaMobile: '?0',
+        secChUaPlatform: platform,
+    };
+}
+
+let atlasSessionRef = null;
+
 function configureAtlasSession() {
     try {
-        const atlasSession = session.fromPartition('persist:atlas');
-        const cleanUa = atlasSession
-            .getUserAgent()
-            .replace(/\sElectron\/[^\s]+/gi, '')
-            .replace(/\sjimAI\/[^\s]+/gi, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-        atlasSession.setUserAgent(cleanUa);
+        const atlasSession = session.fromPartition(ATLAS_PARTITION);
+        atlasSessionRef = atlasSession;
+        const { ua, major } = buildChromeUserAgent();
+        const hints = buildClientHints(major);
+        atlasSession.setUserAgent(ua);
+
+        // Rewrite outgoing headers so embedded-browser fingerprints don't leak
+        // and client hints match the spoofed UA.
+        atlasSession.webRequest.onBeforeSendHeaders((details, callback) => {
+            const headers = { ...details.requestHeaders };
+            // Some bundlers / fetch wrappers send this — never present from a real Chrome.
+            delete headers['X-Requested-With'];
+            delete headers['x-requested-with'];
+            // Force UA on every request even if a renderer overrode it locally.
+            headers['User-Agent'] = ua;
+            headers['Sec-Ch-Ua'] = hints.secChUa;
+            headers['Sec-Ch-Ua-Mobile'] = hints.secChUaMobile;
+            headers['Sec-Ch-Ua-Platform'] = hints.secChUaPlatform;
+            callback({ requestHeaders: headers });
+        });
+
+        // Grant permissions a normal browser would prompt for (notifications,
+        // clipboard, microphone/camera, geolocation, etc.). Without this many
+        // logged-in sites silently break or show endless permission banners.
+        atlasSession.setPermissionRequestHandler((_wc, _permission, cb) => cb(true));
+        atlasSession.setPermissionCheckHandler(() => true);
+
+        // Strip frame ancestors / X-Frame-Options on incoming responses so the
+        // webview can host sites that would otherwise refuse to embed. Google's
+        // OAuth flows already work in a top-level webview, but other identity
+        // providers (Microsoft, Okta, etc.) sometimes do not.
+        atlasSession.webRequest.onHeadersReceived((details, callback) => {
+            const headers = { ...(details.responseHeaders || {}) };
+            for (const key of Object.keys(headers)) {
+                const lower = key.toLowerCase();
+                if (lower === 'x-frame-options' || lower === 'content-security-policy') {
+                    delete headers[key];
+                }
+            }
+            callback({ responseHeaders: headers });
+        });
     } catch (err) {
-        console.error('[atlas] failed to configure session UA:', err);
+        console.error('[atlas] failed to configure session:', err);
     }
 }
 
@@ -506,6 +575,50 @@ if (!gotSingleInstanceLock) {
         }
         if (app.isReady()) {
             createWindow();
+        }
+    });
+
+    // Atlas webview popups (e.g. Google's "Sign in with Google" OAuth window)
+    // must stay in the same partition so cookies/auth state apply. By default
+    // Electron's window-open handler in the main UI rejects external URLs and
+    // sends them to the OS browser, which breaks the OAuth round-trip. Here we
+    // catch contents created for the Atlas partition and route popups into a
+    // new BrowserWindow that shares the same partition.
+    app.on('web-contents-created', (_event, contents) => {
+        try {
+            if (contents.getType && contents.getType() !== 'webview') return;
+            const sess = contents.session;
+            if (!sess || sess !== atlasSessionRef) return;
+            contents.setWindowOpenHandler(({ url }) => ({
+                action: 'allow',
+                overrideBrowserWindowOptions: {
+                    width: 520,
+                    height: 720,
+                    title: 'Sign in',
+                    webPreferences: {
+                        contextIsolation: true,
+                        nodeIntegration: false,
+                        sandbox: false,
+                        partition: ATLAS_PARTITION,
+                    },
+                },
+            }));
+            // Once a popup window opens, make sure its own popups follow the same rule.
+            contents.on('did-create-window', (childWindow) => {
+                childWindow.webContents.setWindowOpenHandler(({ url: childUrl }) => ({
+                    action: 'allow',
+                    overrideBrowserWindowOptions: {
+                        webPreferences: {
+                            contextIsolation: true,
+                            nodeIntegration: false,
+                            sandbox: false,
+                            partition: ATLAS_PARTITION,
+                        },
+                    },
+                }));
+            });
+        } catch (err) {
+            console.error('[atlas] failed to wire popup handler:', err);
         }
     });
 

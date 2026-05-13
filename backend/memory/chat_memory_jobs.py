@@ -51,6 +51,7 @@ async def after_turn(
     user_message: str,
     assistant_message: str,
     history_snapshot: list[dict[str, Any]],
+    user_id: str = "default",
 ) -> None:
     """
     history_snapshot: normalized full history including this turn (role/content), from the client path.
@@ -84,7 +85,7 @@ async def after_turn(
         f"User asked: {user_message[:400]}\n"
         f"Assistant replied (excerpt): {assistant_message[:500]}"
     )
-    cross_chat_memory.append_pending(note)
+    cross_chat_memory.append_pending(note, user_id=user_id)
 
 
 def schedule_after_turn(
@@ -92,6 +93,7 @@ def schedule_after_turn(
     user_message: str,
     assistant_message: str,
     history_snapshot: list[dict[str, Any]],
+    user_id: str = "default",
 ) -> None:
     try:
         import asyncio
@@ -102,7 +104,7 @@ def schedule_after_turn(
 
     async def _run() -> None:
         try:
-            await after_turn(session_id, user_message, assistant_message, history_snapshot)
+            await after_turn(session_id, user_message, assistant_message, history_snapshot, user_id=user_id)
         except Exception:
             logger.warning("chat_memory_jobs.after_turn failed", exc_info=True)
 

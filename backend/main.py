@@ -79,6 +79,39 @@ async def lifespan(app: FastAPI):
     agent_space_bg = background_tasks.spawn(
         _agent_space_startup_task(), name="agent_space_startup"
     )
+
+    async def _warm_models_task() -> None:
+        """Preload the chat + embedding models into Ollama so the user's first
+        message hits a warm model (saves several seconds of cold load on big
+        Qwen/Llama variants). Failures are non-fatal — Ollama may not be up yet.
+        """
+        try:
+            from models.router import get_model_config
+            chat_cfg = get_model_config("chat")
+            chat_model = getattr(chat_cfg, "model", None)
+        except Exception:
+            chat_model = None
+        if not chat_model:
+            return
+        try:
+            # Tiny no-op generate forces Ollama to load the model into VRAM/RAM.
+            await ollama_client.generate_full(
+                model=chat_model,
+                prompt="ok",
+                system="Reply with the single token 'ok'.",
+                temperature=0.0,
+                num_predict=1,
+            )
+            logger.info("Ollama chat model warmed: %s", chat_model)
+        except Exception as exc:
+            logger.info("Ollama chat warmup skipped: %s", exc)
+        try:
+            await ollama_client.embed("warmup")
+            logger.info("Ollama embedding model warmed")
+        except Exception:
+            logger.debug("Ollama embed warmup skipped", exc_info=True)
+
+    background_tasks.spawn(_warm_models_task(), name="ollama_warmup")
     try:
         yield
     finally:
@@ -310,6 +343,8 @@ from api.system_agent_api import router as system_agent_router
 from api.webtools import router as webtools_router
 from api.autonomy_api import router as autonomy_router
 from api.security_api import router as security_router
+from api.users import router as users_router
+from api.credentials import router as credentials_router
 from agents.builder import router as builder_router
 from agent_space.api import router as agent_space_router
 from routers.github import router as github_router
@@ -327,6 +362,8 @@ app.include_router(system_agent_router)
 app.include_router(webtools_router)
 app.include_router(autonomy_router)
 app.include_router(security_router)
+app.include_router(users_router)
+app.include_router(credentials_router)
 app.include_router(builder_router)
 app.include_router(agent_space_router)
 app.include_router(github_router)

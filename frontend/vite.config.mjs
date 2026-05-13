@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Split heavy third-party libs into their own chunks so:
+//   1. The initial route only loads what it needs (react + router + app shell).
+//   2. Heavy deps (markdown/katex/syntax-highlighter/monaco/reactflow) cache across deploys.
+// The result: faster first paint and cheaper subsequent navigations.
 export default defineConfig({
     plugins: [react()],
     server: {
@@ -20,5 +24,41 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         chunkSizeWarningLimit: 1200,
+        target: 'es2022',
+        cssCodeSplit: true,
+        sourcemap: false,
+        reportCompressedSize: false,
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    if (!id.includes('node_modules')) return undefined;
+                    if (id.includes('react-syntax-highlighter') || id.includes('refractor')) {
+                        return 'vendor-syntax';
+                    }
+                    if (
+                        id.includes('react-markdown') ||
+                        id.includes('remark') ||
+                        id.includes('rehype') ||
+                        id.includes('micromark') ||
+                        id.includes('mdast') ||
+                        id.includes('unified') ||
+                        id.includes('hast') ||
+                        id.includes('unist')
+                    ) {
+                        return 'vendor-markdown';
+                    }
+                    if (id.includes('katex')) return 'vendor-katex';
+                    if (id.includes('monaco')) return 'vendor-monaco';
+                    if (id.includes('reactflow') || id.includes('@reactflow')) return 'vendor-reactflow';
+                    if (id.includes('react-router')) return 'vendor-router';
+                    if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('scheduler')) {
+                        return 'vendor-react';
+                    }
+                    if (id.includes('@radix-ui')) return 'vendor-radix';
+                    if (id.includes('lucide-react')) return 'vendor-icons';
+                    return undefined;
+                },
+            },
+        },
     },
 });

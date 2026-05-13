@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Globe, ArrowLeft, ArrowRight, RotateCcw, Send, Square,
-    Bot, User, X, Plus, MousePointer2, ListChecks, ChevronRight, FlaskConical, LogIn,
+    Bot, User, X, Plus, MousePointer2, ListChecks, ChevronRight, FlaskConical, LogIn, KeyRound, Save,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { fetchWithTimeout, logIssue } from '../lib/api';
@@ -254,6 +254,10 @@ export default function BrowserAtlas() {
         }
     }, []);
 
+    // Bridge: bindWebview is declared before tryAutofill (source order), so we
+    // route through a ref to avoid a TS use-before-declaration error.
+    const tryAutofillRef = useRef<(wv: AtlasWebview) => void>(() => {});
+
     // ── Bind webview events (called once per webview via callback ref) ────────
     const bindWebview = useCallback((id: string, el: HTMLElement | null) => {
         if (!el) { webviewRefs.current.delete(id); return; }
@@ -287,6 +291,14 @@ export default function BrowserAtlas() {
             setTabs(prev => prev.map(t => t.id === id ? { ...t, loading: false } : t));
             if (id === activeTabIdRef.current) { setLoading(false); syncActiveNav(); }
         });
+        // Autofill once the page is interactive. did-finish-load fires after the
+        // main-frame DOM is parsed; tryAutofill is internally idempotent per origin.
+        wv.addEventListener('did-finish-load', () => { tryAutofillRef.current(wv); });
+        wv.addEventListener('did-navigate', () => {
+            // Clear our autofill memo when origin changes, so a fresh login page
+            // on the same tab gets a second-chance autofill attempt.
+            autofilledOrigins.current.clear();
+        });
         wv.addEventListener('new-window', (e) => {
             const url = (e as unknown as { url: string }).url;
             if (url?.startsWith('http')) openNewTab(url);
@@ -302,6 +314,159 @@ export default function BrowserAtlas() {
             if (ev.errorCode === -3) return;
         });
     }, [openNewTab]);
+
+    // ── Credential autofill ──────────────────────────────────────────────────
+    // We track origins we've already autofilled this session so subsequent
+    // in-page navigations don't re-fill (and overwrite) what the user typed.
+    const autofilledOrigins = useRef<Set<string>>(new Set());
+    const [credToast, setCredToast] = useState<string>('');
+
+    const showCredToast = useCallback((msg: string) => {
+        setCredToast(msg);
+        window.setTimeout(() => setCredToast(''), 2200);
+    }, []);
+
+    const tryAutofill = useCallback(async (wv: AtlasWebview) => {
+        const currentUrl = wv.getURL();
+        if (!currentUrl || !currentUrl.startsWith('http')) return;
+        let origin: string;
+        try {
+            origin = new URL(currentUrl).origin;
+        } catch {
+            return;
+        }
+        const key = `${(wv as unknown as { getWebContentsId?: () => number }).getWebContentsId?.() ?? ''}|${origin}`;
+        if (autofilledOrigins.current.has(key)) return;
+        try {
+            const res = await fetchWithTimeout(
+                `/api/credentials?origin=${encodeURIComponent(origin)}`,
+                { method: 'GET' },
+                4000,
+            );
+            if (!res.ok) return;
+            const data = await res.json() as { found?: boolean; username?: string; password?: string };
+            if (!data.found || !data.password) return;
+            // Mark before injecting so a redirect during fill doesn't trigger a second pass.
+            autofilledOrigins.current.add(key);
+            const payload = JSON.stringify({ u: data.username || '', p: data.password });
+            const filled = await wv.executeJavaScript(`
+                (function(creds) {
+                    function isVisible(el) {
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 2 || r.height < 2) return false;
+                        const s = getComputedStyle(el);
+                        return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) >= 0.1;
+                    }
+                    function fire(el, value) {
+                        const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                        const setter = Object.getOwnPropertyDescriptor(proto, 'value') && Object.getOwnPropertyDescriptor(proto, 'value').set;
+                        if (setter) setter.call(el, value); else el.value = value;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    const pwds = Array.from(document.querySelectorAll('input[type="password"]')).filter(isVisible);
+                    const pwd = pwds[0] || null;
+                    // Username candidate: closest preceding text/email input within the same form,
+                    // or the first such visible input on the page.
+                    let userEl = null;
+                    if (pwd) {
+                        const form = pwd.form;
+                        const scope = form ? form.querySelectorAll('input') : document.querySelectorAll('input');
+                        let prev = null;
+                        for (const el of scope) {
+                            if (el === pwd) break;
+                            const t = (el.type || 'text').toLowerCase();
+                            if (['text','email','tel','username'].includes(t) && isVisible(el)) prev = el;
+                            if ((el.getAttribute('autocomplete') || '').toLowerCase().includes('username') && isVisible(el)) prev = el;
+                        }
+                        userEl = prev;
+                    }
+                    if (!userEl) {
+                        userEl = Array.from(document.querySelectorAll('input')).find(function(el) {
+                            const t = (el.type || 'text').toLowerCase();
+                            if (!['text','email','tel'].includes(t)) return false;
+                            return isVisible(el);
+                        }) || null;
+                    }
+                    let filledU = false, filledP = false;
+                    if (userEl && creds.u) { fire(userEl, creds.u); filledU = true; }
+                    if (pwd) { fire(pwd, creds.p); filledP = true; }
+                    return { filledU: filledU, filledP: filledP, hasPwd: !!pwd };
+                })(${payload});
+            `) as { filledU: boolean; filledP: boolean; hasPwd: boolean };
+            if (filled && filled.filledP) {
+                showCredToast('Autofilled saved credentials');
+            } else if (filled && !filled.hasPwd) {
+                // No password field visible yet — allow a retry on the next did-finish-load
+                // (some sites lazy-mount the form).
+                autofilledOrigins.current.delete(key);
+            }
+        } catch {
+            // Network failure or no saved creds — silently skip.
+        }
+    }, [showCredToast]);
+
+    useEffect(() => {
+        tryAutofillRef.current = (wv: AtlasWebview) => { void tryAutofill(wv); };
+    }, [tryAutofill]);
+
+    const saveLoginOnCurrentPage = useCallback(async () => {
+        const wv = getWv();
+        if (!wv) return;
+        const currentUrl = wv.getURL();
+        let origin = '';
+        try { origin = new URL(currentUrl).origin; } catch { /* noop */ }
+        if (!origin) { showCredToast('Open a page first'); return; }
+        const captured = await wv.executeJavaScript(`
+            (function() {
+                function isVisible(el) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width < 2 || r.height < 2) return false;
+                    const s = getComputedStyle(el);
+                    return s.visibility !== 'hidden' && s.display !== 'none' && parseFloat(s.opacity) >= 0.1;
+                }
+                const pwd = Array.from(document.querySelectorAll('input[type="password"]')).filter(isVisible)[0] || null;
+                let userEl = null;
+                if (pwd && pwd.form) {
+                    for (const el of pwd.form.querySelectorAll('input')) {
+                        if (el === pwd) break;
+                        const t = (el.type || 'text').toLowerCase();
+                        if (['text','email','tel','username'].includes(t) && isVisible(el)) userEl = el;
+                    }
+                }
+                if (!userEl) {
+                    userEl = Array.from(document.querySelectorAll('input')).find(function(el) {
+                        const t = (el.type || 'text').toLowerCase();
+                        return ['text','email','tel'].includes(t) && isVisible(el);
+                    }) || null;
+                }
+                return {
+                    username: (userEl && userEl.value) || '',
+                    password: (pwd && pwd.value) || '',
+                };
+            })();
+        `) as { username: string; password: string };
+        if (!captured || !captured.password) {
+            showCredToast('No filled password field on this page');
+            return;
+        }
+        try {
+            const res = await fetchWithTimeout('/api/credentials', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ origin, username: captured.username, password: captured.password }),
+            }, 4000);
+            if (!res.ok) {
+                showCredToast('Save failed');
+                return;
+            }
+            showCredToast(`Saved login for ${new URL(origin).host}`);
+            // Allow the next page load on this origin to autofill again with the new value.
+            autofilledOrigins.current.clear();
+        } catch {
+            showCredToast('Save failed');
+        }
+    }, [getWv, showCredToast]);
 
     // ── Navigation helpers ───────────────────────────────────────────────────
     const navigate = useCallback((url?: string) => {
@@ -1052,6 +1217,20 @@ export default function BrowserAtlas() {
                 >
                     <LogIn size={12} />
                 </button>
+                <button
+                    onClick={() => { const wv = getWv(); if (wv) void tryAutofill(wv); }}
+                    className="p-1.5 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 transition-colors"
+                    title="Autofill saved login for this site"
+                >
+                    <KeyRound size={12} />
+                </button>
+                <button
+                    onClick={() => void saveLoginOnCurrentPage()}
+                    className="p-1.5 rounded text-text-muted hover:text-accent-green hover:bg-surface-2 transition-colors"
+                    title="Save the username & password currently typed into this page"
+                >
+                    <Save size={12} />
+                </button>
 
                 <form
                     className="flex flex-1 items-center mx-1"
@@ -1092,6 +1271,11 @@ export default function BrowserAtlas() {
                             }}
                         />
                     ))}
+                    {credToast && (
+                        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 rounded-full border border-accent-blue/40 bg-surface-1/95 backdrop-blur-sm px-3 py-1.5 text-[11px] font-medium text-accent-blue shadow-lg">
+                            {credToast}
+                        </div>
+                    )}
                     {/* Manual mode overlay — shows when agent panel is hidden */}
                     {manualMode && (
                         <button

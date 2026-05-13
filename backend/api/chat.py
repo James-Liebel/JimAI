@@ -37,10 +37,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-def _schedule_memory_update(session_id: str, user_msg: str, assistant_msg: str) -> None:
+def _schedule_memory_update(
+    session_id: str,
+    user_msg: str,
+    assistant_msg: str,
+    user_id: str = "default",
+) -> None:
     try:
         snap = chat_memory_jobs.normalize_snapshot(session_store.get_history(session_id))
-        chat_memory_jobs.schedule_after_turn(session_id, user_msg, assistant_msg, snap)
+        chat_memory_jobs.schedule_after_turn(
+            session_id, user_msg, assistant_msg, snap, user_id=user_id,
+        )
     except Exception:
         logger.debug("memory schedule skipped", exc_info=True)
 
@@ -58,6 +65,7 @@ class ChatRequest(BaseModel):
     # Agent Space markdown skills (SKILL.md) — injected into system prompt like Claude-style skill packs.
     skill_slugs: list[str] = []
     auto_select_skills: bool = False
+    user_id: str | None = None  # Local profile id; falls back to active profile on the server
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
@@ -794,6 +802,7 @@ async def _stream_chat(
     image_b64: str | None = None,
     skill_slugs: list[str] | None = None,
     auto_select_skills: bool = False,
+    user_id: str = "default",
 ) -> AsyncGenerator[str, None]:
     """Core streaming logic — RAG retrieval → prompt build → Ollama stream."""
 
@@ -1045,7 +1054,7 @@ async def _stream_chat(
     roll = str(sess.get("rolling_summary") or "").strip()
     if roll:
         system_prompt = f"{system_prompt}{chat_context.build_system_context_extension(roll)}"
-    cx_block = cross_chat_memory.get_prompt_block()
+    cx_block = cross_chat_memory.get_prompt_block(user_id=user_id)
     if cx_block:
         system_prompt = f"{system_prompt}\n\n{cx_block}"
 
@@ -1204,7 +1213,7 @@ async def _stream_chat(
             stale_response_corrected = True
             yield f"data: {json.dumps({'text': '\\n\\n[Live-source correction]\\n' + hybrid_response, 'done': False, 'model': synth_config.model})}\n\n"
         session_store.add_message(session_id, "assistant", hybrid_response, mode)
-        _schedule_memory_update(session_id, message, hybrid_response)
+        _schedule_memory_update(session_id, message, hybrid_response, user_id=user_id)
         routing_info["stale_response_corrected"] = stale_response_corrected
         yield f"data: {json.dumps({'text': '', 'done': True, 'sources': sources, 'routing': routing_info})}\n\n"
         return
@@ -1271,7 +1280,7 @@ async def _stream_chat(
             stale_response_corrected = True
             yield f"data: {json.dumps({'text': '\\n\\n[Live-source correction]\\n' + full_response_str, 'done': False, 'model': judge_config.model})}\n\n"
         session_store.add_message(session_id, "assistant", full_response_str, mode)
-        _schedule_memory_update(session_id, message, full_response_str)
+        _schedule_memory_update(session_id, message, full_response_str, user_id=user_id)
         routing_info["compare_models"] = [cfg_a.model, cfg_b.model]
         routing_info["compare_pipeline_roles"] = [role_a, role_b, judge_role]
         routing_info["judge_model"] = judge_config.model
@@ -1395,7 +1404,7 @@ async def _stream_chat(
         yield f"data: {json.dumps({'text': '\\n\\n---\\n*Live-source update:*\\n' + correction, 'done': False, 'model': config.model})}\n\n"
 
     session_store.add_message(session_id, "assistant", full_response_str, mode)
-    _schedule_memory_update(session_id, message, full_response_str)
+    _schedule_memory_update(session_id, message, full_response_str, user_id=user_id)
     routing_info["stale_response_corrected"] = stale_response_corrected
 
     if OLLAMA_NPU_BASE_URL and LAYERED_REVIEW_ENABLED and review_text:
@@ -1419,6 +1428,9 @@ async def _safe_stream_chat(*args, **kwargs) -> AsyncGenerator[str, None]:
 @router.post("")
 async def chat(req: ChatRequest) -> StreamingResponse:
     """Streaming chat endpoint — returns SSE chunks."""
+    from api.users import resolve_user_id
+
+    user_id = resolve_user_id(req.user_id)
     return StreamingResponse(
         _safe_stream_chat(
             req.message,
@@ -1430,6 +1442,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             image_b64=req.image,
             skill_slugs=list(req.skill_slugs or []),
             auto_select_skills=bool(req.auto_select_skills),
+            user_id=user_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -1460,12 +1473,16 @@ class SaveChatRequest(BaseModel):
     id: str
     title: str = ""
     messages: list[dict] = []
+    user_id: str | None = None
 
 
 @router.get("/sessions")
-async def list_sessions() -> list[dict]:
-    """List all saved chats (metadata only)."""
-    return chat_store.list_chats()
+async def list_sessions(user_id: str | None = None) -> list[dict]:
+    """List saved chats (metadata only). If user_id is given, scope to that user."""
+    from api.users import resolve_user_id
+
+    scope = resolve_user_id(user_id) if user_id is not None else None
+    return chat_store.list_chats(user_id=scope)
 
 
 @router.get("/sessions/{chat_id}")
@@ -1480,8 +1497,12 @@ async def get_session(chat_id: str) -> dict:
 @router.put("/sessions/{chat_id}")
 async def save_session(chat_id: str, req: SaveChatRequest) -> dict:
     """Save or update a chat."""
+    from api.users import resolve_user_id
+
     title = req.title or chat_store.generate_title(req.messages)
-    return chat_store.save_chat(chat_id, title, req.messages)
+    return chat_store.save_chat(
+        chat_id, title, req.messages, user_id=resolve_user_id(req.user_id),
+    )
 
 
 @router.delete("/sessions/{chat_id}")

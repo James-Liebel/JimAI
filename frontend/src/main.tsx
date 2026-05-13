@@ -8,7 +8,10 @@ import './index.css';
 
 const SERVICE_WORKER_VERSION = '2026-03-22-1';
 
-const Chat = lazy(() => import('./pages/Chat'));
+// Chat is the default landing route — keep a reference to its dynamic import so
+// we can warm it on requestIdleCallback before the user clicks anything.
+const importChat = () => import('./pages/Chat');
+const Chat = lazy(importChat);
 const Notebook = lazy(() => import('./pages/Notebook'));
 const AgentStudio = lazy(() => import('./pages/AgentStudio'));
 const Agents = lazy(() => import('./pages/Agents'));
@@ -96,3 +99,14 @@ if ('serviceWorker' in navigator) {
         void setupServiceWorker();
     });
 }
+
+// Prefetch the default route's chunk + its heaviest dependency (MessageBubble)
+// during idle time so the first chat render does not pay the lazy-load cost.
+const idle: (cb: () => void) => void =
+    typeof (window as any).requestIdleCallback === 'function'
+        ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 2000 })
+        : (cb) => window.setTimeout(cb, 200);
+idle(() => {
+    void importChat();
+    void import('./components/MessageBubble');
+});

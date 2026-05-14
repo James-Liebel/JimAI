@@ -64,6 +64,11 @@ async def lifespan(app: FastAPI):
     try:
         models = await ollama_client.list_models()
         logger.info("Ollama connected — %d models available", len(models))
+        try:
+            from config.models import set_installed_models
+            set_installed_models(models)
+        except Exception as exc:
+            logger.debug("set_installed_models skipped: %s", exc)
     except ConnectionError:
         logger.info("Ollama is not running at startup; it will auto-start on first app instance.")
 

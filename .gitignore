@@ -31,3 +31,6 @@ data/graph.json
 data/style_profile.json
 data/feedback.jsonl
 data/feedback_stats.json
+CLAUDE.local.md
+CLAUDE.md
+CLAUDE.local.md.example

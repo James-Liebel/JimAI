@@ -18,19 +18,43 @@ const ROLE_STYLES: Record<string, string> = {
 
 function modelShortName(model: string): string {
     if (model.includes('deepseek-r1')) return 'R1-14B';
+    if (model.includes('qwen2.5-coder:32b')) return 'Coder-32B';
     if (model.includes('qwen2.5-coder:14b')) return 'Coder-14B';
     if (model.includes('qwen2.5-coder:7b')) return 'Coder-7B';
+    if (model.includes('qwen2.5-coder:3b')) return 'Coder-3B';
+    if (model.includes('qwen3:32b')) return 'Qwen3-32B';
+    if (model.includes('qwen3:14b')) return 'Qwen3-14B';
     if (model.includes('qwen3:8b')) return 'Qwen3-8B';
     if (model.includes('qwen2.5vl')) return 'VL-7B';
     if (model.includes('qwen2-math')) return 'Math-7B';
-    if (model.includes('qwen2.5:32b')) return '32B';
+    if (model.includes('qwen2.5:32b')) return 'Qwen2.5-32B';
+    if (model.includes('nomic-embed')) return 'Embed';
     return model.split(':')[0];
 }
 
-function speedSuffix(speedMode: string | undefined): string {
-    if (speedMode === 'fast') return ' (fast)';
-    if (speedMode === 'deep') return ' (deep)';
-    return '';
+const SPEED_STYLES: Record<string, string> = {
+    turbo: 'bg-accent-green/15 text-accent-green border-accent-green/30',
+    fast: 'bg-accent-blue/10 text-accent-blue border-accent-blue/25',
+    balanced: 'bg-surface-4/40 text-text-secondary border-surface-4',
+    deep: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+};
+
+const SPEED_LABEL: Record<string, string> = {
+    turbo: '⚡ turbo',
+    fast: '⚡ fast',
+    balanced: 'balanced',
+    deep: '◆ deep',
+};
+
+function SpeedChip({ speedMode }: { speedMode: string | undefined }) {
+    if (!speedMode) return null;
+    const style = SPEED_STYLES[speedMode] || SPEED_STYLES.balanced;
+    const label = SPEED_LABEL[speedMode] || speedMode;
+    return (
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[9px] uppercase tracking-wide border ${style}`}>
+            {label}
+        </span>
+    );
 }
 
 export default function RouterBadge({ routing }: Props) {
@@ -54,7 +78,6 @@ export default function RouterBadge({ routing }: Props) {
     } = routing;
 
     const role = primary_role || 'chat';
-    const suffix = speedSuffix(speed_mode);
 
     if (compare_models && compare_models.length >= 2 && judge_model) {
         return (
@@ -71,6 +94,7 @@ export default function RouterBadge({ routing }: Props) {
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[10px] border ${ROLE_STYLES.chat}`}>
                     {modelShortName(judge_model)}
                 </span>
+                <SpeedChip speedMode={speed_mode} />
                 <Tooltip reasoning="Two models answered; judge chose/synthesized the response." />
             </div>
         );
@@ -91,7 +115,8 @@ export default function RouterBadge({ routing }: Props) {
                         </span>
                     );
                 })}
-                <Tooltip reasoning={reasoning + suffix} />
+                <SpeedChip speedMode={speed_mode} />
+                <Tooltip reasoning={reasoning} />
             </div>
         );
     }
@@ -104,8 +129,9 @@ export default function RouterBadge({ routing }: Props) {
                         <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
                     </svg>
                 )}
-                {modelShortName(primary_model)}{suffix}
+                {modelShortName(primary_model)}
             </span>
+            <SpeedChip speedMode={speed_mode} />
             {auto_web_research_attempted && (
                 <span
                     className={`inline-flex items-center px-1.5 py-0.5 rounded-none text-[9px] border ${

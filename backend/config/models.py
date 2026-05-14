@@ -345,15 +345,77 @@ TURBO_CONFIGS: dict[str, ModelConfig] = {
 
 _current_mode: SpeedMode = SpeedMode.BALANCED
 
+# Preferred upgrades: if the user pulls a stronger model, auto-promote it.
+# Keyed by (role, speed_mode); value is an ordered list of preferred replacements,
+# tried in order until one is found in the installed-models set.
+# Why: lets `ollama pull qwen3:32b` immediately bump DEEP without code changes,
+# while staying safe — falls back to the original if the upgrade isn't installed.
+# Gated by OLLAMA_AUTO_UPGRADE=1 (default off) so VRAM-constrained users opt in.
+PREFERRED_UPGRADES: dict[tuple[str, SpeedMode], list[str]] = {
+    ("chat", SpeedMode.BALANCED): ["qwen3:14b"],
+    ("code", SpeedMode.BALANCED): ["qwen2.5-coder:32b-instruct-q4_K_M"],
+    ("data", SpeedMode.BALANCED): ["qwen2.5-coder:32b-instruct-q4_K_M"],
+    ("math", SpeedMode.DEEP): ["qwen3:32b", "qwen2.5:32b-instruct-q4_K_M"],
+    ("code", SpeedMode.DEEP): ["qwen2.5-coder:32b-instruct-q4_K_M", "qwen3:32b"],
+    ("chat", SpeedMode.DEEP): ["qwen3:32b", "qwen2.5:32b-instruct-q4_K_M"],
+    ("finance", SpeedMode.DEEP): ["qwen3:32b", "qwen2.5:32b-instruct-q4_K_M"],
+    ("data", SpeedMode.DEEP): ["qwen2.5-coder:32b-instruct-q4_K_M", "qwen3:32b"],
+    ("writing", SpeedMode.DEEP): ["qwen3:32b", "qwen2.5:32b-instruct-q4_K_M"],
+}
+
+_installed_models: set[str] = set()
+
+
+def set_installed_models(models: list[str] | set[str]) -> None:
+    """Update the cached installed-model set. Called from startup after `ollama list`."""
+    global _installed_models
+    _installed_models = {m.strip() for m in models if m}
+
+
+def get_installed_models() -> set[str]:
+    return set(_installed_models)
+
+
+def _auto_upgrade_enabled() -> bool:
+    import os
+    return os.environ.get("OLLAMA_AUTO_UPGRADE", "0").lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_upgrade(role: str, mode: SpeedMode, current: str) -> str:
+    """Return an upgraded model name if available + enabled; else the current model."""
+    if not _auto_upgrade_enabled() or not _installed_models:
+        return current
+    candidates = PREFERRED_UPGRADES.get((role, mode), [])
+    for candidate in candidates:
+        if candidate in _installed_models and candidate != current:
+            return candidate
+    return current
+
 
 def get_configs() -> dict[str, ModelConfig]:
     if _current_mode == SpeedMode.TURBO:
-        return TURBO_CONFIGS
-    if _current_mode == SpeedMode.FAST:
-        return FAST_CONFIGS
-    if _current_mode == SpeedMode.DEEP:
-        return DEEP_CONFIGS
-    return BALANCED_CONFIGS
+        base = TURBO_CONFIGS
+    elif _current_mode == SpeedMode.FAST:
+        base = FAST_CONFIGS
+    elif _current_mode == SpeedMode.DEEP:
+        base = DEEP_CONFIGS
+    else:
+        base = BALANCED_CONFIGS
+    if not _auto_upgrade_enabled() or not _installed_models:
+        return base
+    upgraded: dict[str, ModelConfig] = {}
+    for role, cfg in base.items():
+        new_model = _resolve_upgrade(role, _current_mode, cfg.model)
+        if new_model == cfg.model:
+            upgraded[role] = cfg
+        else:
+            upgraded[role] = ModelConfig(
+                model=new_model,
+                temperature=cfg.temperature,
+                system_prompt=cfg.system_prompt,
+                speed_mode=cfg.speed_mode,
+            )
+    return upgraded
 
 
 def get_config(role: str) -> ModelConfig:
@@ -383,6 +445,9 @@ MODEL_DISPLAY: dict[str, dict] = {
     "qwen2.5-coder:7b": {"label": "Coder·7B", "color": "green"},
     "qwen2.5-coder:3b": {"label": "Coder·3B ⚡", "color": "green"},
     "qwen2.5:32b-instruct-q3_k_s": {"label": "32B·Q3", "color": "amber"},
+    "qwen2.5:32b-instruct-q4_K_M": {"label": "32B·Q4", "color": "amber"},
+    "qwen2.5-coder:32b-instruct-q4_K_M": {"label": "Coder·32B", "color": "green"},
+    "qwen3:32b": {"label": "Qwen3·32B", "color": "amber"},
     "nomic-embed-text": {"label": "Embed", "color": "gray"},
     # legacy — kept for display if old model name appears in history
     "deepseek-r1:14b": {"label": "R1·14B", "color": "blue"},

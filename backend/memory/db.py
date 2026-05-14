@@ -256,6 +256,16 @@ def write_user_slot(user_id: str, slot: str, data: Any) -> None:
         )
 
 
+def delete_user_slot(user_id: str, slot: str) -> None:
+    """Remove a per-user memory slot. No-op if it doesn't exist."""
+    conn = get_conn()
+    with _LOCK:
+        conn.execute(
+            "DELETE FROM user_memory WHERE user_id = ? AND slot = ?",
+            (user_id, slot),
+        )
+
+
 # ── One-shot JSON migration ──────────────────────────────────────────
 
 _MIGRATION_MARK = "_migrated_json_chats_v1"

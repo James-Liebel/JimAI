@@ -112,6 +112,15 @@ async def lifespan(app: FastAPI):
             logger.debug("Ollama embed warmup skipped", exc_info=True)
 
     background_tasks.spawn(_warm_models_task(), name="ollama_warmup")
+
+    # Spawn the autonomous reflection loop. The loop self-rate-limits via an
+    # idle-window check, so kicking it off at startup is cheap.
+    try:
+        from agents.thought_generator import start_background_loop
+        start_background_loop()
+        logger.info("Autonomous thought-generator loop started.")
+    except Exception as exc:
+        logger.debug("Autonomous thought loop not started: %s", exc)
     try:
         yield
     finally:

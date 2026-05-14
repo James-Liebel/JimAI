@@ -87,6 +87,43 @@ async def after_turn(
     )
     cross_chat_memory.append_pending(note, user_id=user_id)
 
+    # Index this turn into the vector store so future questions can RAG over
+    # past conversations. Source ``history:<user_id>`` is a stable per-user
+    # bucket; chat.py augments its session_sources with this string at retrieve
+    # time. Failure is best-effort — embedding can fail if Ollama is down or
+    # nomic-embed-text isn't pulled, in which case we keep current-chat-only
+    # behavior.
+    try:
+        from memory import vectordb
+        import hashlib
+        import time
+
+        turn_text = (
+            f"USER: {user_message}\n"
+            f"ASSISTANT: {assistant_message}"
+        )
+        history_source = f"history:{user_id}"
+        ts = int(time.time() * 1000)
+        turn_source = f"{history_source}:{session_id}:{ts}"
+        # Hash the assistant response so the feedback API can target this
+        # turn's chunks without needing a frontend-assigned message_id.
+        response_hash = hashlib.sha1(assistant_message.encode("utf-8", "replace")).hexdigest()[:24]
+        await vectordb.ingest_document(
+            text=turn_text,
+            source=turn_source,
+            metadata={
+                "user_id": user_id,
+                "session_id": session_id,
+                "kind": "chat_turn",
+                "timestamp_ms": ts,
+                "response_hash": response_hash,
+                # feedback_score starts at 0; adjust_metadata bumps it per feedback event.
+                "feedback_score": 0.0,
+            },
+        )
+    except Exception:
+        logger.debug("chat-turn vectordb ingest skipped", exc_info=True)
+
 
 def schedule_after_turn(
     session_id: str,

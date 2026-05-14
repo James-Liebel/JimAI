@@ -107,30 +107,45 @@ async def retrieve(
     query: str,
     n: int = 5,
     sources: list[str] | None = None,
+    where_metadata: dict | None = None,
 ) -> list[dict]:
     """Embed the query and return the top-n most similar chunks.
 
-    If *sources* is provided, restrict results to chunks whose ``source``
-    metadata is in that list. This lets us scope retrieval to a single
-    chat/session instead of the entire corpus.
+    Filter modes (combinable):
+      • *sources* — restrict to chunks whose ``source`` field is in this list.
+      • *where_metadata* — restrict by any other metadata field, e.g.
+        ``{"user_id": "default", "kind": "chat_turn"}``. Used to pull past
+        chat history regardless of the auto-generated per-turn source string.
+
+    If neither filter is given the call returns [] — we never search the whole
+    corpus blindly, since that would leak content across users.
     """
     collection = _get_collection()
     if collection is None:
         return []
     if collection.count() == 0:
         return []
+    if not sources and not where_metadata:
+        return []
 
     query_embedding = await ollama_client.embed(query)
+    # Build a Chroma ``where`` filter combining source list + metadata.
+    where_clauses: list[dict] = []
     if sources:
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(n, collection.count()),
-            where={"source": {"$in": sources}},
-            include=["documents", "metadatas", "distances"],
-        )
+        where_clauses.append({"source": {"$in": list(sources)}})
+    if where_metadata:
+        for key, val in where_metadata.items():
+            where_clauses.append({key: {"$eq": val}})
+    if len(where_clauses) == 1:
+        where_filter = where_clauses[0]
     else:
-        # No sources for this chat/session — return no RAG context
-        return []
+        where_filter = {"$and": where_clauses}
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(n, collection.count()),
+        where=where_filter,
+        include=["documents", "metadatas", "distances"],
+    )
 
     hits: list[dict] = []
     for doc, meta, dist in zip(
@@ -138,12 +153,66 @@ async def retrieve(
         results["metadatas"][0],
         results["distances"][0],
     ):
+        similarity = 1.0 - float(dist)
+        # Feedback weighting: thumbs-up chunks rise, thumbs-down sink. The
+        # multiplier is bounded so a single thumbs-down can't bury a chunk
+        # entirely, and a single thumbs-up can't promote unrelated content.
+        feedback = float((meta or {}).get("feedback_score", 0.0) or 0.0)
+        # Map feedback score to a multiplier in [0.5, 1.5] using a soft curve.
+        weight = max(0.5, min(1.0 + 0.1 * feedback, 1.5))
         hits.append({
             "text": doc,
-            "source": meta.get("source", "unknown"),
-            "score": round(1 - dist, 4),  # cosine distance → similarity
+            "source": (meta or {}).get("source", "unknown"),
+            "score": round(similarity, 4),
+            "weighted_score": round(similarity * weight, 4),
+            "feedback_score": feedback,
         })
+    # Re-rank by weighted score so feedback-positive chunks rise to the top
+    # without losing the original similarity in the payload.
+    hits.sort(key=lambda h: h.get("weighted_score", h.get("score", 0)), reverse=True)
     return hits
+
+
+async def adjust_metadata(
+    *,
+    where: dict,
+    delta_field: str,
+    delta_value: float,
+) -> int:
+    """Atomically bump a numeric metadata field on every chunk matching ``where``.
+
+    Used by the feedback pipeline: when a user thumbs-up's a turn, every chunk
+    derived from that turn gets feedback_score += 1; thumbs-down decrements.
+    Retrieval at chat time multiplies similarity scores by a feedback weight so
+    well-rated material rises in the ranking.
+
+    Returns the number of chunks updated (0 if nothing matched or the store
+    is unavailable).
+    """
+    collection = _get_collection()
+    if collection is None:
+        return 0
+    try:
+        existing = collection.get(where=where, include=["metadatas"])
+    except Exception as exc:
+        logger.debug("adjust_metadata: query failed: %s", exc)
+        return 0
+    ids = existing.get("ids") or []
+    metas = existing.get("metadatas") or []
+    if not ids:
+        return 0
+    new_metas: list[dict] = []
+    for m in metas:
+        m2 = dict(m or {})
+        cur = float(m2.get(delta_field, 0.0) or 0.0)
+        m2[delta_field] = cur + float(delta_value)
+        new_metas.append(m2)
+    try:
+        collection.update(ids=ids, metadatas=new_metas)
+    except Exception as exc:
+        logger.debug("adjust_metadata: update failed: %s", exc)
+        return 0
+    return len(ids)
 
 
 async def delete_source(source: str) -> None:

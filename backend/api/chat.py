@@ -14,6 +14,13 @@ from pydantic import BaseModel
 
 from agent_space.web_research import fetch_web, search_web
 from agents.judge import judge_response, should_judge, JudgeVerdict
+from agents.multi_step import run_multi_step, should_run_multi_step
+from agents.reasoner import (
+    augment_system_prompt_with_plan,
+    critique_and_revise,
+    plan_for,
+    should_run_reasoning,
+)
 from agents.self_consistency import self_consistent_quant
 from config.inference_params import get_inference_params
 from config.models import MODEL_ROUTES, get_speed_mode
@@ -368,6 +375,71 @@ def _response_looks_stale_for_live_request(response_text: str) -> bool:
     if not text:
         return False
     return bool(_KNOWLEDGE_CUTOFF_HINTS.search(text))
+
+
+# Topic-to-domain heuristic — used by the citation validator to flag obvious
+# mismatches (e.g., a finance proposal citing a SQL Stack Overflow answer).
+# Each tuple is (topic-keyword-regex, set of domain substrings considered
+# off-topic for that keyword). Keeps the validator deterministic and dependency-
+# free; the LLM is not asked to grade itself.
+_CITATION_BAD_DOMAIN_MAP: list[tuple[re.Pattern[str], frozenset[str]]] = [
+    (re.compile(r"\b(finance|financial|stock|equity|portfolio|wacc|ebitda|valuation|dcf)\b", re.IGNORECASE),
+     frozenset({"stackoverflow.com/questions", "jira", "/svg", "google_trends", "dead_internet"})),
+    (re.compile(r"\b(machine learning|deep learning|model training|neural network|nlp|llm)\b", re.IGNORECASE),
+     frozenset({"jira", "/svg", "dead_internet", "google_trends"})),
+    (re.compile(r"\b(medicine|medical|clinical|diagnosis|patient|treatment)\b", re.IGNORECASE),
+     frozenset({"stackoverflow.com", "jira", "/svg"})),
+    (re.compile(r"\b(law|legal|jurisdiction|contract|statute)\b", re.IGNORECASE),
+     frozenset({"stackoverflow.com", "jira", "/svg"})),
+]
+
+_CITATION_LINE_RE = re.compile(r"\[(\d+)\][^\n]*?(https?://[^\s\])>]+)", re.IGNORECASE)
+
+
+def _validate_citations(
+    question: str,
+    response_text: str,
+    research_sources: list[dict],
+) -> list[str]:
+    """Return a list of citation issues found in ``response_text``.
+
+    Specifically catches:
+      • numbered citations that link to a URL whose domain doesn't match the
+        question topic (e.g., a finance proposal citing JIRA);
+      • numbered citations that point to URLs not in the research-sources list
+        the model was actually given (hallucinated citations).
+    """
+    issues: list[str] = []
+    text = str(response_text or "")
+    if not text:
+        return issues
+
+    # Build a quick set of allowed URLs from the auto-research sources for the
+    # "hallucinated reference" check.
+    allowed_urls: set[str] = set()
+    for src in research_sources or []:
+        url = str(src.get("source") or "").strip()
+        if url:
+            allowed_urls.add(url)
+
+    qtext = str(question or "")
+    bad_domains_for_topic: set[str] = set()
+    for pattern, bads in _CITATION_BAD_DOMAIN_MAP:
+        if pattern.search(qtext):
+            bad_domains_for_topic |= bads
+
+    seen_urls: set[str] = set()
+    for match in _CITATION_LINE_RE.finditer(text):
+        url = match.group(2).rstrip(").,;]'\"")
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        low = url.lower()
+        if bad_domains_for_topic and any(bd in low for bd in bad_domains_for_topic):
+            issues.append(f"citation [{match.group(1)}] points to off-topic URL: {url}")
+        if allowed_urls and url not in allowed_urls:
+            issues.append(f"citation [{match.group(1)}] URL not in research sources: {url}")
+    return issues
 
 
 def _build_live_source_fallback_response(sources: list[dict], user_message: str) -> str:
@@ -916,9 +988,32 @@ async def _stream_chat(
             yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': err_status})}\n\n"
         yield f"data: {json.dumps({'text': '', 'done': False, 'searching_web': False, 'search_status': ''})}\n\n"
 
-    # Retrieve RAG context — scoped to sources ingested in this chat/session
+    # Retrieve RAG context — both this-session sources AND the user's full
+    # chat history (indexed by chat_memory_jobs.after_turn into the same
+    # ChromaDB collection under metadata.kind=="chat_turn"). The two pools
+    # give the model deliberate context (per-session uploaded files) plus
+    # episodic memory (what the user has discussed in the past).
     session_sources = session_store.get_sources(session_id)
     rag_chunks = await vectordb.retrieve(message, n=5, sources=session_sources)
+    # Layer past-chat retrieval on top. Scoped by user_id so a multi-user
+    # deployment doesn't bleed conversations across accounts.
+    try:
+        history_chunks = await vectordb.retrieve(
+            message,
+            n=3,
+            where_metadata={"user_id": user_id, "kind": "chat_turn"},
+        )
+        # Filter out chunks from the current session — they'd just echo back
+        # things already in the live history window.
+        history_chunks = [c for c in history_chunks if session_id not in str(c.get("source", ""))]
+        # Tag the source so the prompt renderer shows them as "past conversation".
+        for c in history_chunks:
+            c.setdefault("source", "past_conversation")
+            if not c["source"].startswith("past_conversation"):
+                c["source"] = "past_conversation"
+        rag_chunks = list(rag_chunks) + history_chunks
+    except Exception:
+        logger.debug("history RAG retrieval skipped", exc_info=True)
     augmented_prompt = build_rag_prompt(message, rag_chunks)
     auto_research_context = ""
     auto_research_sources: list[dict] = []
@@ -1057,6 +1152,70 @@ async def _stream_chat(
     cx_block = cross_chat_memory.get_prompt_block(user_id=user_id)
     if cx_block:
         system_prompt = f"{system_prompt}\n\n{cx_block}"
+
+    # Inject the model's own prior reflections (generated by the autonomous
+    # thought loop). These give continuity across user sessions — the model
+    # sees what it thought *about the user* the last time it had idle cycles.
+    try:
+        from agents.thought_generator import build_thoughts_prompt_block, note_activity
+        note_activity()  # mark the system as live so the reflection loop sleeps
+        thoughts_block = build_thoughts_prompt_block(user_id=user_id)
+        if thoughts_block:
+            system_prompt = f"{system_prompt}\n\n{thoughts_block}"
+    except Exception:
+        logger.debug("autonomous thoughts injection skipped", exc_info=True)
+
+    # Inject lessons derived from this user's feedback history. These are
+    # short imperatives ("prefers shorter answers", "wants code-first") that
+    # the feedback loop has accumulated from thumbs/corrections/rephrases.
+    # They go LAST in the system prompt so they're the freshest priors the
+    # model sees and take precedence over generic persona instructions.
+    try:
+        from agents.feedback_loop import get_lessons, detect_implicit_signal
+
+        lessons = get_lessons(user_id=user_id)
+        if lessons:
+            joined = "\n".join(f"- {x}" for x in lessons[:6])
+            system_prompt = (
+                f"{system_prompt}\n\n## Learned from this user's feedback (apply these)\n{joined}"
+            )
+
+        # Detect whether THIS user message looks like implicit feedback on the
+        # previous turn. If so, log it so the feedback loop downweights the
+        # prior chunk in vectordb.
+        if history:
+            try:
+                prior_user = ""
+                prior_assistant = ""
+                # Walk backwards: find the last user→assistant pair before this turn.
+                for m in reversed(history):
+                    role = m.get("role")
+                    content = m.get("content") or ""
+                    if not prior_assistant and role == "assistant":
+                        prior_assistant = str(content)
+                    elif prior_assistant and not prior_user and role == "user":
+                        prior_user = str(content)
+                        break
+                signal = detect_implicit_signal(message, prior_user, prior_assistant)
+                if signal:
+                    from agent_space.background_tasks import spawn
+                    from agents.feedback_loop import incorporate_feedback_async
+                    spawn(
+                        incorporate_feedback_async({
+                            "kind": "implicit",
+                            "signal": signal,
+                            "user_id": user_id,
+                            "session_id": session_id,
+                            "prior_response": prior_assistant,
+                            "new_prompt": message,
+                            "timestamp": __import__("time").time(),
+                        }),
+                        name=f"implicit_feedback:{session_id}",
+                    )
+            except Exception:
+                logger.debug("implicit-signal detection skipped", exc_info=True)
+    except Exception:
+        logger.debug("feedback lessons injection skipped", exc_info=True)
 
     # Markdown skills from Agent Space (manual selection + optional auto-match on user message).
     try:
@@ -1360,6 +1519,70 @@ async def _stream_chat(
             full_response_str = full_response_str + judge_correction_appendix
             yield f"data: {json.dumps({'text': judge_correction_appendix, 'done': False, 'model': config.model, 'judge_corrected': True})}\n\n"
     else:
+        # Multi-step executor: when the user's request is genuinely multi-stage
+        # ("design X then test it then write a memo"), we run plan→step→observe
+        # →replan→synthesize instead of single-shot. The single-pass reasoner
+        # below is reserved for single-answer complex questions.
+        if should_run_multi_step(mode, message) and not manual_override_active:
+            full_response_parts: list[str] = []
+            step_count = 0
+            try:
+                async for event in run_multi_step(
+                    task=message,
+                    chat_system_prompt=system_prompt,
+                    session_id=session_id,
+                ):
+                    etype = event.get("type")
+                    if etype == "plan":
+                        yield f"data: {json.dumps({'text': '', 'multistep_plan': event.get('steps', []), 'done': False, 'model': config.model})}\n\n"
+                    elif etype == "step_start":
+                        yield f"data: {json.dumps({'text': '', 'multistep_step_start': event, 'done': False, 'model': config.model})}\n\n"
+                    elif etype == "step_done":
+                        step_count += 1
+                        yield f"data: {json.dumps({'text': '', 'multistep_step_done': {'index': event.get('index'), 'elapsed_seconds': event.get('elapsed_seconds')}, 'done': False, 'model': config.model})}\n\n"
+                    elif etype == "replan":
+                        yield f"data: {json.dumps({'text': '', 'multistep_replan': event, 'done': False, 'model': config.model})}\n\n"
+                    elif etype == "synthesis_chunk":
+                        chunk = str(event.get('text') or '')
+                        if chunk:
+                            full_response_parts.append(chunk)
+                            yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
+                    elif etype == "done":
+                        full_response_parts = [str(event.get('final_answer') or '')]
+                full_response_str = "".join(full_response_parts).strip()
+            except Exception:
+                logger.warning("multi_step execution failed; falling back to single-shot", exc_info=True)
+                full_response_str = ""
+            if full_response_str:
+                session_store.add_message(session_id, "assistant", full_response_str, mode)
+                _schedule_memory_update(session_id, message, full_response_str, user_id=user_id)
+                routing_info["multistep_steps"] = step_count
+                yield f"data: {json.dumps({'text': '', 'done': True, 'sources': sources, 'routing': routing_info, 'review': None, 'consistency': {}, 'judge': None})}\n\n"
+                return
+            # If multi-step produced nothing, fall through to the normal path below.
+
+        # Optional reasoning loop: complex chat-mode questions go through a
+        # plan→draft→critique pass. The plan is generated up-front and folded
+        # into the draft's system prompt so the model follows a structure
+        # instead of free-associating. Turbo/fast skip this for speed.
+        reasoning_plan: str = ""
+        if should_run_reasoning(mode, message):
+            try:
+                reasoning_plan = await plan_for(message)
+                if reasoning_plan:
+                    augmented_system = augment_system_prompt_with_plan(system_prompt, reasoning_plan)
+                    chat_messages = ollama_client._build_chat_messages(
+                        history_for_model,
+                        augmented_prompt,
+                        system=augmented_system,
+                        images=images,
+                        max_history_turns=chat_context.CHAT_MAX_HISTORY_MESSAGES,
+                        max_total_chars=chat_context.CHAT_MAX_HISTORY_CHARS,
+                    )
+                    yield f"data: {json.dumps({'text': '', 'reasoning_plan': reasoning_plan, 'done': False, 'model': config.model})}\n\n"
+            except Exception:
+                logger.debug("reasoning plan generation skipped", exc_info=True)
+
         # Standard single-shot generation with inference params
         full_response = []
         async for chunk in ollama_client.chat_stream(
@@ -1380,12 +1603,32 @@ async def _stream_chat(
             yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': config.model})}\n\n"
         full_response_str = "".join(full_response)
 
-        if should_judge(mode, speed_mode.value, len(message)):
-            verdict = await judge_response(
-                question=message,
-                response=full_response_str,
-                response_model=config.model,
-                domain=mode,
+        # Citation validation runs even when the judge below skips, because
+        # hallucinated citations are a high-impact failure mode in research mode.
+        cite_issues = _validate_citations(message, full_response_str, auto_research_sources)
+        if cite_issues:
+            note = "\n\n---\n*Citation check flagged:* " + "; ".join(cite_issues[:3])
+            full_response_str = full_response_str + note
+            yield f"data: {json.dumps({'text': note, 'done': False, 'model': config.model, 'citation_warning': True})}\n\n"
+
+        # Run the judge for the normal domain-specific cases AND when the
+        # reasoning loop kicked in (so the draft gets a quality gate).
+        run_judge = should_judge(mode, speed_mode.value, len(message)) or bool(reasoning_plan)
+        if run_judge:
+            verdict = await (
+                judge_response(
+                    question=message,
+                    response=full_response_str,
+                    response_model=config.model,
+                    domain=mode,
+                )
+                if not reasoning_plan
+                else critique_and_revise(
+                    question=message,
+                    draft_response=full_response_str,
+                    response_model=config.model,
+                    domain="general" if mode not in {"math", "code", "finance"} else mode,
+                )
             )
             if verdict and not verdict.passed and verdict.revised_response:
                 # Stream the correction so the user actually sees it. The original

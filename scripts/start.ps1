@@ -116,9 +116,12 @@ if (Test-Path $backendPython) {
     }
 }
 
-# Start backend (bind to 0.0.0.0 for Tailscale access)
+# Start backend. Binds loopback by default. To expose over Tailscale/LAN, set an API key
+# (PRIVATE_AI_API_KEY) or JIMAI_ALLOW_INSECURE_LAN=1 — the backend refuses an exposed bind
+# without auth (see assert_safe_bind in backend/config/settings.py).
 # Use the backend's virtualenv Python explicitly so dependencies and versions are correct.
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; & '$backendPython' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+$bindHost = if (($env:JIMAI_ALLOW_INSECURE_LAN -eq '1') -or $env:PRIVATE_AI_API_KEY) { '0.0.0.0' } else { '127.0.0.1' }
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; & '$backendPython' -m uvicorn main:app --reload --host $bindHost --port 8000"
 
 Start-Sleep 2
 

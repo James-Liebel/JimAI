@@ -10,7 +10,8 @@ import uvicorn
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start Agent Space backend.")
-    parser.add_argument("--host", default="0.0.0.0")
+    # Loopback by default — non-loopback binds are gated by assert_safe_bind() below.
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--model", default="qwen2.5-coder:14b")
@@ -51,6 +52,8 @@ def main() -> None:
     os.environ["AGENT_SPACE_PROACTIVE_ENABLED"] = "true" if args.proactive_enabled else "false"
     os.environ["AGENT_SPACE_PROACTIVE_TICK_SECONDS"] = str(args.proactive_tick_seconds)
 
+    from config.settings import assert_safe_bind
+    assert_safe_bind(args.host)  # refuse exposed bind without auth
     uvicorn.run("main:app", host=args.host, port=args.port, reload=args.reload)
 
 

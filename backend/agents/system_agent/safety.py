@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Awaitable, Callable
 
-from .tools import shell as shell_tools
-
 
 class AgentMode(str, Enum):
     SUPERVISED = "supervised"
@@ -55,12 +53,17 @@ def classify_risk(tool: str, args: dict) -> RiskLevel:
     if any(term in tool_lower for term in destructive_terms):
         return RiskLevel.DESTRUCTIVE
 
-    if "shell" in tool_lower or "run_command" in tool_lower:
-        if shell_tools.requires_confirmation(str(args.get("command", ""))):
-            return RiskLevel.DESTRUCTIVE
-        return RiskLevel.CAUTION
+    # Shell / arbitrary command / code execution always requires explicit confirmation,
+    # even in autonomous mode. The denylist is advisory only and is trivially bypassed
+    # (encoded commands, non-listed verbs), so command execution must never auto-approve.
+    if "shell" in tool_lower or "run_command" in tool_lower or "exec" in tool_lower:
+        return RiskLevel.DESTRUCTIVE
 
-    if any(term in tool_lower for term in ("write", "move", "copy", "open_application", "launch")):
+    # Launching a process/app starts an arbitrary executable — always confirm.
+    if "open_application" in tool_lower or "launch" in tool_lower:
+        return RiskLevel.DESTRUCTIVE
+
+    if any(term in tool_lower for term in ("write", "move", "copy")):
         return RiskLevel.DESTRUCTIVE if bool(args.get("overwrite")) else RiskLevel.CAUTION
 
     if "clipboard.write" in tool_lower:

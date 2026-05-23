@@ -11,7 +11,9 @@ export default function LatexRenderer({ expression, display = false }: Props) {
         const html = katex.renderToString(expression, {
             displayMode: display,
             throwOnError: false,
-            trust: true,
+            // trust:false (KaTeX default) — blocks \href{javascript:…}, \htmlData, and raw
+            // HTML injection. Math content can come from model output, so never trust it.
+            trust: false,
         });
         return <span dangerouslySetInnerHTML={{ __html: html }} />;
     } catch {

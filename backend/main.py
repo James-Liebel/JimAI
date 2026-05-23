@@ -1,6 +1,7 @@
 """Private AI Backend — FastAPI application entry point."""
 
 import asyncio
+import hmac
 import inspect
 import logging
 import os
@@ -61,16 +62,38 @@ async def lifespan(app: FastAPI):
     init (n8n, Qdrant warmup, etc.) can exceed launcher TCP probes unless we defer it.
     """
     logger.info("Starting Private AI backend...")
-    try:
-        models = await ollama_client.list_models()
-        logger.info("Ollama connected — %d models available", len(models))
-        try:
-            from config.models import set_installed_models
-            set_installed_models(models)
-        except Exception as exc:
-            logger.debug("set_installed_models skipped: %s", exc)
-    except ConnectionError:
-        logger.info("Ollama is not running at startup; it will auto-start on first app instance.")
+
+    ollama_ready = asyncio.Event()
+
+    async def _connect_ollama_with_retry() -> None:
+        """Probe Ollama with backoff so the first /health response reflects a warmed
+        instance. Ollama on Windows can take 20–40s to bind 11434 (model index +
+        GPU detect); without retries the backend would log 'not running' and the
+        first frontend health poll would show ollama=false until ~5s later.
+
+        Runs in the background so startup never blocks. Total wall-clock budget
+        ~45s (8 attempts, 0.5→8s exponential capped). Sets ollama_ready when alive
+        so dependent tasks (warmup) can wait rather than spawning into a void.
+        """
+        delays = [0.0, 0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 8.0]
+        for attempt, delay in enumerate(delays, start=1):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                models = await ollama_client.list_models()
+                logger.info("Ollama connected on attempt %d — %d models available", attempt, len(models))
+                try:
+                    from config.models import set_installed_models
+                    set_installed_models(models)
+                except Exception as exc:
+                    logger.debug("set_installed_models skipped: %s", exc)
+                ollama_ready.set()
+                return
+            except (ConnectionError, Exception) as exc:  # noqa: BLE001 — any probe failure should be retried
+                if attempt == len(delays):
+                    logger.info("Ollama still not reachable after %d attempts: %s", attempt, exc)
+
+    background_tasks.spawn(_connect_ollama_with_retry(), name="ollama_startup_probe")
 
     async def _agent_space_startup_task() -> None:
         try:
@@ -90,6 +113,14 @@ async def lifespan(app: FastAPI):
         message hits a warm model (saves several seconds of cold load on big
         Qwen/Llama variants). Failures are non-fatal — Ollama may not be up yet.
         """
+        # Wait for the startup probe to confirm Ollama is live before warming.
+        # Without this, the warmup would race the probe and silently fail on
+        # cold start, leaving the user's first chat hit cold.
+        try:
+            await asyncio.wait_for(ollama_ready.wait(), timeout=50.0)
+        except asyncio.TimeoutError:
+            logger.info("Ollama warmup skipped: probe did not confirm readiness")
+            return
         try:
             from models.router import get_model_config
             chat_cfg = get_model_config("chat")
@@ -170,8 +201,9 @@ def _get_allowed_origins() -> list[str]:
         "http://localhost:8000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
-        # Some embedded / sandboxed contexts send this literal on cross-origin-ish fetches.
-        "null",
+        # NOTE: the literal "null" origin is intentionally NOT allowed — it can be forged by
+        # sandboxed iframes / data: URLs, which combined with allow_credentials=True would let
+        # a hostile page make credentialed requests.
     ]
     try:
         result = subprocess.run(
@@ -249,7 +281,7 @@ async def verify_api_key(x_api_key: str = Header(None)) -> bool:
             status_code=503,
             detail="API auth is enabled but PRIVATE_AI_API_KEY is missing.",
         )
-    if x_api_key != expected:
+    if not hmac.compare_digest(x_api_key or "", expected):
         raise HTTPException(status_code=401, detail="Invalid API key")
     return True
 
@@ -269,7 +301,7 @@ async def api_key_guard(request: Request, call_next):
                 content={"error": "API auth enabled but PRIVATE_AI_API_KEY is missing"},
             )
         provided = (request.headers.get("X-API-Key") or "").strip()
-        if provided != expected:
+        if not hmac.compare_digest(provided, expected):
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid API key"},
@@ -280,10 +312,13 @@ async def api_key_guard(request: Request, call_next):
 # ── Global exception handler ──────────────────────────────────────────
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error("Unhandled error: %s", exc, exc_info=True)
+    # Log full detail server-side; return a generic message so internal paths, library
+    # internals, or secrets embedded in exception text never reach the client.
+    request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID")
+    logger.error("Unhandled error (request_id=%s): %s", request_id, exc, exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"error": str(exc), "type": type(exc).__name__},
+        content={"error": "Internal server error", "request_id": request_id},
     )
 
 

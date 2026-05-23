@@ -76,3 +76,40 @@ BROWSER_EXTRACT_MAX_CHARS: int = int(os.environ.get("BROWSER_EXTRACT_MAX_CHARS",
 RATE_LIMIT_RUN_MAX_CALLS: int = int(os.environ.get("RATE_LIMIT_RUN_MAX_CALLS", "10"))
 RATE_LIMIT_RUN_WINDOW_SECS: float = float(os.environ.get("RATE_LIMIT_RUN_WINDOW_SECS", "60"))
 RATE_LIMIT_ENABLED: bool = os.environ.get("RATE_LIMIT_ENABLED", "true").lower() in ("true", "1", "yes")
+
+
+# ── Network bind safety ──────────────────────────────────────────────────
+def is_loopback_host(host: str) -> bool:
+    """True for localhost-equivalent bind hosts (any 127.0.0.0/8 address, ::1, localhost)."""
+    h = (host or "").strip().lower()
+    if h.startswith("["):  # bracketed IPv6, e.g. [::1]:8000
+        h = h[1:].split("]", 1)[0]
+    elif h.count(":") == 1:  # host:port (not bare IPv6)
+        h = h.split(":", 1)[0]
+    return h in {"", "localhost", "::1"} or h.startswith("127.")
+
+
+def assert_safe_bind(host: str) -> None:
+    """Fail closed when binding a non-loopback interface without authentication.
+
+    The backend exposes code-execution, arbitrary file-read, and system-agent
+    endpoints. Binding to 0.0.0.0 / a LAN / a Tailnet with auth disabled would
+    make all of them reachable unauthenticated, so refuse unless the operator
+    has set an API key or explicitly accepted the risk.
+    """
+    if is_loopback_host(host):
+        return
+    if os.getenv("JIMAI_ALLOW_INSECURE_LAN", "").lower() in ("1", "true", "yes"):
+        return
+    auth_required = os.getenv("PRIVATE_AI_AUTH_REQUIRED", "false").lower() in ("1", "true", "yes")
+    has_key = bool(os.getenv("PRIVATE_AI_API_KEY", "").strip())
+    if auth_required and has_key:
+        return
+    raise SystemExit(
+        f"\n[SECURITY] Refusing to bind to non-loopback host '{host}' without authentication.\n"
+        "This would expose code-execution, file-read, and system-agent endpoints to your LAN/Tailnet.\n"
+        "Choose one:\n"
+        "  - bind to 127.0.0.1 (default, recommended), or\n"
+        "  - set PRIVATE_AI_AUTH_REQUIRED=true and PRIVATE_AI_API_KEY=<strong-key>, or\n"
+        "  - set JIMAI_ALLOW_INSECURE_LAN=1 to explicitly accept the risk.\n"
+    )

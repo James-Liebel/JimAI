@@ -147,5 +147,9 @@ def open_application(app_name: str) -> dict:
         "vscode": "code",
         "word": "WINWORD.EXE",
     }.get(app_name.lower(), app_name)
-    subprocess.Popen([executable], shell=True)
+    # No shell=True: prevents command injection via app_name. Reject shell metacharacters
+    # so an unknown alias cannot smuggle a command (e.g. "calc & evil").
+    if any(ch in executable for ch in '&|;<>%^"\'`$()\n\r'):
+        raise ValueError(f"Unsafe application name: {app_name!r}")
+    subprocess.Popen([executable], shell=False)
     return {"app": app_name, "launched": True}

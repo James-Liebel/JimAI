@@ -41,20 +41,37 @@ function authHeaders(): Record<string, string> {
     return token ? { 'X-GitHub-Token': token } : {};
 }
 
+// The PAT is kept in memory (primary) with a sessionStorage fallback so a refresh
+// within the same tab doesn't lose it. We deliberately avoid localStorage: a token
+// there survives browser restarts and is readable by any XSS indefinitely, whereas
+// sessionStorage is cleared when the tab closes, bounding the exposure window.
+let _inMemoryToken = '';
+
 export function getStoredGitHubToken(): string {
+    if (_inMemoryToken) return _inMemoryToken;
     if (typeof window === 'undefined') return '';
     try {
-        return window.localStorage.getItem(GITHUB_TOKEN_KEY) || '';
+        // One-time migration: lift any legacy localStorage token into the session, then purge it.
+        const legacy = window.localStorage.getItem(GITHUB_TOKEN_KEY);
+        if (legacy) {
+            window.localStorage.removeItem(GITHUB_TOKEN_KEY);
+            window.sessionStorage.setItem(GITHUB_TOKEN_KEY, legacy);
+        }
+        _inMemoryToken = window.sessionStorage.getItem(GITHUB_TOKEN_KEY) || '';
+        return _inMemoryToken;
     } catch {
         return '';
     }
 }
 
 export function setStoredGitHubToken(token: string): void {
+    const trimmed = token.trim();
+    _inMemoryToken = trimmed;
     if (typeof window === 'undefined') return;
     try {
-        if (token.trim()) window.localStorage.setItem(GITHUB_TOKEN_KEY, token.trim());
-        else window.localStorage.removeItem(GITHUB_TOKEN_KEY);
+        if (trimmed) window.sessionStorage.setItem(GITHUB_TOKEN_KEY, trimmed);
+        else window.sessionStorage.removeItem(GITHUB_TOKEN_KEY);
+        window.localStorage.removeItem(GITHUB_TOKEN_KEY); // never persist in localStorage
     } catch {
         // ignore storage failures
     }

@@ -16,6 +16,16 @@ from memory import credentials_vault as vault
 router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
 
+def _active_uid() -> str:
+    """Resolve the credential owner.
+
+    Security: always the active local profile. We deliberately ignore any
+    client-supplied user_id so a caller cannot read another user's stored
+    passwords by guessing their id (IDOR) — there is no per-user auth boundary.
+    """
+    return resolve_user_id(None)
+
+
 class SaveCredentialRequest(BaseModel):
     origin: str
     username: str
@@ -31,7 +41,7 @@ class DeleteCredentialRequest(BaseModel):
 @router.get("")
 async def get_for_origin(origin: str, user_id: str | None = None) -> dict:
     """Return {origin, username, password} for the active user's record, or {found: False}."""
-    uid = resolve_user_id(user_id)
+    uid = _active_uid()
     rec = vault.get_credential(uid, origin)
     if rec is None:
         return {"found": False, "origin": vault.canonical_origin(origin)}
@@ -40,7 +50,7 @@ async def get_for_origin(origin: str, user_id: str | None = None) -> dict:
 
 @router.put("")
 async def save(req: SaveCredentialRequest) -> dict:
-    uid = resolve_user_id(req.user_id)
+    uid = _active_uid()
     try:
         return vault.save_credential(uid, req.origin, req.username, req.password)
     except ValueError as exc:
@@ -49,11 +59,11 @@ async def save(req: SaveCredentialRequest) -> dict:
 
 @router.delete("")
 async def remove(origin: str, user_id: str | None = None) -> dict:
-    uid = resolve_user_id(user_id)
+    uid = _active_uid()
     return {"deleted": vault.delete_credential(uid, origin)}
 
 
 @router.get("/list")
 async def list_all(user_id: str | None = None) -> dict:
-    uid = resolve_user_id(user_id)
+    uid = _active_uid()
     return {"user_id": uid, "entries": vault.list_origins(uid)}

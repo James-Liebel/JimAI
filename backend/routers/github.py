@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import re
 import subprocess
-from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -31,6 +31,13 @@ class CheckoutRequest(BaseModel):
     branch: str = Field(min_length=1, max_length=200)
 
 
+def _scrub_secrets(text: str) -> str:
+    """Mask credentials git may echo back (URL-embedded tokens or auth headers)."""
+    text = re.sub(r"x-access-token:[^@\s]+@", "x-access-token:***@", text)
+    text = re.sub(r"(?i)(authorization:\s*\w+\s+)[A-Za-z0-9+/=._-]+", r"\1***", text)
+    return text
+
+
 def _run_git(args: list[str]) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -40,7 +47,7 @@ def _run_git(args: list[str]) -> str:
         encoding="utf-8",
     )
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "git command failed").strip()
+        detail = _scrub_secrets((result.stderr or result.stdout or "git command failed").strip())
         raise HTTPException(status_code=400, detail=detail)
     return (result.stdout or "").strip()
 
@@ -159,11 +166,17 @@ async def github_remote_repos(
     return {"repos": repos, "count": len(repos)}
 
 
-def _auth_url(origin_url: str, token: str) -> str:
-    if not token or not origin_url.startswith("https://github.com/"):
-        return origin_url
-    safe_token = quote(token, safe="")
-    return origin_url.replace("https://", f"https://x-access-token:{safe_token}@")
+def _git_auth_config(token: str) -> list[str]:
+    """Inject the PAT as an HTTP Authorization header via `-c http.extraHeader`.
+
+    Avoids embedding the token in the remote URL, which would expose it in argv (as a
+    URL) and in git's 'remote:'/stderr error output. Sent as HTTP Basic — the scheme
+    GitHub accepts for token auth over HTTPS.
+    """
+    if not token:
+        return []
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return ["-c", f"http.extraHeader=Authorization: Basic {basic}"]
 
 
 def _has_staged_changes() -> bool:
@@ -334,9 +347,9 @@ async def github_commit(req: CommitRequest, x_github_token: str | None = Header(
 async def github_push(x_github_token: str | None = Header(default=None)) -> dict:
     branch = _current_branch()
     token = (x_github_token or "").strip()
-    origin_url = _origin_url()
-    auth_url = _auth_url(origin_url, token)
-    output = _run_git(["push", auth_url, f"HEAD:refs/heads/{branch}"] if auth_url and token else ["push"])
+    auth = _git_auth_config(token)
+    args = [*auth, "push", "origin", f"HEAD:refs/heads/{branch}"] if token else ["push"]
+    output = _run_git(args)
     return {"ok": True, "output": output, "status": _git_status_payload(token=token), "branches": _git_branch_payload()}
 
 
@@ -344,7 +357,7 @@ async def github_push(x_github_token: str | None = Header(default=None)) -> dict
 async def github_pull(x_github_token: str | None = Header(default=None)) -> dict:
     branch = _current_branch()
     token = (x_github_token or "").strip()
-    origin_url = _origin_url()
-    auth_url = _auth_url(origin_url, token)
-    output = _run_git(["pull", "--ff-only", auth_url, branch] if auth_url and token else ["pull", "--ff-only"])
+    auth = _git_auth_config(token)
+    args = [*auth, "pull", "--ff-only", "origin", branch] if token else ["pull", "--ff-only"]
+    output = _run_git(args)
     return {"ok": True, "output": output, "status": _git_status_payload(token=token), "branches": _git_branch_payload()}

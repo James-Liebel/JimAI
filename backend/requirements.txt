@@ -16,6 +16,7 @@ playwright>=1.46.0
 pillow>=10.0.0
 psutil>=5.9.0
 python-dotenv>=1.0.0
+cryptography>=42.0.0  # Fernet vault — backend/memory/credentials_vault.py
 mss>=9.0.0
 watchfiles>=0.21.0
 beautifulsoup4>=4.12.0

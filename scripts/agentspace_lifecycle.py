@@ -1044,6 +1044,22 @@ def start_services(args: argparse.Namespace) -> None:
     env["AGENT_SPACE_N8N_URL"] = args.n8n_url or f"http://localhost:{args.n8n_port}"
     env["AGENT_SPACE_N8N_AUTO_START"] = "true" if bool(getattr(args, "n8n_auto_start", False)) else "false"
 
+    # Fail closed: never expose the backend (code-exec / file-read / system-agent
+    # endpoints) on a non-loopback interface without authentication.
+    _bind_host = (args.host or "").strip().lower()
+    _is_loopback = _bind_host in {"", "localhost", "::1"} or _bind_host.startswith("127.")
+    if not _is_loopback and os.environ.get("JIMAI_ALLOW_INSECURE_LAN", "").lower() not in ("1", "true", "yes"):
+        _auth_ok = (
+            os.environ.get("PRIVATE_AI_AUTH_REQUIRED", "false").lower() in ("1", "true", "yes")
+            and bool(os.environ.get("PRIVATE_AI_API_KEY", "").strip())
+        )
+        if not _auth_ok:
+            raise SystemExit(
+                f"[SECURITY] Refusing to bind backend to non-loopback host '{args.host}' without auth.\n"
+                "Set PRIVATE_AI_AUTH_REQUIRED=true + PRIVATE_AI_API_KEY=<strong-key>, or "
+                "JIMAI_ALLOW_INSECURE_LAN=1, or bind 127.0.0.1."
+            )
+
     backend_py = choose_backend_python()
     backend_cmd = [
         backend_py,
@@ -1454,7 +1470,8 @@ def free_stack_install_runtime(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agent Space lifecycle utility.")
-    parser.add_argument("--host", default="0.0.0.0")
+    # Loopback by default — exposed binds are gated below before the backend is spawned.
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--backend-port", type=int, default=8000)
     parser.add_argument("--frontend-port", type=int, default=5173)
     parser.add_argument("--frontend-runtime", choices=["static", "dev"], default="dev")

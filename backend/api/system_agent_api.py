@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,9 @@ from agents.system_agent.tools import app_launcher, filesystem, process, screen
 
 router = APIRouter(prefix="/api/system-agent", tags=["system-agent"])
 _active_agents: dict[str, SystemAgent] = {}
+# Autonomous mode (auto-approves CAUTION actions) must be enabled server-side, never
+# chosen by the client — otherwise a caller could self-escalate past confirmations.
+_AUTONOMOUS_ALLOWED = os.getenv("JIMAI_SYSTEM_AGENT_AUTONOMOUS", "false").lower() in ("1", "true", "yes")
 
 
 class AgentTaskRequest(BaseModel):
@@ -62,7 +66,9 @@ class OpenPathRequest(BaseModel):
 @router.post("/run")
 async def run_agent_task(req: AgentTaskRequest) -> StreamingResponse:
     """Run a system-agent task and stream events."""
-    agent = SystemAgent(mode=req.mode)
+    # Clamp: honor an autonomous request only when the server explicitly allows it.
+    mode = req.mode if (req.mode == AgentMode.SUPERVISED or _AUTONOMOUS_ALLOWED) else AgentMode.SUPERVISED
+    agent = SystemAgent(mode=mode)
     _active_agents[req.session_id] = agent
 
     async def event_stream():

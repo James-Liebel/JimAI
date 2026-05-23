@@ -20,6 +20,9 @@ SYSTEM_PROTECTED_PATHS = [
     Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft",
 ]
 
+# Standard user content folders only. The bare user profile (C:/Users/<name>) is
+# intentionally NOT here: it would expose ~/.ssh, ~/.aws, browser login DBs, .env
+# files, and the app's own vault key. Use GRANTED_PATHS for explicit extra grants.
 USER_PATHS = [
     Path.home() / "Documents",
     Path.home() / "Downloads",
@@ -28,10 +31,31 @@ USER_PATHS = [
     Path.home() / "Videos",
     Path.home() / "Music",
     Path.home() / "OneDrive",
-    Path("C:/Users") / os.environ.get("USERNAME", ""),
 ]
 
 GRANTED_PATHS: list[Path] = []
+
+# Even within an allowed root, never expose these — defense in depth against secrets
+# that happen to live under Documents/Downloads/etc.
+SENSITIVE_DIR_NAMES = {
+    ".ssh", ".aws", ".gnupg", ".gpg", ".azure", ".kube", ".docker",
+    ".config", ".mozilla", "appdata", ".git", ".vault",
+}
+SENSITIVE_FILE_NAMES = {
+    ".env", ".vault.key", "credentials.enc", "id_rsa", "id_ed25519",
+    ".npmrc", ".pypirc", ".netrc", "secrets.json",
+}
+SENSITIVE_FILE_SUFFIXES = {".pem", ".key", ".pfx", ".p12", ".keystore"}
+
+
+def _is_sensitive(path: Path) -> bool:
+    """True for paths that hold secrets/credentials, regardless of allowed root."""
+    lowered_parts = {part.lower() for part in path.parts}
+    if lowered_parts & SENSITIVE_DIR_NAMES:
+        return True
+    if path.name.lower() in SENSITIVE_FILE_NAMES:
+        return True
+    return path.suffix.lower() in SENSITIVE_FILE_SUFFIXES
 
 TEXT_EXTENSIONS = {
     ".bat",
@@ -137,17 +161,18 @@ def is_protected(path: Path) -> bool:
 
 
 def is_accessible(path: Path) -> bool:
-    """Allow user-space paths while denying protected roots."""
+    """Allow standard user-content roots; deny protected roots and secret paths.
+
+    The whole home directory is no longer blanket-allowed — only the folders in
+    USER_PATHS (plus explicit GRANTED_PATHS), and never paths that look like
+    secrets (see _is_sensitive).
+    """
     candidate = _nearest_existing_path(path)
     if is_protected(candidate):
         return False
+    if _is_sensitive(path) or _is_sensitive(candidate):
+        return False
     roots = [root.resolve() for root in USER_PATHS + GRANTED_PATHS if str(root).strip()]
-    home = Path.home().resolve()
-    try:
-        candidate.relative_to(home)
-        return True
-    except ValueError:
-        pass
     for root in roots:
         try:
             candidate.relative_to(root)

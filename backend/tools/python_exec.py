@@ -1,6 +1,13 @@
-"""Sandboxed Python code execution tool."""
+"""Python code execution tool.
+
+WARNING: This is NOT a security sandbox. Code runs in a subprocess with the same
+privileges, filesystem access, and network access as the backend process. The
+pattern check below is advisory logging only — it does not prevent anything.
+Execution is gated by JIMAI_ENABLE_CODE_EXECUTION (off by default).
+"""
 
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -8,25 +15,28 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
-async def execute(code: str, timeout: int = 30) -> dict:
-    """Execute Python code in a sandboxed subprocess.
+def _execution_enabled() -> bool:
+    return os.getenv("JIMAI_ENABLE_CODE_EXECUTION", "false").lower() in ("1", "true", "yes")
 
-    Writes code to a temp file, runs it, captures output.
-    Never allows file writes outside of the temp directory.
+
+async def execute(code: str, timeout: int = 30) -> dict:
+    """Run Python code in a subprocess and capture output.
+
+    NOT sandboxed (see module docstring). Returns a disabled result unless
+    JIMAI_ENABLE_CODE_EXECUTION is set, so the feature is opt-in everywhere it is called.
     """
-    # Safety: strip any obvious file-write operations outside /tmp/
-    dangerous_patterns = [
-        "open(",
-        "write(",
-        "shutil.",
-        "os.remove",
-        "os.unlink",
-        "pathlib",
-    ]
-    # We allow these in /tmp/ context — just log a warning for non-tmp writes
-    for pattern in dangerous_patterns:
+    if not _execution_enabled():
+        return {
+            "stdout": "",
+            "stderr": "Code execution is disabled. Set JIMAI_ENABLE_CODE_EXECUTION=true to enable it.",
+            "returncode": -1,
+            "success": False,
+        }
+
+    # Advisory only: log (does not block) operations that touch the filesystem.
+    for pattern in ("open(", "write(", "shutil.", "os.remove", "os.unlink", "pathlib"):
         if pattern in code and "tmp" not in code.lower():
-            logger.warning("Potentially unsafe operation detected: %s", pattern)
+            logger.warning("python_exec: filesystem operation in user code: %s", pattern)
 
     # Write to temp file
     with tempfile.NamedTemporaryFile(

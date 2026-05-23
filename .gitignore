@@ -26,11 +26,16 @@ backend/run.log
 backend/uvicorn_err.txt
 backend/err.txt
 data/chats/
+data/memory/
 data/app_creations/
 data/graph.json
 data/style_profile.json
 data/feedback.jsonl
 data/feedback_stats.json
+# Secrets — never commit, regardless of location
+.vault.key
+*.vault.key
+credentials.enc
 CLAUDE.local.md
 CLAUDE.md
 CLAUDE.local.md.example

@@ -273,7 +273,7 @@ export default function GitHubPanel({
                                 onChange={(e) => setToken(e.target.value)}
                                 type="password"
                                 className="mt-2 w-full rounded-none border border-surface-4 bg-white px-3 py-2 text-sm text-black outline-none"
-                                placeholder="GitHub token (stored only in localStorage)"
+                                placeholder="GitHub token (kept in this browser session only)"
                             />
                             <div className="mt-2 flex gap-2">
                                 <button type="button" onClick={saveToken} className="rounded-none border border-accent/40 px-3 py-1.5 text-xs text-accent">

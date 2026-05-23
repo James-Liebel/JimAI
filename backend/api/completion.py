@@ -1,9 +1,10 @@
 """Tab completion API — fast code completions via Ollama."""
 
 import logging
+import os
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from models import ollama_client
@@ -65,9 +66,19 @@ async def get_completion(req: CompletionRequest):
     )
 
 
+# Arbitrary code execution is OFF by default. It runs Python on the host with the
+# backend's privileges (no real sandbox). Enable only on a trusted, loopback-bound host.
+CODE_EXECUTION_ENABLED = os.getenv("JIMAI_ENABLE_CODE_EXECUTION", "false").lower() in ("1", "true", "yes")
+
+
 @router.post("/execute")
 async def execute_code(req: dict):
-    """Execute Python code and return output."""
+    """Execute Python code and return output (disabled unless JIMAI_ENABLE_CODE_EXECUTION=true)."""
+    if not CODE_EXECUTION_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="Code execution is disabled. Set JIMAI_ENABLE_CODE_EXECUTION=true to enable it.",
+        )
     from tools.python_exec import execute
 
     code = req.get("code", "")

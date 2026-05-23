@@ -68,15 +68,22 @@ export default function AppLayout() {
     const [phoneNotificationsEnabled, setPhoneNotificationsEnabled] = useState(false);
     const [phoneNotificationMinSeconds, setPhoneNotificationMinSeconds] = useState(120);
     const [phoneNotificationsOnFailure, setPhoneNotificationsOnFailure] = useState(true);
-    const [ollamaHealth, setOllamaHealth] = useState<{ checked: boolean; ok: boolean; url: string; backendReachable: boolean }>({
+    const [ollamaHealth, setOllamaHealth] = useState<{ checked: boolean; ok: boolean; url: string; backendReachable: boolean; warming: boolean }>({
         checked: false,
         ok: true,
+        warming: false,
         url: 'http://localhost:11434',
         backendReachable: true,
     });
     const notifiedRunIdsRef = useRef<Set<string>>(new Set());
     const runStartTimesRef = useRef<Map<string, number>>(new Map());
     const ollamaHealthFailuresRef = useRef(0);
+    // Tracks whether Ollama has EVER been reachable in this session. Until it has,
+    // we treat ollama=false as a transient warmup (Ollama is slow to bind port on
+    // cold start) and show an amber "starting" hint instead of the red "not reachable"
+    // alarm. After the first success, any later failures show the real warning.
+    const ollamaEverReachableRef = useRef(false);
+    const ollamaOkStreakRef = useRef(0);
     const [paletteOpen, setPaletteOpen] = useState(false);
     const appInstanceIdRef = useRef('');
     const appInstanceHeartbeatRef = useRef<number | null>(null);
@@ -180,9 +187,21 @@ export default function AppLayout() {
             try {
                 const health = await api.getHealth();
                 ollamaHealthFailuresRef.current = 0;
+                const ollamaOk = Boolean(health.services?.ollama);
+                if (ollamaOk) {
+                    ollamaEverReachableRef.current = true;
+                    ollamaOkStreakRef.current += 1;
+                } else {
+                    ollamaOkStreakRef.current = 0;
+                }
+                // Cold-start grace: until Ollama has been seen once, treat a
+                // "false" report as warmup, not failure. Ollama on Windows can
+                // take 20–40s to bind 11434 (model index + GPU detect).
+                const warming = !ollamaOk && !ollamaEverReachableRef.current;
                 setOllamaHealth({
                     checked: true,
-                    ok: Boolean(health.services?.ollama),
+                    ok: ollamaOk,
+                    warming,
                     url: String(health.ollama_url || 'http://localhost:11434'),
                     backendReachable: true,
                 });
@@ -193,6 +212,7 @@ export default function AppLayout() {
                     setOllamaHealth((current) => ({
                         checked: true,
                         ok: false,
+                        warming: false,
                         url: current.url || 'http://localhost:11434',
                         backendReachable: false,
                     }));
@@ -386,7 +406,15 @@ export default function AppLayout() {
                 </div>
             )}
 
-            {ollamaHealth.checked && !ollamaHealth.ok && (
+            {ollamaHealth.checked && !ollamaHealth.ok && ollamaHealth.warming && (
+                <div className="flex shrink-0 items-center gap-2 border-b border-accent-amber/20 bg-accent-amber/8 px-4 py-2 text-xs text-accent-amber animate-fade-in">
+                    <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent-amber" />
+                    <span className="shrink-0 font-medium">Starting:</span>
+                    <span>Ollama is warming up at {ollamaHealth.url} — this typically takes 20–40s on cold start.</span>
+                </div>
+            )}
+
+            {ollamaHealth.checked && !ollamaHealth.ok && !ollamaHealth.warming && (
                 <div className="flex shrink-0 items-center gap-2 border-b border-accent-red/20 bg-accent-red/8 px-4 py-2 text-xs text-accent-red">
                     <span className="shrink-0 font-medium">Offline:</span>
                     {ollamaHealth.backendReachable ? (

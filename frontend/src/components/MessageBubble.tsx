@@ -2,40 +2,39 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
-import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
+import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
+import hljsStyle from 'react-syntax-highlighter/dist/esm/styles/hljs/vs2015';
 
-// Only register the languages we actually render. Prism's full grammar set is
-// ~700KB of JS; this curated list keeps the chunk small while covering the
-// languages real assistant replies emit (TS/JS/Py/shell/JSON/etc.).
-import jsLang from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
-import tsLang from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
-import jsxLang from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
-import tsxLang from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
-import pyLang from 'react-syntax-highlighter/dist/esm/languages/prism/python';
-import jsonLang from 'react-syntax-highlighter/dist/esm/languages/prism/json';
-import bashLang from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
-import shellLang from 'react-syntax-highlighter/dist/esm/languages/prism/shell-session';
-import cssLang from 'react-syntax-highlighter/dist/esm/languages/prism/css';
-import htmlLang from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
-import sqlLang from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
-import mdLang from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
-import yamlLang from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
-import rustLang from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
-import goLang from 'react-syntax-highlighter/dist/esm/languages/prism/go';
-import javaLang from 'react-syntax-highlighter/dist/esm/languages/prism/java';
-import cLang from 'react-syntax-highlighter/dist/esm/languages/prism/c';
-import cppLang from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
-import dockerLang from 'react-syntax-highlighter/dist/esm/languages/prism/docker';
-import powershellLang from 'react-syntax-highlighter/dist/esm/languages/prism/powershell';
-import diffLang from 'react-syntax-highlighter/dist/esm/languages/prism/diff';
+// highlight.js "Light" build with a curated language set. This avoids the
+// Prism/refractor path (the ~673KB chunk + the prismjs DOM-clobbering advisory);
+// hljs core plus these grammars is a small fraction of that size.
+import jsLang from 'react-syntax-highlighter/dist/esm/languages/hljs/javascript';
+import tsLang from 'react-syntax-highlighter/dist/esm/languages/hljs/typescript';
+import pyLang from 'react-syntax-highlighter/dist/esm/languages/hljs/python';
+import jsonLang from 'react-syntax-highlighter/dist/esm/languages/hljs/json';
+import bashLang from 'react-syntax-highlighter/dist/esm/languages/hljs/bash';
+import shellLang from 'react-syntax-highlighter/dist/esm/languages/hljs/shell';
+import cssLang from 'react-syntax-highlighter/dist/esm/languages/hljs/css';
+import xmlLang from 'react-syntax-highlighter/dist/esm/languages/hljs/xml';
+import sqlLang from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
+import mdLang from 'react-syntax-highlighter/dist/esm/languages/hljs/markdown';
+import yamlLang from 'react-syntax-highlighter/dist/esm/languages/hljs/yaml';
+import rustLang from 'react-syntax-highlighter/dist/esm/languages/hljs/rust';
+import goLang from 'react-syntax-highlighter/dist/esm/languages/hljs/go';
+import javaLang from 'react-syntax-highlighter/dist/esm/languages/hljs/java';
+import cLang from 'react-syntax-highlighter/dist/esm/languages/hljs/c';
+import cppLang from 'react-syntax-highlighter/dist/esm/languages/hljs/cpp';
+import dockerLang from 'react-syntax-highlighter/dist/esm/languages/hljs/dockerfile';
+import powershellLang from 'react-syntax-highlighter/dist/esm/languages/hljs/powershell';
+import diffLang from 'react-syntax-highlighter/dist/esm/languages/hljs/diff';
+import textLang from 'react-syntax-highlighter/dist/esm/languages/hljs/plaintext';
 
 SyntaxHighlighter.registerLanguage('javascript', jsLang);
 SyntaxHighlighter.registerLanguage('js', jsLang);
+SyntaxHighlighter.registerLanguage('jsx', jsLang);
 SyntaxHighlighter.registerLanguage('typescript', tsLang);
 SyntaxHighlighter.registerLanguage('ts', tsLang);
-SyntaxHighlighter.registerLanguage('jsx', jsxLang);
-SyntaxHighlighter.registerLanguage('tsx', tsxLang);
+SyntaxHighlighter.registerLanguage('tsx', tsLang);
 SyntaxHighlighter.registerLanguage('python', pyLang);
 SyntaxHighlighter.registerLanguage('py', pyLang);
 SyntaxHighlighter.registerLanguage('json', jsonLang);
@@ -43,9 +42,9 @@ SyntaxHighlighter.registerLanguage('bash', bashLang);
 SyntaxHighlighter.registerLanguage('sh', bashLang);
 SyntaxHighlighter.registerLanguage('shell', shellLang);
 SyntaxHighlighter.registerLanguage('css', cssLang);
-SyntaxHighlighter.registerLanguage('html', htmlLang);
-SyntaxHighlighter.registerLanguage('xml', htmlLang);
-SyntaxHighlighter.registerLanguage('markup', htmlLang);
+SyntaxHighlighter.registerLanguage('html', xmlLang);
+SyntaxHighlighter.registerLanguage('xml', xmlLang);
+SyntaxHighlighter.registerLanguage('markup', xmlLang);
 SyntaxHighlighter.registerLanguage('sql', sqlLang);
 SyntaxHighlighter.registerLanguage('markdown', mdLang);
 SyntaxHighlighter.registerLanguage('md', mdLang);
@@ -63,6 +62,8 @@ SyntaxHighlighter.registerLanguage('dockerfile', dockerLang);
 SyntaxHighlighter.registerLanguage('powershell', powershellLang);
 SyntaxHighlighter.registerLanguage('ps1', powershellLang);
 SyntaxHighlighter.registerLanguage('diff', diffLang);
+SyntaxHighlighter.registerLanguage('text', textLang);
+SyntaxHighlighter.registerLanguage('plaintext', textLang);
 import type { Message, JudgeResult, ConsistencyResult } from '../lib/types';
 import RouterBadge from './RouterBadge';
 import { cn, formatTimestamp, preprocessLatex } from '../lib/utils';
@@ -553,7 +554,7 @@ function CodeBlock({ code, language, showRun }: { code: string; language: string
                 )}
             </div>
             <SyntaxHighlighter
-                style={vscDarkPlus}
+                style={hljsStyle}
                 language={language}
                 PreTag="div"
                 customStyle={{ margin: 0, borderRadius: '6px', fontSize: '13px', background: '#0d1117' }}

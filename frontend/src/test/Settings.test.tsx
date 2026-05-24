@@ -46,6 +46,8 @@ describe('Settings page', () => {
     it('shows JSON error when invalid JSON is typed in agentModels textarea', async () => {
         renderSettings();
         await waitFor(() => screen.getByText('Settings'));
+        // The agent model map lives under the collapsed "Advanced Settings" section.
+        fireEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
         // The agent model map textarea has rows=5
         const textareas = screen.getAllByRole('textbox');
@@ -67,6 +69,8 @@ describe('Settings page', () => {
     it('Save button is disabled when JSON is invalid', async () => {
         renderSettings();
         await waitFor(() => screen.getByText('Settings'));
+        // The agent model map lives under the collapsed "Advanced Settings" section.
+        fireEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
         const textareas = screen.getAllByRole('textbox');
         const agentModelsTextarea = textareas.find(
@@ -87,6 +91,8 @@ describe('Settings page', () => {
     it('clears JSON error when valid JSON is entered', async () => {
         renderSettings();
         await waitFor(() => screen.getByText('Settings'));
+        // The agent model map lives under the collapsed "Advanced Settings" section.
+        fireEvent.click(screen.getByRole('button', { name: /advanced settings/i }));
 
         const textareas = screen.getAllByRole('textbox');
         const agentModelsTextarea = textareas.find(

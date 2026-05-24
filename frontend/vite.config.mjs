@@ -32,7 +32,12 @@ export default defineConfig({
             output: {
                 manualChunks(id) {
                     if (!id.includes('node_modules')) return undefined;
-                    if (id.includes('react-syntax-highlighter') || id.includes('refractor')) {
+                    if (
+                        id.includes('react-syntax-highlighter') ||
+                        id.includes('refractor') ||
+                        id.includes('highlight.js') ||
+                        id.includes('lowlight')
+                    ) {
                         return 'vendor-syntax';
                     }
                     if (

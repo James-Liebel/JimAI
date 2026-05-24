@@ -71,7 +71,6 @@ DEFAULT_ALLOWLIST_DOMAINS: set[str] = {
     "docs.python.org",
     "developer.mozilla.org",
     "openai.com",
-    "anthropic.com",
 }
 
 PII_PATTERNS: list[tuple[str, re.Pattern[str]]] = [

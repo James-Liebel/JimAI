@@ -309,11 +309,11 @@ class TestSettingsRedaction:
     def test_redact_replaces_secret_keys(self):
         from agent_space.api import _redact_secret_settings
         out = _redact_secret_settings(
-            {"model": "qwen2.5-coder:14b", "anthropic_api_key": "sk-ant-real-secret-xxx"}
+            {"model": "qwen2.5-coder:14b", "openai_api_key": "sk-fake-not-a-real-key"}
         )
         assert out["model"] == "qwen2.5-coder:14b"
-        assert out["anthropic_api_key"] == "***SET***"
-        assert "sk-ant-real-secret-xxx" not in str(out)
+        assert out["openai_api_key"] == "***SET***"
+        assert "sk-fake-not-a-real-key" not in str(out)
 
     def test_redact_empty_value_marked_unset(self):
         from agent_space.api import _redact_secret_settings

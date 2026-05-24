@@ -82,7 +82,6 @@ _SETTINGS_AUDIT_FILE = DATA_ROOT / "settings_audit.jsonl"
 # Settings keys whose VALUES must never appear in audit log, GET responses, or any
 # server-emitted text. The frontend only needs to know whether they are set.
 _SECRET_SETTINGS_KEYS: frozenset[str] = frozenset({
-    "anthropic_api_key",
     "github_token",
     "free_stack_gotify_token",
     "openai_api_key",
@@ -231,7 +230,6 @@ class SettingsUpdateRequest(BaseModel):
     free_stack_gotify_url: str | None = None
     free_stack_gotify_token: str | None = None
     ollama_url: str | None = None
-    anthropic_api_key: str | None = None
     github_token: str | None = None
     agent_models: dict[str, str] | None = None
 

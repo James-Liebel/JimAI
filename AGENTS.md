@@ -148,7 +148,7 @@ fully local. Wired into the orchestrator via `add_pre_action_hook`.
 
 ### SecretScanner
 - High-confidence regex detector for AWS, GCP, GitHub, OpenAI,
-  Anthropic, Slack, Stripe, Twilio keys, JWTs, PEM blocks, generic
+  Slack, Stripe, Twilio keys, JWTs, PEM blocks, generic
   api_key/password assignments, DB connection strings.
 - Used by ToolGate before each tool call and standalone via API.
 

@@ -24,7 +24,7 @@
 - `PromptShield`: regex pre-filter for injection / jailbreak patterns +
   optional guardrail-model verdict (Granite Guardian, Llama Guard, ShieldGemma).
 - `SecretScanner`: high-confidence regex detector for AWS/GCP/GitHub/OpenAI/
-  Anthropic/Slack/Stripe/Twilio keys, JWTs, PEM blocks, generic api_key/password
+  Slack/Stripe/Twilio keys, JWTs, PEM blocks, generic api_key/password
   assignments, DB connection strings.
 - `ToolGate`: PEP enforcing capability allowlist + arg-shape policy +
   per-(agent, tool) rate limit + secret scan on tool args.

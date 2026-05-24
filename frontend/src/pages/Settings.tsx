@@ -325,13 +325,6 @@ export default function Settings() {
                         placeholder="Used by the GitHub panel"
                         type="password"
                     />
-                    <InputField
-                        label="Anthropic API Key"
-                        value={String(settings.anthropic_api_key ?? '')}
-                        onChange={(value) => patchSetting({ anthropic_api_key: value.trim() })}
-                        placeholder="Optional cloud key"
-                        type="password"
-                    />
                 </div>
 
                 {/* ── Safety & feature toggles ── */}

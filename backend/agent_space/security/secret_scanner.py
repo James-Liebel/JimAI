@@ -46,7 +46,6 @@ PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ("github_token", "GitHub token (ghp/gho/ghu/ghs)", re.compile(r"\bghp_[A-Za-z0-9]{36,}\b|\bgho_[A-Za-z0-9]{36,}\b|\bghu_[A-Za-z0-9]{36,}\b|\bghs_[A-Za-z0-9]{36,}\b|\bghr_[A-Za-z0-9]{36,}\b")),
     ("github_oauth", "GitHub OAuth (gist/personal)", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82}\b")),
     ("openai_key", "OpenAI API key", re.compile(r"\bsk-[A-Za-z0-9]{20,}T3BlbkFJ[A-Za-z0-9]{20,}\b|\bsk-proj-[A-Za-z0-9_-]{40,}\b")),
-    ("anthropic_key", "Anthropic API key", re.compile(r"\bsk-ant-(?:api|admin)\d*-[A-Za-z0-9_\-]{80,}\b")),
     ("google_api_key", "Google API key", re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b")),
     ("slack_token", "Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
     ("slack_webhook", "Slack incoming webhook", re.compile(r"https://hooks\.slack\.com/services/T[A-Za-z0-9]+/B[A-Za-z0-9]+/[A-Za-z0-9]{20,}")),

@@ -1,7 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { GitPullRequest, Settings } from 'lucide-react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import ErrorBoundary from './ErrorBoundary';
+import LoadingScreen from './LoadingScreen';
+import { prefetchRoute } from '../lib/routePrefetch';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import MobileNav from './MobileNav';
 import { AppAssistDock } from './AppAssistDock';
@@ -343,6 +346,8 @@ export default function AppLayout() {
                             <NavLink
                                 key={to}
                                 to={to}
+                                onMouseEnter={() => prefetchRoute(to)}
+                                onFocus={() => prefetchRoute(to)}
                                 className={({ isActive }) =>
                                     cn(
                                         'relative flex items-center px-3.5 text-xs font-medium tracking-wide transition-colors duration-150 md:px-4',
@@ -362,6 +367,8 @@ export default function AppLayout() {
                     <div className="flex shrink-0 items-center gap-1">
                         <NavLink
                             to="/workflow"
+                            onMouseEnter={() => prefetchRoute('/workflow')}
+                            onFocus={() => prefetchRoute('/workflow')}
                             className={({ isActive }) =>
                                 cn(
                                     'flex items-center gap-1.5 rounded-btn px-2.5 py-1.5 text-xs font-medium transition-colors duration-150',
@@ -377,6 +384,8 @@ export default function AppLayout() {
                         <NavLink
                             to="/settings"
                             title="Settings"
+                            onMouseEnter={() => prefetchRoute('/settings')}
+                            onFocus={() => prefetchRoute('/settings')}
                             className={({ isActive }) =>
                                 cn(
                                     'rounded-btn p-2 transition-colors duration-150',
@@ -442,7 +451,14 @@ export default function AppLayout() {
                     tabIndex={-1}
                     className="h-full min-h-0 overflow-hidden outline-none focus:outline-none"
                 >
-                    <Outlet context={{ speedMode, onSpeedModeChange: handleSpeedModeChange }} />
+                    {/* Route-scoped boundaries: a lazy page load shows a content-area loader
+                        (the nav stays put), and a page crash is contained here. Keyed by path
+                        so the error state clears automatically when you navigate away. */}
+                    <ErrorBoundary key={location.pathname}>
+                        <Suspense fallback={<LoadingScreen fill label="Loading…" />}>
+                            <Outlet context={{ speedMode, onSpeedModeChange: handleSpeedModeChange }} />
+                        </Suspense>
+                    </ErrorBoundary>
                 </main>
             </div>
             {isMobile && <MobileNav />}

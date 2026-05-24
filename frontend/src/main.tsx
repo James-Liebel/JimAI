@@ -86,6 +86,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/notebook" element={<Notebook />} />
                         <Route path="/agents" element={<Agents />} />
                         <Route path="/agent-studio" element={<AgentStudio />} />
+                        {/* Unknown URLs fall back to chat instead of a blank content area. */}
+                        <Route path="*" element={<Navigate to="/chat" replace />} />
                     </Route>
                 </Routes>
             </Suspense>

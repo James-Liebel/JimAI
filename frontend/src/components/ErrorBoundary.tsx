@@ -50,7 +50,9 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
             const isDev = import.meta.env.DEV;
             const route = typeof window !== 'undefined' ? window.location.pathname : '';
             return (
-                <div className="h-screen w-screen flex items-center justify-center bg-surface-0 p-6">
+                // h-full/w-full so this fills its container: the whole viewport at the app
+                // root, or just the content area when used as a route-level boundary (nav stays).
+                <div className="h-full w-full flex items-center justify-center bg-surface-0 p-6">
                     <div className="max-w-lg w-full rounded-card border border-accent-red/40 bg-surface-1 p-8 text-center">
                         <h1 className="text-xl font-semibold text-accent-red mb-2">Something went wrong</h1>
                         {route && (

@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { GitPullRequest, Globe, MessageSquare, Settings, Hammer, Wrench, Bot, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { prefetchRoute } from '../lib/routePrefetch';
 
 const TABS = [
     { to: '/chat', label: 'Chat', icon: MessageSquare },
@@ -26,6 +27,8 @@ export default function MobileNav() {
                 <NavLink
                     key={to}
                     to={to}
+                    onTouchStart={() => prefetchRoute(to)}
+                    onMouseEnter={() => prefetchRoute(to)}
                     className={({ isActive }) =>
                         cn(
                             'flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
@@ -42,6 +45,8 @@ export default function MobileNav() {
                 <NavLink
                     key={to}
                     to={to}
+                    onTouchStart={() => prefetchRoute(to)}
+                    onMouseEnter={() => prefetchRoute(to)}
                     className={({ isActive }) =>
                         cn(
                             'flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',

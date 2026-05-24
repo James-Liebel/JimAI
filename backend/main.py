@@ -24,6 +24,9 @@ from observability.middleware import RequestIdMiddleware
 
 import httpx as _httpx
 
+# Local-only posture: disable ChromaDB anonymized telemetry before any chromadb import.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
 _HEALTH_HTTP: _httpx.AsyncClient | None = None
 _CHROMA_CLIENT = None
 
@@ -39,7 +42,9 @@ def _chroma_client():
     global _CHROMA_CLIENT
     if _CHROMA_CLIENT is None:
         import chromadb
-        _CHROMA_CLIENT = chromadb.Client()
+        from chromadb.config import Settings
+        # Local-only: disable Chroma's anonymized usage telemetry (no phone-home).
+        _CHROMA_CLIENT = chromadb.Client(Settings(anonymized_telemetry=False))
     return _CHROMA_CLIENT
 
 # Suppress known upstream Chroma/Pydantic Python 3.14 compatibility warning noise.
@@ -195,6 +200,14 @@ app = FastAPI(
 
 # ── CORS ───────────────────────────────────────────────────────────────
 
+# Only widen CORS to the LAN/Tailnet when the operator has opted in (same condition as
+# assert_safe_bind). By default the API answers localhost browser origins only.
+_LAN_EXPOSURE = (
+    os.getenv("JIMAI_ALLOW_INSECURE_LAN", "").lower() in ("1", "true", "yes")
+    or bool(os.getenv("PRIVATE_AI_API_KEY", "").strip())
+)
+
+
 def _get_allowed_origins() -> list[str]:
     origins = [
         "http://localhost:5173",
@@ -205,6 +218,8 @@ def _get_allowed_origins() -> list[str]:
         # sandboxed iframes / data: URLs, which combined with allow_credentials=True would let
         # a hostile page make credentialed requests.
     ]
+    if not _LAN_EXPOSURE:
+        return origins
     try:
         result = subprocess.run(
             ["tailscale", "ip", "--4"],
@@ -251,13 +266,15 @@ class _NormalizeCorsPreflightMiddleware:
 
 _cors_kwargs: dict = dict(
     allow_origins=_get_allowed_origins(),
-    allow_origin_regex=_LOCAL_UI_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-if "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters:
-    _cors_kwargs["allow_private_network"] = True  # Starlette ≥0.38: PNA preflight for 127.0.0.1
+# The broad RFC1918/Tailscale origin regex is enabled only when LAN exposure is opted in.
+if _LAN_EXPOSURE:
+    _cors_kwargs["allow_origin_regex"] = _LOCAL_UI_ORIGIN_REGEX
+    if "allow_private_network" in inspect.signature(CORSMiddleware.__init__).parameters:
+        _cors_kwargs["allow_private_network"] = True  # Starlette ≥0.38: PNA preflight
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 app.add_middleware(_NormalizeCorsPreflightMiddleware)
 

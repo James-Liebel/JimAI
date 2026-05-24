@@ -1,9 +1,13 @@
 """ChromaDB vector storage — ingest documents, retrieve by semantic similarity."""
 
 import logging
+import os
 import warnings
 from pathlib import Path
 from typing import Any
+
+# Local-only posture: disable ChromaDB anonymized telemetry before importing chromadb.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
 # Chroma currently emits a Python 3.14 compatibility warning via pydantic.v1.
 # Suppress this specific upstream warning noise for cleaner local logs.
@@ -49,7 +53,11 @@ def _get_collection() -> Any | None:
     if _collection is None:
         db_path = str(CHROMA_FULL_PATH)
         Path(db_path).mkdir(parents=True, exist_ok=True)
-        _client = chromadb.PersistentClient(path=db_path)
+        from chromadb.config import Settings
+        _client = chromadb.PersistentClient(
+            path=db_path,
+            settings=Settings(anonymized_telemetry=False),
+        )
         _collection = _client.get_or_create_collection(
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},

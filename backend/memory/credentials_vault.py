@@ -1,12 +1,11 @@
-"""Encrypted per-user credential vault for Atlas autofill.
+"""Per-user credential vault for Atlas autofill — encrypted at rest, bound to this
+machine.
 
-Storage: data/memory/credentials.enc — a single JSON blob encrypted with
-Fernet (AES-128-CBC + HMAC). Key lives at data/memory/.vault.key with 0600
-permissions; generated lazily on first use.
-
-This protects credentials at rest from casual disk inspection. It is *not*
-defence against an attacker with code execution as the user — for that you
-want the OS keychain (DPAPI/Keychain/libsecret), which is a follow-up.
+Storage: data/memory/credentials.enc — a JSON blob encrypted via local_cipher,
+which uses Windows DPAPI (current-user scope) when available. That binds the data
+to this Windows account + machine: copying the file elsewhere yields ciphertext
+that cannot be decrypted, and nothing is exposed over the network. Falls back to a
+local Fernet key, then to plaintext with a loud warning, on platforms without DPAPI.
 """
 
 from __future__ import annotations
@@ -16,61 +15,43 @@ import logging
 import os
 import stat
 import threading
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from cryptography.fernet import Fernet, InvalidToken
-
 from config.settings import PROJECT_ROOT
+
+from . import local_cipher as cipher
 
 logger = logging.getLogger(__name__)
 
 _VAULT_DIR = PROJECT_ROOT / "data" / "memory"
 _VAULT_FILE = _VAULT_DIR / "credentials.enc"
-_KEY_FILE = _VAULT_DIR / ".vault.key"
 _LOCK = threading.RLock()
-
-
-def _load_key() -> bytes:
-    _VAULT_DIR.mkdir(parents=True, exist_ok=True)
-    if _KEY_FILE.exists():
-        return _KEY_FILE.read_bytes()
-    key = Fernet.generate_key()
-    _KEY_FILE.write_bytes(key)
-    try:
-        os.chmod(_KEY_FILE, stat.S_IRUSR | stat.S_IWUSR)  # 0600 on POSIX; ignored on Windows.
-    except Exception:
-        pass
-    return key
-
-
-def _cipher() -> Fernet:
-    return Fernet(_load_key())
 
 
 def _load_all() -> dict[str, Any]:
     if not _VAULT_FILE.exists():
         return {"users": {}}
     try:
-        blob = _VAULT_FILE.read_bytes()
-        if not blob:
+        text = _VAULT_FILE.read_text(encoding="utf-8")
+        if not text.strip():
             return {"users": {}}
-        plain = _cipher().decrypt(blob)
-        data = json.loads(plain.decode("utf-8"))
+        data = json.loads(cipher.decrypt_str(text))
         if not isinstance(data, dict):
             return {"users": {}}
         if "users" not in data or not isinstance(data["users"], dict):
             data["users"] = {}
         return data
-    except (InvalidToken, ValueError):
+    except Exception:
         logger.warning("credentials_vault: existing blob unreadable — starting fresh")
         return {"users": {}}
 
 
 def _save_all(data: dict[str, Any]) -> None:
-    blob = _cipher().encrypt(json.dumps(data, ensure_ascii=False).encode("utf-8"))
-    _VAULT_FILE.write_bytes(blob)
+    _VAULT_DIR.mkdir(parents=True, exist_ok=True)
+    _VAULT_FILE.write_text(
+        cipher.encrypt_str(json.dumps(data, ensure_ascii=False)), encoding="utf-8"
+    )
     try:
         os.chmod(_VAULT_FILE, stat.S_IRUSR | stat.S_IWUSR)
     except Exception:

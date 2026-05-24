@@ -16,6 +16,8 @@ from typing import Any, Iterable
 
 from config.settings import PROJECT_ROOT
 
+from . import local_cipher as cipher
+
 DB_PATH: Path = PROJECT_ROOT / "data" / "memory" / "jimai.sqlite"
 DEFAULT_USER_ID = "default"
 
@@ -81,10 +83,64 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # Zero out freed content so deleted/updated plaintext doesn't linger in free pages.
+    conn.execute("PRAGMA secure_delete=ON")
     conn.executescript(_SCHEMA)
     _ensure_user(conn, DEFAULT_USER_ID)
     _conn = conn
+    _encrypt_existing_rows(conn)
     return conn
+
+
+_ENC_MARK = "_encrypted_at_rest_v1"
+
+
+def _encrypt_existing_rows(conn: sqlite3.Connection) -> None:
+    """One-shot: encrypt any pre-existing plaintext rows so old data is protected too.
+
+    Idempotent (guarded by a mark slot) and a no-op when no encryption backend is
+    available. The interpolated parts below are fixed column names, never user input.
+    """
+    if not cipher.is_active():
+        return
+    done = conn.execute(
+        "SELECT 1 FROM user_memory WHERE user_id = ? AND slot = ?",
+        (DEFAULT_USER_ID, _ENC_MARK),
+    ).fetchone()
+    if done is not None:
+        return
+    for row in conn.execute("SELECT id, content, extra FROM messages").fetchall():
+        updates: dict[str, str] = {}
+        if not cipher.is_encrypted(row["content"]):
+            updates["content"] = cipher.encrypt_str(row["content"])
+        if row["extra"] is not None and not cipher.is_encrypted(row["extra"]):
+            updates["extra"] = cipher.encrypt_str(row["extra"])
+        if updates:
+            sets = ", ".join(f"{col} = ?" for col in updates)
+            conn.execute(f"UPDATE messages SET {sets} WHERE id = ?", (*updates.values(), row["id"]))
+    for row in conn.execute("SELECT id, title, preview FROM chats").fetchall():
+        updates = {}
+        if not cipher.is_encrypted(row["title"]):
+            updates["title"] = cipher.encrypt_str(row["title"])
+        if not cipher.is_encrypted(row["preview"]):
+            updates["preview"] = cipher.encrypt_str(row["preview"])
+        if updates:
+            sets = ", ".join(f"{col} = ?" for col in updates)
+            conn.execute(f"UPDATE chats SET {sets} WHERE id = ?", (*updates.values(), row["id"]))
+    for row in conn.execute("SELECT user_id, slot, data FROM user_memory").fetchall():
+        if not cipher.is_encrypted(row["data"]):
+            conn.execute(
+                "UPDATE user_memory SET data = ? WHERE user_id = ? AND slot = ?",
+                (cipher.encrypt_str(row["data"]), row["user_id"], row["slot"]),
+            )
+    conn.execute(
+        "INSERT OR REPLACE INTO user_memory(user_id, slot, data, updated_at) VALUES(?,?,?,?)",
+        (DEFAULT_USER_ID, _ENC_MARK, cipher.encrypt_str("1"), time.time()),
+    )
+    # Purge plaintext residue left by the in-place UPDATEs: flush+truncate the WAL,
+    # then rebuild the file so no freed page still holds the old cleartext.
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.execute("VACUUM")
 
 
 def _ensure_user(conn: sqlite3.Connection, user_id: str, label: str = "") -> None:
@@ -137,7 +193,7 @@ def upsert_chat(
                 message_count=excluded.message_count,
                 updated_at=excluded.updated_at
             """,
-            (chat_id, user_id, title, preview, len(messages), created_at, now),
+            (chat_id, user_id, cipher.encrypt_str(title), cipher.encrypt_str(preview), len(messages), created_at, now),
         )
         # Re-write the messages for this chat. Cheap (a chat is small), and keeps
         # storage in sync with the canonical client-side thread.
@@ -149,7 +205,8 @@ def upsert_chat(
             mode = str(m.get("mode") or "chat")
             ts = float(m.get("timestamp") or now)
             extra = {k: v for k, v in m.items() if k not in {"role", "content", "mode", "timestamp"}}
-            rows.append((chat_id, i, role, content, mode, ts, json.dumps(extra, ensure_ascii=False) if extra else None))
+            enc_extra = cipher.encrypt_str(json.dumps(extra, ensure_ascii=False)) if extra else None
+            rows.append((chat_id, i, role, cipher.encrypt_str(content), mode, ts, enc_extra))
         if rows:
             conn.executemany(
                 "INSERT INTO messages(chat_id, seq, role, content, mode, timestamp, extra) VALUES(?,?,?,?,?,?,?)",
@@ -177,10 +234,10 @@ def load_chat_row(chat_id: str) -> dict[str, Any] | None:
         ).fetchall()
     messages: list[dict[str, Any]] = []
     for r in msg_rows:
-        msg = {"role": r["role"], "content": r["content"], "mode": r["mode"], "timestamp": r["timestamp"]}
+        msg = {"role": r["role"], "content": cipher.decrypt_str(r["content"]), "mode": r["mode"], "timestamp": r["timestamp"]}
         if r["extra"]:
             try:
-                extra = json.loads(r["extra"])
+                extra = json.loads(cipher.decrypt_str(r["extra"]))
                 if isinstance(extra, dict):
                     msg.update(extra)
             except Exception:
@@ -188,7 +245,7 @@ def load_chat_row(chat_id: str) -> dict[str, Any] | None:
         messages.append(msg)
     return {
         "id": chat["id"],
-        "title": chat["title"],
+        "title": cipher.decrypt_str(chat["title"]),
         "messages": messages,
         "created_at": chat["created_at"],
         "updated_at": chat["updated_at"],
@@ -218,7 +275,13 @@ def list_chats_rows(user_id: str | None = None, limit: int = 500) -> list[dict[s
                 "FROM chats WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
-    return [dict(r) for r in rows]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        d["title"] = cipher.decrypt_str(d.get("title"))
+        d["preview"] = cipher.decrypt_str(d.get("preview"))
+        out.append(d)
+    return out
 
 
 # ── Per-user memory slots ────────────────────────────────────────────
@@ -233,14 +296,14 @@ def read_user_slot(user_id: str, slot: str) -> dict[str, Any] | None:
     if row is None:
         return None
     try:
-        return {"data": json.loads(row["data"]), "updated_at": row["updated_at"]}
+        return {"data": json.loads(cipher.decrypt_str(row["data"])), "updated_at": row["updated_at"]}
     except Exception:
         return None
 
 
 def write_user_slot(user_id: str, slot: str, data: Any) -> None:
     conn = get_conn()
-    payload = json.dumps(data, ensure_ascii=False)
+    payload = cipher.encrypt_str(json.dumps(data, ensure_ascii=False))
     now = time.time()
     with _LOCK:
         _ensure_user(conn, user_id)
@@ -321,4 +384,6 @@ def iter_recent_messages(user_id: str, limit: int = 200) -> Iterable[dict[str, A
             (user_id, limit),
         ).fetchall()
     for r in rows:
-        yield dict(r)
+        d = dict(r)
+        d["content"] = cipher.decrypt_str(d.get("content"))
+        yield d

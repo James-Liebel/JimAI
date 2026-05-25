@@ -49,7 +49,7 @@ async def update_graph(session_summary: str) -> None:
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0]
         extracted = json.loads(text)
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         logger.warning("Could not extract graph from session: %s", exc)
         return
 

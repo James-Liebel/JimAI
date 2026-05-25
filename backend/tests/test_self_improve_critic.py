@@ -4,7 +4,7 @@ import pytest
 from agent_space import api as agent_api
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_critic_prune_keeps_only_keep_verdict(monkeypatch):
     candidates = [
         {"title": "A", "acceptance": "ax"},
@@ -35,7 +35,7 @@ async def test_critic_prune_keeps_only_keep_verdict(monkeypatch):
     assert titles == ["B", "A"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_critic_prune_falls_back_to_input_on_failure(monkeypatch):
     async def fake_chat_full(**kwargs):
         raise RuntimeError("model down")

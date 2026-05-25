@@ -5,7 +5,7 @@ import pytest
 from agent_space import background_tasks
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_spawn_runs_and_drains():
     flag = {"done": False}
 
@@ -18,7 +18,7 @@ async def test_spawn_runs_and_drains():
     assert flag["done"]
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_drain_cancels_hangers():
     async def _hang():
         await asyncio.sleep(10)
@@ -28,7 +28,7 @@ async def test_drain_cancels_hangers():
     # returns without error; hanging task was cancelled
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_failed_task_does_not_propagate():
     async def _boom():
         raise RuntimeError("expected")

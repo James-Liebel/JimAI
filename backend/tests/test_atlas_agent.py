@@ -20,12 +20,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# chat_browser_step uses asyncio.wait_for internally, so tests must run on asyncio only.
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
-
-
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))

@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
                     logger.debug("set_installed_models skipped: %s", exc)
                 ollama_ready.set()
                 return
-            except (ConnectionError, Exception) as exc:  # noqa: BLE001 — any probe failure should be retried
+            except Exception as exc:  # noqa: BLE001 — any probe failure should be retried
                 if attempt == len(delays):
                     logger.info("Ollama still not reachable after %d attempts: %s", attempt, exc)
 

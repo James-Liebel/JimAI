@@ -79,7 +79,7 @@ def _chunk_text(text: str) -> list[str]:
 async def ingest_document(
     text: str, source: str, metadata: dict | None = None
 ) -> int:
-    """Chunk text, embed each chunk, and store in ChromaDB. Returns chunk count."""
+    """Chunk text, embed all chunks in one batch, and store in ChromaDB. Returns chunk count."""
     collection = _get_collection()
     if collection is None:
         return 0
@@ -88,22 +88,13 @@ async def ingest_document(
         return 0
 
     meta = metadata or {}
-    ids: list[str] = []
-    documents: list[str] = []
-    embeddings: list[list[float]] = []
-    metadatas: list[dict] = []
-
-    for i, chunk in enumerate(chunks):
-        chunk_id = f"{source}::{i}"
-        embedding = await ollama_client.embed(chunk)
-        ids.append(chunk_id)
-        documents.append(chunk)
-        embeddings.append(embedding)
-        metadatas.append({**meta, "source": source, "chunk_index": i})
+    embeddings = await ollama_client.embed_batch(chunks)
+    ids = [f"{source}::{i}" for i in range(len(chunks))]
+    metadatas = [{**meta, "source": source, "chunk_index": i} for i in range(len(chunks))]
 
     collection.upsert(
         ids=ids,
-        documents=documents,
+        documents=chunks,
         embeddings=embeddings,
         metadatas=metadatas,
     )

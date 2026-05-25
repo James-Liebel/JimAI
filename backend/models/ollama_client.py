@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from collections import OrderedDict
 from typing import AsyncGenerator
 
 import httpx
@@ -310,20 +311,75 @@ async def generate_full(
     return "".join(parts)
 
 
+# Embeddings are deterministic for a given (model, text), and nomic-embed-text is the
+# only embedding model used here — so identical text need only hit the model once.
+# Bounded LRU keeps long-lived processes from growing without limit.
+_EMBED_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
+_EMBED_CACHE_MAX = 1024
+
+
 async def embed(text: str) -> list[float]:
-    """Get an embedding vector from nomic-embed-text via /api/embeddings."""
+    """Get an embedding vector from nomic-embed-text via /api/embeddings.
+
+    Identical text is served from a small LRU cache, skipping a model round-trip on
+    repeats (e.g. research caching embeds the query once to look it up, then again to
+    store it). Vectors are copied in and out so a caller mutating the result cannot
+    corrupt the cached entry.
+    """
+    cached = _EMBED_CACHE.get(text)
+    if cached is not None:
+        _EMBED_CACHE.move_to_end(text)
+        return list(cached)
     try:
         resp = await _request_with_retries(
             "POST",
             "/api/embeddings",
             json_payload={"model": "nomic-embed-text", "prompt": text},
         )
-        data = resp.json()
-        return data.get("embedding", [])
+        vector = resp.json().get("embedding", [])
     except httpx.ConnectError:
         raise ConnectionError(
             "Ollama is not running. Start it with: ollama serve"
         )
+    if vector:
+        _EMBED_CACHE[text] = list(vector)
+        _EMBED_CACHE.move_to_end(text)
+        while len(_EMBED_CACHE) > _EMBED_CACHE_MAX:
+            _EMBED_CACHE.popitem(last=False)
+    return vector
+
+
+async def embed_batch(texts: list[str]) -> list[list[float]]:
+    """Embed many texts in one /api/embed call, returning one vector per input in order.
+
+    Ollama's /api/embed returns L2-normalized vectors while embed() (/api/embeddings)
+    returns un-normalized ones; the knowledge and research stores both use cosine
+    distance, which is magnitude-invariant, so the two are interchangeable there.
+    Falls back to sequential embed() when the batch endpoint is unavailable (older
+    Ollama) or returns an unexpected count, so callers always get len(texts) vectors.
+    """
+    if not texts:
+        return []
+    try:
+        resp = await _request_with_retries(
+            "POST",
+            "/api/embed",
+            json_payload={"model": "nomic-embed-text", "input": texts},
+        )
+        vectors = resp.json().get("embeddings") or []
+        if len(vectors) == len(texts):
+            return vectors
+        logger.warning(
+            "embed_batch got %d vectors for %d inputs — falling back to sequential",
+            len(vectors), len(texts),
+        )
+    except httpx.ConnectError:
+        raise ConnectionError(
+            "Ollama is not running. Start it with: ollama serve"
+        )
+    except Exception as exc:
+        logger.warning("embed_batch unavailable (%s) — falling back to sequential embed()", exc)
+    return [await embed(t) for t in texts]
 
 
 async def list_models() -> list[str]:

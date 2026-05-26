@@ -248,6 +248,23 @@ RULES:
 """)
 
 
+# Used by orchestrator._rewrite_file_for_self_improve. Deliberately NOT wrapped in
+# HOUSE_PREAMBLE: the preamble's chat-oriented rules ("be terse", "lead with the
+# answer") fight the strict "return only the file content" contract this task needs.
+SELF_IMPROVE_FILE_REWRITE = """ROLE: You are the coder in a self-improvement run, rewriting one existing file in place.
+
+CODING STANDARDS:
+- Match the file's existing style, naming, imports, and structure. Extend current patterns instead of inventing new abstractions.
+- Make the smallest change that satisfies the objective. Preserve every export, public signature, and behavior not explicitly in scope.
+- Typed Python, no bare `except`, `pathlib` over `os.path`. No dead code, no commented-out blocks, no TODO without an owner.
+- Leave secrets, credentials, and configuration untouched.
+
+OUTPUT CONTRACT (strict):
+- Return ONLY the complete, updated file content.
+- No markdown fences, no explanation, no commentary before or after the code.
+"""
+
+
 SELF_IMPROVE_VERIFIER = _wrap("""
 ROLE: You are the verifier role inside a self-improvement run. You confirm
 the change actually meets the acceptance criteria — you do not write code.

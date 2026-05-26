@@ -30,6 +30,7 @@ from config.role_prompts import (
     SELF_IMPROVE_VERIFIER,
 )
 from .config import DEFAULT_SETTINGS
+from . import knowledge_store
 from .exporter import export_items
 from .api_routes_browser import register_browser_routes
 from .api_routes_chat_research import register_chat_research_routes
@@ -405,6 +406,10 @@ class SelfImproveStrengthenRequest(BaseModel):
     prompt: str = Field(min_length=5, max_length=6000)
 
 
+class SelfImproveKnowledgeRequest(BaseModel):
+    knowledge: str = Field(default="", max_length=20000)
+
+
 class N8nStartRequest(BaseModel):
     force: bool = False
 
@@ -697,6 +702,9 @@ def _generator_user_prompt(
             "Current codebase signal (use this to anchor concrete proposals — "
             "prefer files/issues that appear here over generic ideas):\n" + signal
         )
+    knowledge = knowledge_store.knowledge_prompt_block()
+    if knowledge:
+        parts.append(knowledge)
     parts.append(
         f"Generate 8–{max(8, max_suggestions + 2)} candidates per the schema in your system prompt. "
         "Every candidate must name at least one file in scope_files; prefer files appearing in the "
@@ -2568,6 +2576,22 @@ async def self_improve_run(req: SelfImproveRunRequest) -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/self-improve/knowledge")
+async def self_improve_get_knowledge() -> dict[str, Any]:
+    """Return the editable coding-knowledge file injected into self-improve prompts."""
+    return {
+        "knowledge": knowledge_store.get_knowledge(),
+        "max_chars": knowledge_store.MAX_KNOWLEDGE_CHARS,
+    }
+
+
+@router.post("/self-improve/knowledge")
+async def self_improve_set_knowledge(req: SelfImproveKnowledgeRequest) -> dict[str, Any]:
+    """Persist the coding-knowledge file. Returns the saved (capped) content."""
+    saved = knowledge_store.set_knowledge(req.knowledge)
+    return {"knowledge": saved, "max_chars": knowledge_store.MAX_KNOWLEDGE_CHARS}
 
 
 @router.post("/assist/plan")

@@ -1704,6 +1704,38 @@ export async function runSelfImprove(payload: {
     return resp.json();
 }
 
+export interface SelfImproveKnowledge {
+    knowledge: string;
+    max_chars: number;
+}
+
+/** The editable coding-knowledge file injected into the self-improve coder/proposal prompts. */
+export async function getSelfImproveKnowledge(): Promise<SelfImproveKnowledge> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/self-improve/knowledge`, {}, 15000);
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `get coding knowledge failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export async function saveSelfImproveKnowledge(knowledge: string): Promise<SelfImproveKnowledge> {
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/self-improve/knowledge`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ knowledge }),
+        },
+        15000,
+    );
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `save coding knowledge failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
 /** NDJSON events from POST /api/agent-space/assist/analyze-stream */
 export type AssistStreamEvent =
     | {

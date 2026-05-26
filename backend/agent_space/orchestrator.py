@@ -29,7 +29,8 @@ from .snapshot_store import SnapshotStore
 from .skill_store import SkillStore
 from .team_store import TeamStore
 from .web_research import fetch_web, search_web
-from . import orch_helpers, orch_planning
+from . import knowledge_store, orch_helpers, orch_planning
+from config.role_prompts import SELF_IMPROVE_FILE_REWRITE
 from config.settings import BROWSER_EXTRACT_MAX_CHARS
 
 
@@ -2429,11 +2430,18 @@ class AgentSpaceOrchestrator:
             "Current file content:\n"
             f"{source}"
         )
+        # Strong coder standards + the user's editable knowledge file replace the old
+        # bare "return file content only" system prompt — this is what lifts the
+        # quality of self-improve code changes.
+        system = SELF_IMPROVE_FILE_REWRITE
+        knowledge = knowledge_store.knowledge_prompt_block()
+        if knowledge:
+            system = f"{system}\n\n{knowledge}"
         try:
             text = await ollama_client.chat_full(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "Return full file content only."},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": ask},
                 ],
                 temperature=0.1,

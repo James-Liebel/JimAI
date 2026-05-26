@@ -63,6 +63,42 @@ export default function SelfCode() {
     const [runActions, setRunActions] = useState<agentApi.ActionLogEntry[]>([]);
     const [runActionsError, setRunActionsError] = useState('');
 
+    const [knowledge, setKnowledge] = useState('');
+    const [knowledgeLoading, setKnowledgeLoading] = useState(true);
+    const [knowledgeSaving, setKnowledgeSaving] = useState(false);
+    const [knowledgeMsg, setKnowledgeMsg] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const data = await agentApi.getSelfImproveKnowledge();
+                if (!cancelled) setKnowledge(data.knowledge);
+            } catch (err) {
+                if (!cancelled) setKnowledgeMsg(err instanceof Error ? err.message : 'Failed to load knowledge');
+            } finally {
+                if (!cancelled) setKnowledgeLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const handleSaveKnowledge = useCallback(async () => {
+        setKnowledgeSaving(true);
+        setKnowledgeMsg('');
+        try {
+            const data = await agentApi.saveSelfImproveKnowledge(knowledge);
+            setKnowledge(data.knowledge);
+            setKnowledgeMsg('Saved');
+        } catch (err) {
+            setKnowledgeMsg(err instanceof Error ? err.message : 'Save failed');
+        } finally {
+            setKnowledgeSaving(false);
+        }
+    }, [knowledge]);
+
     const waitActive = strengthenBusy || analyzerSnap.analyzing || starting;
     const [elapsedSec, setElapsedSec] = useState(0);
 
@@ -350,6 +386,42 @@ export default function SelfCode() {
                             Revert strengthen
                         </button>
                     </div>
+                </section>
+
+                {/* Coding knowledge — injected into the coder + proposal prompts */}
+                <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6">
+                    <details>
+                        <summary className="cursor-pointer select-none text-sm font-semibold text-text-primary marker:text-text-muted">
+                            Coding knowledge
+                        </summary>
+                        <p className="mt-1 mb-3 text-xs text-text-muted">
+                            Project conventions injected into the coder and proposal prompts so changes match your
+                            codebase. Edit and save to teach the agents — this is the knowledge file they read.
+                        </p>
+                        <label htmlFor="coding-knowledge" className="sr-only">
+                            Coding knowledge
+                        </label>
+                        <textarea
+                            id="coding-knowledge"
+                            value={knowledge}
+                            onChange={(e) => setKnowledge(e.target.value)}
+                            disabled={knowledgeLoading || knowledgeSaving}
+                            spellCheck={false}
+                            placeholder={knowledgeLoading ? 'Loading…' : 'Project conventions the self-improve agents must follow…'}
+                            className="w-full min-h-[200px] resize-y rounded-btn border border-surface-4 bg-surface-0 px-3 py-2.5 font-mono text-xs text-text-primary leading-relaxed disabled:opacity-50"
+                        />
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleSaveKnowledge}
+                                disabled={knowledgeLoading || knowledgeSaving}
+                                className="rounded-btn bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
+                            >
+                                {knowledgeSaving ? 'Saving…' : 'Save knowledge'}
+                            </button>
+                            {knowledgeMsg && <span className="text-xs text-text-muted">{knowledgeMsg}</span>}
+                        </div>
+                    </details>
                 </section>
 
                 {/* 2 — Run */}

@@ -2534,6 +2534,10 @@ class AgentSpaceOrchestrator:
         try:
             await self._run_pre_action_hooks(run_id=run_id, agent_id=agent_id, action=action)
         except Exception as hook_exc:
+            logger.warning(
+                "Action %r by %s denied by pre-action hook in run %s: %s",
+                action_type, agent_id, run_id, hook_exc,
+            )
             await self._emit(
                 run_id,
                 "action.denied",
@@ -2542,6 +2546,7 @@ class AgentSpaceOrchestrator:
             )
             return {"success": False, "denied": True, "error": str(hook_exc), "action_type": action_type}
 
+        raised_exc: Exception | None = None
         try:
             if action_type == "read_file":
                 rel, abs_path = self._resolve_repo_path(str(action.get("path", "")), run_id=run_id)
@@ -2983,8 +2988,19 @@ class AgentSpaceOrchestrator:
                 raise RuntimeError(f"Unsupported action type '{action_type}'.")
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
+            raised_exc = exc
 
         self.logs.log_action(run_id, agent_id, action, result)
+        if not result.get("success", False):
+            # Detailed, per-action-type failure logging so every failure mode is
+            # diagnosable: full stack trace when the action raised, error detail
+            # when it returned success=False without raising.
+            logger.warning(
+                "Action %r by %s failed in run %s: %s",
+                action_type, agent_id, run_id,
+                result.get("error") or result.get("stderr") or "unspecified failure",
+                exc_info=raised_exc,
+            )
         await self._emit(
             run_id,
             "action.completed",

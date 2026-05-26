@@ -401,6 +401,9 @@ class SkillStore:
         ensure_layout()
         self._settings = settings_store
         self._cache: dict[str, dict[str, Any]] = {}
+        # (md_mtime, meta_mtime) per slug — lets _read_skill skip the read_text +
+        # frontmatter parse when neither file changed since it was last cached.
+        self._cache_sig: dict[str, tuple[float, float]] = {}
         self.install_default_skills()
 
     def _skill_dir(self, slug: str) -> Path:
@@ -512,8 +515,22 @@ class SkillStore:
     def _read_skill(self, slug: str) -> dict[str, Any] | None:
         md_path = self._skill_md(slug)
         meta_path = self._meta_path(slug)
-        if not md_path.exists():
+        try:
+            md_stat = md_path.stat()
+        except OSError:
+            # Missing / unreadable SKILL.md — drop any stale cache entry.
+            self._cache.pop(slug, None)
+            self._cache_sig.pop(slug, None)
             return None
+        try:
+            meta_mtime = meta_path.stat().st_mtime
+        except OSError:
+            meta_mtime = 0.0
+        signature = (md_stat.st_mtime, meta_mtime)
+        cached = self._cache.get(slug)
+        if cached is not None and self._cache_sig.get(slug) == signature:
+            # Neither file changed since the last parse — skip the disk read.
+            return dict(cached)
         try:
             raw_md = md_path.read_text(encoding="utf-8")
         except Exception:
@@ -542,14 +559,15 @@ class SkillStore:
                 default=1,
             ),
             "source": str(frontmatter.get("source") or meta.get("source") or "custom"),
-            "created_at": _coerce_timestamp(meta.get("created_at"), fallback=md_path.stat().st_ctime),
-            "updated_at": _coerce_timestamp(meta.get("updated_at"), fallback=md_path.stat().st_mtime),
+            "created_at": _coerce_timestamp(meta.get("created_at"), fallback=md_stat.st_ctime),
+            "updated_at": _coerce_timestamp(meta.get("updated_at"), fallback=md_stat.st_mtime),
             "metadata": dict(meta.get("metadata") or {}),
             "content": body.strip(),
             "raw_markdown": raw_md,
             "path": str(md_path),
         }
         self._cache[slug] = dict(skill)
+        self._cache_sig[slug] = signature
         return skill
 
     def _resolve_slug(self, name_or_slug: str) -> str | None:
@@ -674,6 +692,7 @@ class SkillStore:
         if not slug:
             return False
         self._cache.pop(slug, None)
+        self._cache_sig.pop(slug, None)
         skill_dir = self._skill_dir(slug)
         if not skill_dir.exists():
             return False

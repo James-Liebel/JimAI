@@ -13,6 +13,59 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Page navigation hits transient connection failures (resets, timeouts, network
+# changes) that are distinct from the Ollama HTTP layer — retry them here. These
+# defaults are the configurable attempts + delay; permanent failures (bad host,
+# TLS) are not retried and surface on the first attempt.
+NAV_RETRY_ATTEMPTS = 3
+NAV_RETRY_DELAY_SECONDS = 0.6
+_TRANSIENT_NAV_ERROR_HINTS = (
+    "err_connection_reset",
+    "err_connection_closed",
+    "err_connection_refused",
+    "err_connection_timed_out",
+    "err_timed_out",
+    "err_network_changed",
+    "err_empty_response",
+    "err_socket_not_connected",
+    "err_address_unreachable",
+    "timeout",
+)
+
+
+def _is_transient_nav_error(exc: Exception) -> bool:
+    """A navigation error worth retrying (connection blip), not a permanent one."""
+    message = str(exc).lower()
+    return any(hint in message for hint in _TRANSIENT_NAV_ERROR_HINTS)
+
+
+async def _goto_with_retry(
+    page: Any,
+    url: str,
+    *,
+    wait_until: str = "domcontentloaded",
+    timeout: int = 25000,
+    attempts: int = NAV_RETRY_ATTEMPTS,
+    delay: float = NAV_RETRY_DELAY_SECONDS,
+) -> None:
+    """``page.goto`` with bounded retries for transient connection errors.
+
+    Permanent failures raise on the first attempt; transient network blips are
+    retried up to ``attempts`` times with linear backoff.
+    """
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            await page.goto(url, wait_until=wait_until, timeout=timeout)
+            return
+        except Exception as exc:
+            if attempt >= attempts or not _is_transient_nav_error(exc):
+                raise
+            logger.warning(
+                "Navigation to %r failed (attempt %d/%d): %s — retrying.",
+                url, attempt, attempts, exc,
+            )
+            await asyncio.sleep(delay * attempt)
+
 
 class BrowserAgentManager:
     """Maintains Playwright browser sessions for agents."""
@@ -210,7 +263,7 @@ class BrowserAgentManager:
             context = await browser.new_context(**ctx_kw)
             page = await context.new_page()
             if url:
-                await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                await _goto_with_retry(page, url, timeout=25000)
             viewport = page.viewport_size or {"width": 1280, "height": 720}
             session_id = str(uuid.uuid4())
             self._sessions[session_id] = {
@@ -306,7 +359,7 @@ class BrowserAgentManager:
             page = pages[0] if pages else await context.new_page()
             if url and url != "about:blank":
                 try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    await _goto_with_retry(page, url, timeout=20000)
                 except Exception:
                     pass
 
@@ -359,7 +412,7 @@ class BrowserAgentManager:
             return {"success": False, "error": "url is required."}
         try:
             page = session["page"]
-            await page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            await _goto_with_retry(page, url, timeout=25000)
             state = await self._capture_state(session_id, session)
             return {"success": True, **state}
         except Exception as exc:
@@ -1035,7 +1088,7 @@ class BrowserAgentManager:
         try:
             new_page = await session["context"].new_page()
             if url:
-                await new_page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                await _goto_with_retry(new_page, url, timeout=25000)
             session["page"] = new_page  # focus moves to the new tab
             payload = await self._capture_state(session_id, session)
             return {"success": True, **payload}

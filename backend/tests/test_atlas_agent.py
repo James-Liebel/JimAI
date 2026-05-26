@@ -509,6 +509,24 @@ class TestGoalDirectedScenarios:
         assert result["action"] == "wait"
         assert result["response"]
 
+    async def test_connection_error_returns_wait_action(self):
+        """When Ollama is unreachable, agent degrades to wait instead of raising."""
+
+        async def unreachable_chat_full(*args, **kwargs):
+            raise ConnectionError("Ollama is not running. Start it with: ollama serve")
+
+        mock_oc = MagicMock()
+        mock_oc.chat_full = unreachable_chat_full
+        with patch.object(runner, "ollama_client", mock_oc):
+            result = await runner.chat_browser_step(
+                message="go to google",
+                url="about:blank",
+                title="",
+                page_text="",
+                history=[],
+            )
+        assert result["action"] == "wait"
+
     async def test_malformed_model_output_recovers_gracefully(self):
         """When model returns garbage, agent returns wait with a helpful response."""
         with patch.object(runner, "ollama_client", self._make_mock_ollama("THIS IS NOT JSON")):
@@ -812,3 +830,71 @@ class TestDedupGate:
             )
         full = " ".join(m.get("content", "") for m in captured)
         assert "FEEDBACK" in full
+
+
+# ---------------------------------------------------------------------------
+# run_browser_agent — transient-error resilience
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+class TestRunBrowserAgentResilience:
+    """A transient planner failure must not abort an in-progress multi-step run."""
+
+    def _make_browser_manager(self):
+        bm = MagicMock()
+        bm.open_session = AsyncMock(
+            return_value={"success": True, "session_id": "s1", "url": "https://example.com"}
+        )
+        bm.screenshot = AsyncMock(
+            return_value={"success": True, "image_base64": "", "url": "https://example.com"}
+        )
+        bm.get_state = AsyncMock(
+            return_value={"success": True, "url": "https://example.com", "title": "Example", "links": []}
+        )
+        bm.extract_text = AsyncMock(return_value={"success": True, "text": "Example page"})
+        bm.list_interactive = AsyncMock(return_value={"success": True, "fields": []})
+        bm.close_session = AsyncMock(return_value={"success": True})
+        return bm
+
+    async def test_transient_errors_do_not_abort_run(self):
+        """Two connection blips then a done — the run recovers and finishes."""
+        responses = iter([
+            ConnectionError("Ollama down"),
+            ConnectionError("Ollama down"),
+            _action_json(action="done", result="finished"),
+        ])
+
+        async def flaky_chat_full(*args, **kwargs):
+            item = next(responses)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        mock_oc = MagicMock()
+        mock_oc.chat_full = flaky_chat_full
+        events: list = []
+        with patch.object(runner, "ollama_client", mock_oc), \
+                patch.object(runner, "PLANNER_ERROR_BACKOFF_SECONDS", 0):
+            async for ev in runner.run_browser_agent(
+                "do a thing", "https://example.com", browser_manager=self._make_browser_manager()
+            ):
+                events.append(ev)
+        assert "done" in [e["type"] for e in events]
+
+    async def test_aborts_after_max_consecutive_errors(self):
+        """Persistent backend failure ends the run with a stopped event, not a hang."""
+
+        async def always_fails(*args, **kwargs):
+            raise ConnectionError("Ollama down")
+
+        mock_oc = MagicMock()
+        mock_oc.chat_full = always_fails
+        events: list = []
+        with patch.object(runner, "ollama_client", mock_oc), \
+                patch.object(runner, "PLANNER_ERROR_BACKOFF_SECONDS", 0):
+            async for ev in runner.run_browser_agent(
+                "do a thing", "https://example.com", browser_manager=self._make_browser_manager()
+            ):
+                events.append(ev)
+        assert any(e["type"] == "stopped" for e in events)

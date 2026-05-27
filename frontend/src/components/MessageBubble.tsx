@@ -2,6 +2,10 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+// Ship KaTeX's stylesheet with this (lazy) chunk instead of a render-blocking
+// CDN <link> in index.html: math styling loads with MessageBubble — off the
+// startup critical path — and stays fully local (no CDN dependency).
+import 'katex/dist/katex.min.css';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import hljsStyle from 'react-syntax-highlighter/dist/esm/styles/hljs/vs2015';
 

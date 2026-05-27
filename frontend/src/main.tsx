@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
+import { prefetchRoute } from './lib/routePrefetch';
 import './index.css';
 
 const SERVICE_WORKER_VERSION = '2026-03-22-1';
@@ -111,4 +112,9 @@ const idle: (cb: () => void) => void =
 idle(() => {
     void importChat();
     void import('./components/MessageBubble');
+    // Then warm the rest of the primary tabs in the background, so switching to
+    // any of them is instant instead of paying the lazy-chunk fetch on click.
+    idle(() => {
+        ['/atlas', '/builder', '/agents', '/self-code'].forEach(prefetchRoute);
+    });
 });

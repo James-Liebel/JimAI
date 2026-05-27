@@ -14,14 +14,15 @@ import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
 import { API_BASE, apiUrl } from '../lib/backendBase';
 
+// Autonomy and Security are platform internals (they run on the backend
+// automatically) — reachable from Settings and the command palette rather than
+// occupying a top-level tab.
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
     { to: '/atlas', label: 'Atlas' },
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/self-code', label: 'SelfCode' },
-    { to: '/autonomy', label: 'Autonomy' },
-    { to: '/security', label: 'Security' },
 ];
 
 const TERMINAL_RUN_EVENTS = new Set(['run.completed', 'run.failed', 'run.stopped']);

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     MessageSquare, Globe, Hammer, Bot, Wrench, GitPullRequest, Sparkles,
     Settings as SettingsIcon, LayoutDashboard, FlaskConical, Search, FileText, ListChecks,
+    Brain, ShieldCheck,
     type LucideIcon,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -23,6 +24,8 @@ const ITEMS: PaletteItem[] = [
     { id: 'agents',   label: 'Agents',        icon: Bot,              to: '/agents',       keywords: 'team workspace persona' },
     { id: 'self',     label: 'SelfCode',      icon: Wrench,           to: '/self-code',    keywords: 'edit codebase repo' },
     { id: 'review',   label: 'JimAI Review',  icon: GitPullRequest,   to: '/workflow',     keywords: 'pr pull request workflow' },
+    { id: 'autonomy', label: 'Autonomy',      icon: Brain,            to: '/autonomy',     keywords: 'memory skills reflections heartbeat platform self' },
+    { id: 'security', label: 'Security',      icon: ShieldCheck,      to: '/security',     keywords: 'shield secrets egress supply chain platform defense' },
     { id: 'skills',   label: 'Skills',        icon: Sparkles,         to: '/skills',       keywords: 'capabilities' },
     { id: 'research', label: 'Research',      icon: Search,           to: '/research',     keywords: 'search papers web' },
     { id: 'audit',    label: 'System Audit',  icon: FlaskConical,     to: '/audit',        keywords: 'health diagnostics' },

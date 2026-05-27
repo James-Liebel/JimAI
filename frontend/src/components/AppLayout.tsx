@@ -351,10 +351,10 @@ export default function AppLayout() {
                                 className={({ isActive }) =>
                                     cn(
                                         'relative flex items-center px-3.5 text-xs font-medium tracking-wide transition-colors duration-150 md:px-4',
-                                        'after:absolute after:inset-x-1 after:bottom-0 after:h-[2px] after:rounded-t-full after:transition-opacity after:duration-150',
+                                        'after:absolute after:inset-x-2 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent after:transition-all after:duration-200 after:ease-out-soft',
                                         isActive
-                                            ? 'text-text-primary after:bg-accent after:opacity-100'
-                                            : 'text-text-muted hover:text-text-secondary after:bg-accent after:opacity-0',
+                                            ? 'text-text-primary after:opacity-100'
+                                            : 'text-text-muted hover:text-text-primary after:opacity-0 hover:after:opacity-30',
                                     )
                                 }
                             >

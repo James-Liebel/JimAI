@@ -16,11 +16,20 @@ export default {
                     DEFAULT: '#3B82F6',
                     hover: '#2563EB',
                     dim: 'rgba(59,130,246,0.12)',
+                    // `accent-1` is the primary-action alias used across action buttons.
+                    1: '#3B82F6',
                     blue: '#3B82F6',
                     green: '#22C55E',
                     amber: '#F59E0B',
                     red: '#EF4444',
                     purple: '#A855F7',
+                },
+                // Semantic status palette (success/warning/error) used by stat tiles,
+                // verdict badges, and audit rows.
+                status: {
+                    success: '#22C55E',
+                    warning: '#F59E0B',
+                    error: '#EF4444',
                 },
                 text: {
                     primary: '#F0F0F5',
@@ -43,6 +52,16 @@ export default {
                 btn: '6px',
                 badge: '4px',
                 panel: '8px',
+            },
+            // Dark-theme elevation: shadows must be deep to read against near-black surfaces.
+            boxShadow: {
+                'elevation-1': '0 1px 2px 0 rgba(0, 0, 0, 0.45)',
+                'elevation-2': '0 4px 14px -3px rgba(0, 0, 0, 0.55)',
+                'elevation-3': '0 14px 40px -8px rgba(0, 0, 0, 0.65)',
+                'focus-ring': '0 0 0 2px rgba(59, 130, 246, 0.45)',
+            },
+            transitionTimingFunction: {
+                'out-soft': 'cubic-bezier(0.22, 1, 0.36, 1)',
             },
             animation: {
                 'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',

@@ -45,7 +45,7 @@ export default function SpeedModeToggle({ currentMode, onModeChange }: Props) {
 
     return (
         <div className="relative flex items-center">
-            <div className="flex items-center bg-surface-0 rounded-none p-0.5 border border-surface-4">
+            <div className="flex items-center bg-surface-0 rounded-btn p-0.5 border border-surface-4">
                 {MODES.map((m) => {
                     const isActive = currentMode === m.value;
                     return (
@@ -71,7 +71,7 @@ export default function SpeedModeToggle({ currentMode, onModeChange }: Props) {
             </div>
 
             {!isMobile && hoveredMode && (
-                <div className="absolute top-full right-0 mt-1.5 w-56 p-2 bg-surface-3 border border-surface-4 rounded-none shadow-none z-50 text-[11px] text-text-secondary animate-fade-in pointer-events-none">
+                <div className="absolute top-full right-0 mt-1.5 w-56 p-2 bg-surface-3 border border-surface-4 rounded-card shadow-elevation-2 z-50 text-[11px] text-text-secondary animate-fade-in pointer-events-none">
                     {MODES.find((m) => m.value === hoveredMode)?.tooltip}
                 </div>
             )}

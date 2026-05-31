@@ -151,7 +151,7 @@ export default function InputBar({
         <div className="space-y-2">
             {/* Attached file pill */}
             {attachedFile && (
-                <div className="flex w-fit items-center gap-2 border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
+                <div className="flex w-fit items-center gap-2 rounded-card border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
                     <span className="text-text-muted">📎</span>
                     <span>{attachedFile.name}</span>
                     <button
@@ -166,11 +166,11 @@ export default function InputBar({
 
             {/* Pasted image thumbnail */}
             {pastedImage && (
-                <div className="flex w-fit items-center gap-2 border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
+                <div className="flex w-fit items-center gap-2 rounded-card border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
                     <img
                         src={`data:image/png;base64,${pastedImage}`}
                         alt="Pasted"
-                        className="h-8 w-8 border border-surface-4 object-cover"
+                        className="h-8 w-8 rounded border border-surface-4 object-cover"
                     />
                     <span>Image attached → vision model</span>
                     <button
@@ -185,16 +185,16 @@ export default function InputBar({
 
             {/* Main input area */}
             <div className={cn(
-                'flex min-w-0 items-end gap-1.5 border bg-surface-1 p-2 transition-colors',
+                'flex min-w-0 items-end gap-1.5 rounded-panel border bg-surface-1 p-2 shadow-elevation-1 transition-colors',
                 borderClass,
-                'focus-within:border-white/45',
+                'focus-within:border-white/45 focus-within:shadow-focus-ring',
                 isMobile && 'min-h-[52px]',
             )}>
                 <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                        'shrink-0 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
+                        'shrink-0 rounded text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
                         isMobile ? 'p-2.5' : 'p-2',
                     )}
                     title="Attach file"
@@ -214,7 +214,7 @@ export default function InputBar({
                         <button
                             type="button"
                             onClick={() => setShowPhotoMenu((v) => !v)}
-                            className="p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+                            className="rounded p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
                             title="Photo options"
                         >
                             <Camera size={20} />
@@ -284,7 +284,7 @@ export default function InputBar({
                         type="button"
                         onClick={isListening ? stopListening : startListening}
                         className={cn(
-                            'shrink-0 p-2.5 transition-colors',
+                            'shrink-0 rounded p-2.5 transition-colors',
                             isListening
                                 ? 'animate-pulse-slow bg-accent-red/10 text-accent-red'
                                 : 'text-text-muted hover:bg-surface-2 hover:text-text-secondary',
@@ -300,7 +300,7 @@ export default function InputBar({
                     onClick={handleSend}
                     disabled={isStreaming || (!text.trim() && !pastedImage)}
                     className={cn(
-                        'shrink-0 transition-colors',
+                        'shrink-0 rounded transition-colors',
                         isMobile ? 'p-2.5' : 'p-2',
                         isStreaming || (!text.trim() && !pastedImage)
                             ? 'cursor-not-allowed text-text-muted'

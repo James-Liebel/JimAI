@@ -83,7 +83,7 @@ export default function Dashboard() {
             <div className="mx-auto w-full max-w-[min(112rem,calc(100%-2rem))] space-y-8">
             {consecutiveFailures >= 2 && (
                 <div className="rounded-card border border-accent-amber/40 bg-accent-amber/10 px-4 py-3 flex items-center gap-3">
-                    <span className="w-2 h-2 rounded-none bg-accent-amber animate-pulse flex-shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-accent-amber animate-pulse flex-shrink-0" />
                     <p className="text-xs text-accent-amber flex-1">
                         Backend connection lost. Attempting to reconnect...
                     </p>

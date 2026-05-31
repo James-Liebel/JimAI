@@ -241,9 +241,9 @@ export default function Research() {
                         {searching ? (
                             <span className="flex items-center gap-1.5">
                                 <span className="inline-flex gap-0.5">
-                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:0ms]" />
-                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:150ms]" />
-                                    <span className="w-1 h-1 rounded-none bg-accent-blue animate-bounce [animation-delay:300ms]" />
+                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:0ms]" />
+                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:150ms]" />
+                                    <span className="w-1 h-1 rounded-full bg-accent-blue animate-bounce [animation-delay:300ms]" />
                                 </span>
                                 {activeStepLabel ? activeStepLabel.replace(/\.\.\.$/, '') : 'Researching'}
                             </span>
@@ -406,9 +406,9 @@ export default function Research() {
                 {!answer && searching && (
                     <p className="text-xs text-text-secondary flex items-center gap-1.5">
                         <span className="inline-flex gap-0.5">
-                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:0ms]" />
-                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:150ms]" />
-                            <span className="w-1 h-1 rounded-none bg-text-secondary animate-bounce [animation-delay:300ms]" />
+                            <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:0ms]" />
+                            <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:150ms]" />
+                            <span className="w-1 h-1 rounded-full bg-text-secondary animate-bounce [animation-delay:300ms]" />
                         </span>
                         {activeStepLabel || 'Streaming answer…'}
                     </p>

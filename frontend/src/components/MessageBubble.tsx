@@ -158,7 +158,7 @@ export default function MessageBubble({ message }: Props) {
         <div className={cn('group animate-slide-up', isUser ? 'flex justify-end' : 'flex justify-start')}>
             <div
                 className={cn(
-                    'border border-surface-4 px-4 py-3 transition-colors',
+                    'rounded-panel border border-surface-4 px-4 py-3 shadow-elevation-1 transition-colors',
                     isUser
                         ? 'bg-surface-2 text-text-primary'
                         : 'w-full bg-surface-1 text-text-primary',
@@ -235,14 +235,14 @@ export default function MessageBubble({ message }: Props) {
                     <div className="mt-2 pt-2 border-t border-white/12 space-y-2">
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                             {hasSources && (
-                                <span className="rounded-none border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
+                                <span className="rounded-badge border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
                                     Web-backed · {message.sources!.length} source{message.sources!.length === 1 ? '' : 's'}
                                 </span>
                             )}
                             {autoWebAttempted && (
                                 <span
                                     className={cn(
-                                        'rounded-none border px-2 py-1',
+                                        'rounded-badge border px-2 py-1',
                                         autoWebOk
                                             ? 'border-accent-green/30 bg-accent-green/10 text-accent-green'
                                             : 'border-accent-amber/30 bg-accent-amber/10 text-accent-amber',
@@ -252,12 +252,12 @@ export default function MessageBubble({ message }: Props) {
                                     </span>
                                 )}
                             {autoWebQueries > 0 && (
-                                <span className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
+                                <span className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
                                     {autoWebQueries} quer{autoWebQueries === 1 ? 'y' : 'ies'}
                                 </span>
                             )}
                             {autoWebPages > 0 && (
-                                <span className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
+                                <span className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-1 text-text-secondary">
                                     {autoWebPages} page{autoWebPages === 1 ? '' : 's'} read
                                 </span>
                             )}
@@ -276,7 +276,7 @@ export default function MessageBubble({ message }: Props) {
                                         href={normalizeSourceUrl(s)}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
+                                        className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                                         title={s.text}
                                     >
                                         #{i + 1} {sourceDisplayLabel(s)}
@@ -286,7 +286,7 @@ export default function MessageBubble({ message }: Props) {
                                             key={`${s.source}-${i}`}
                                             type="button"
                                             onClick={() => setShowSources((prev) => !prev)}
-                                            className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
+                                            className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-secondary hover:text-text-primary"
                                             title={s.text}
                                         >
                                             #{i + 1} {sourceDisplayLabel(s)}
@@ -297,7 +297,7 @@ export default function MessageBubble({ message }: Props) {
                                     <button
                                         type="button"
                                         onClick={() => setShowSources((prev) => !prev)}
-                                        className="rounded-none border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-muted hover:text-text-primary"
+                                        className="rounded-badge border border-surface-4 bg-surface-2 px-2 py-1 text-[11px] text-text-muted hover:text-text-primary"
                                     >
                                         +{rankedSources.length - 3} more
                                     </button>
@@ -445,7 +445,7 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     if (judge.passed && judge.confidence === 'high' && judge.issues.length === 0) {
         return (
             <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-none bg-accent-green" title={`Verified by ${judge.judge_model} — no issues`} />
+                <span className="w-2 h-2 rounded-full bg-accent-green" title={`Verified by ${judge.judge_model} — no issues`} />
                 <span className="text-[11px] text-text-muted">Verified by {judge.judge_model}</span>
             </div>
         );
@@ -454,7 +454,7 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
         return (
             <div className="mt-2 pt-2 border-t border-white/10">
                 <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300">
-                    <span className="w-2 h-2 rounded-none bg-amber-400" />
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
                     Suggestions available — click to expand
                 </button>
                 {open && (

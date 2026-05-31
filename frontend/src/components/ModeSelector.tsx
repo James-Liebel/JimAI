@@ -27,7 +27,7 @@ interface Props {
 
 export default function ModeSelector({ active, onChange }: Props) {
     return (
-        <div className="flex items-center gap-1 p-1 bg-surface-2 rounded-none">
+        <div className="flex items-center gap-1 p-1 bg-surface-2 rounded-btn border border-surface-4">
             {MODES.map(({ key, label, shortcut, icon }) => (
                 <button
                     key={key}
@@ -35,10 +35,10 @@ export default function ModeSelector({ active, onChange }: Props) {
                     onClick={() => onChange(key)}
                     title={shortcut}
                     className={cn(
-                        'relative px-3 py-1.5 rounded-none text-sm font-medium transition-all duration-200',
+                        'relative px-3 py-1.5 rounded-btn text-sm font-medium transition-all duration-200',
                         'hover:bg-surface-3',
                         active === key
-                            ? `bg-gradient-to-r ${MODE_COLORS[key]} text-white shadow-none shadow-accent/20`
+                            ? `bg-gradient-to-r ${MODE_COLORS[key]} text-white shadow-elevation-1`
                             : 'text-text-secondary hover:text-text-primary',
                     )}
                 >

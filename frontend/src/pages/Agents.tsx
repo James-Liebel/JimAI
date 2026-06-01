@@ -179,7 +179,9 @@ type ChatMsg = { role: 'user' | 'assistant'; content: string };
 export default function Agents() {
     const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
     const [teams, setTeams] = useState<WorkspaceTeam[]>([]);
-    const [models, setModels] = useState<string[]>([]);
+    // Seed with the common local models so every model <select> is usable on
+    // first paint; the live Ollama list merges in once it loads (see loadModels).
+    const [models, setModels] = useState<string[]>(['qwen3:8b', 'qwen2.5-coder:14b', 'deepseek-r1:14b']);
     const [loading, setLoading] = useState(true);
     const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -219,25 +221,37 @@ export default function Agents() {
     });
     const chatEndRef = useRef<HTMLDivElement>(null);
 
+    // Roster only depends on the fast, local agent/team JSON — never gate it on
+    // the Ollama model list (a network call that is slow on cold start).
     const refresh = useCallback(async () => {
         setLoading(true);
         try {
-            const [a, t, m] = await Promise.all([
+            const [a, t] = await Promise.all([
                 api.listWorkspaceAgents(),
                 api.listTeams(),
-                api.listOllamaModels().catch(() => []),
             ]);
             setAgents(a);
             setTeams(t);
-            setModels(m.length ? m : ['qwen3:8b', 'qwen2.5-coder:14b', 'deepseek-r1:14b']);
         } finally {
             setLoading(false);
         }
     }, []);
 
+    // Ollama models load independently and merge in when ready, so a slow or
+    // unreachable Ollama never blocks the saved-agent roster from rendering.
+    const loadModels = useCallback(async () => {
+        try {
+            const m = await api.listOllamaModels();
+            if (m.length) setModels(m);
+        } catch {
+            /* keep the seeded defaults */
+        }
+    }, []);
+
     useEffect(() => {
         void refresh();
-    }, [refresh]);
+        void loadModels();
+    }, [refresh, loadModels]);
 
     useEffect(() => {
         if (!selectedAgentId || selectedTeamId) return;
@@ -444,7 +458,9 @@ export default function Agents() {
                     <Bot className="w-4 h-4 text-accent" />
                     <h1 className="text-base font-semibold tracking-tight text-text-primary">Agents</h1>
                     <span className="hidden text-xs text-text-muted sm:inline">
-                        Personas, skills &amp; teams — local Ollama
+                        {agents.length > 0
+                            ? `${agents.length} saved agent${agents.length === 1 ? '' : 's'} · reusable across sessions`
+                            : 'Personas, skills & teams — saved locally, reusable across sessions'}
                     </span>
                 </div>
                 <Link

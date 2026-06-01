@@ -1,5 +1,6 @@
-/* Fonts are loaded via <link> in index.html (with preconnect). Importing them
-   here too would add a second render-blocking request in the CSS path. */
+/* Fonts are self-hosted and imported in main.tsx (@fontsource, bundled woff2).
+   Kept out of this file so the @font-face assets resolve through Vite's JS
+   graph rather than adding an extra request in the CSS path. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

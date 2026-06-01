@@ -25,6 +25,7 @@ import {
     BUILDER_WORKSPACE_UNLOCKED_KEY,
     buildDiffTab,
     defaultCloneFolderFromUrl,
+    deriveAgentActions,
     detectLanguage,
     dirsAlongPath,
     dirsAlongPathWithinRoot,
@@ -48,6 +49,7 @@ import { FileTreeNode } from '../components/builder/FileTreeNode';
 import { BuilderShortcutsModal } from '../components/builder/BuilderShortcutsModal';
 import { BuilderActivityBar, BuilderTopBar } from '../components/builder/BuilderChrome';
 import { BuilderBottomPanel } from '../components/builder/BuilderBottomPanel';
+import { BuilderAgentActions } from '../components/builder/BuilderAgentActions';
 
 export default function Builder() {
     const [searchParams] = useSearchParams();
@@ -89,6 +91,7 @@ export default function Builder() {
     const [cloneBusy, setCloneBusy] = useState(false);
     const [githubCloneModalOpen, setGithubCloneModalOpen] = useState(false);
     const welcomeFileInputRef = useRef<HTMLInputElement>(null);
+    const agentScrollRef = useRef<HTMLDivElement>(null);
     const [sidebarWidth, setSidebarWidth] = useState(() => loadBuilderLayout().sidebarWidth);
     const [rightWidth, setRightWidth] = useState(() => loadBuilderLayout().rightWidth);
     const [bottomPanelHeight, setBottomPanelHeight] = useState(() => loadBuilderLayout().bottomHeight);
@@ -905,25 +908,13 @@ export default function Builder() {
         return activityRows.filter((r) => r.prefix === bottomLogTab);
     }, [activityRows, bottomLogTab]);
 
-    const agentActivityDigest = useMemo(() => {
-        const lines: string[] = [];
-        for (const evt of events.slice(-80)) {
-            const t = evt.type || '';
-            if (
-                t.includes('error')
-                || t.includes('failed')
-                || t === 'run.log'
-                || t.startsWith('subagent')
-                || t === 'run.workflow'
-                || t.includes('action')
-            ) {
-                const msg = typeof evt.message === 'string' && evt.message.trim() ? evt.message.trim() : '';
-                const bit = msg || (evt.data ? JSON.stringify(evt.data).slice(0, 160) : '');
-                if (bit) lines.push(bit);
-            }
-        }
-        return lines.slice(-24).join('\n');
-    }, [events]);
+    const agentActions = useMemo(() => deriveAgentActions(events), [events]);
+
+    // Keep the agent transcript pinned to the newest line as actions stream in.
+    useEffect(() => {
+        const el = agentScrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [agentChatMessages.length, agentActions.length]);
 
     const searchFilteredTreeRoot = useMemo(() => {
         if (!treeData) return null;
@@ -1597,7 +1588,7 @@ export default function Builder() {
                     <div className="flex shrink-0 items-center justify-between border-b border-[#2A2A30] px-3 py-2">
                         <div className="min-w-0">
                             <p className="truncate text-[12px] font-semibold text-text-primary">Agent</p>
-                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} workers · {runReviews.length} reviews</p>
+                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} workers · {agentActions.length} actions · {runReviews.length} reviews</p>
                         </div>
                         <Bot className="h-4 w-4 shrink-0 text-accent/80" aria-hidden />
                     </div>
@@ -1627,9 +1618,9 @@ export default function Builder() {
                                 ))}
                             </select>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                        <div ref={agentScrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
                             <div className="space-y-2">
-                                {agentChatMessages.length === 0 && (
+                                {agentChatMessages.length === 0 && agentActions.length === 0 && (
                                     <p className="text-[11px] leading-relaxed text-text-muted">
                                         Describe what you want changed in this workspace. If a run is already active, messages are sent to it; otherwise a new autonomous run starts.
                                     </p>
@@ -1649,14 +1640,9 @@ export default function Builder() {
                                         {line.content}
                                     </div>
                                 ))}
+                                <BuilderAgentActions actions={agentActions} onOpenFile={(path) => openFile(path).catch(() => undefined)} />
                             </div>
                         </div>
-                        {agentActivityDigest.trim() && (
-                            <div className="shrink-0 border-t border-[#2A2A30] px-3 py-2">
-                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">Recent activity</p>
-                                <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{agentActivityDigest}</pre>
-                            </div>
-                        )}
                         <div className="flex shrink-0 flex-col gap-2 border-t border-[#2A2A30] p-3">
                             <textarea
                                 rows={4}

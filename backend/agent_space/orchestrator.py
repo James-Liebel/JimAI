@@ -206,6 +206,15 @@ class AgentSpaceOrchestrator:
                 # Re-raise so the action dispatcher reports the denial.
                 raise
 
+    def has_active_runs(self) -> bool:
+        """True while any run task is still executing.
+
+        Used by the idle Ollama reaper to keep the model resident while an
+        autonomous job is genuinely working (even with no client connected),
+        and to allow reaping once all work is done.
+        """
+        return any(not task.done() for task in self._tasks.values())
+
     async def reset_runtime_state(self) -> dict[str, Any]:
         stopped_tasks = 0
         for run in self.runs.values():
@@ -755,6 +764,12 @@ class AgentSpaceOrchestrator:
         return orch_helpers._select_actions_for_worker(actions, complexity_level=complexity_level, worker_level=worker_level)
 
     async def _execute_run(self, run_id: str, payload: dict[str, Any]) -> None:
+        # Mark every generation in this run's task as autonomous so the
+        # no-client dead-man's switch leaves it alone — an agent legitimately
+        # cycling through work must not be killed just because no UI is open.
+        # (The manual power-off kill-switch still stops it.)
+        from models import ollama_client as _oc
+        _oc.GENERATION_KIND.set("autonomous")
         run = self.runs[run_id]
         run["status"] = "running"
         run["started_at"] = _now()

@@ -5,6 +5,7 @@ import json
 import logging
 import time
 from collections import OrderedDict
+from contextvars import ContextVar
 from typing import AsyncGenerator, Callable
 
 import httpx
@@ -27,22 +28,50 @@ RETRY_BASE_DELAY_SECONDS = 0.35
 _global_abort_check: Callable[[], bool] | None = None
 ABORT_POLL_SECONDS = 0.5
 
+# Per-call generation kind. "interactive" is the default (a chat/UI request that
+# only makes sense while someone is watching); autonomous agent runs set this to
+# "autonomous" so they keep working even when no client is connected. Set on the
+# ContextVar inside a task, it propagates to every nested generation in that task.
+GENERATION_KIND: ContextVar[str] = ContextVar("ollama_generation_kind", default="interactive")
+
+# Dead-man's switch input: returns True while at least one client is recently
+# present. Wired to the app-instance tracker in agent_space/runtime.py.
+_client_presence_check: Callable[[], bool] | None = None
+
 
 def set_global_abort_check(fn: Callable[[], bool] | None) -> None:
-    """Register a predicate that returns True when all generation must stop now."""
+    """Register a predicate that returns True when ALL generation must stop now."""
     global _global_abort_check
     _global_abort_check = fn
 
 
+def set_client_presence_check(fn: Callable[[], bool] | None) -> None:
+    """Register a predicate that returns True while a client is recently connected."""
+    global _client_presence_check
+    _client_presence_check = fn
+
+
 def _should_abort() -> bool:
+    # Hard global kill (manual power-off / pause) — applies to ALL generation.
     fn = _global_abort_check
-    if fn is None:
-        return False
-    try:
-        return bool(fn())
-    except Exception:
-        # A broken predicate must never wedge generation on (or off).
-        return False
+    if fn is not None:
+        try:
+            if fn():
+                return True
+        except Exception:
+            # A broken predicate must never wedge generation on (or off).
+            pass
+    # Dead-man's switch: interactive generation with no client watching is
+    # "Ollama running on nothing" — abort it so the GPU idles. Autonomous runs
+    # are exempt: they legitimately keep cycling while no UI is connected.
+    presence = _client_presence_check
+    if presence is not None and GENERATION_KIND.get() == "interactive":
+        try:
+            if not presence():
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _is_retryable_error(exc: Exception) -> bool:

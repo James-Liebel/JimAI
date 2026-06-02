@@ -3,8 +3,9 @@
 import asyncio
 import json
 import logging
+import time
 from collections import OrderedDict
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable
 
 import httpx
 
@@ -16,6 +17,32 @@ _client: httpx.AsyncClient | None = None
 _npu_client: httpx.AsyncClient | None = None
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY_SECONDS = 0.35
+
+# Global cooperative kill-switch. agent_space wires this to the PowerManager
+# (see agent_space/runtime.py) so a power-off / pause aborts every in-flight
+# generation within ABORT_POLL_SECONDS — closing the Ollama HTTP connection,
+# which makes Ollama stop decoding and free the GPU immediately. This is the
+# single thermal-safety choke point: ALL inference streams through
+# _stream_json_lines, so one check here covers chat, agent runs, and research.
+_global_abort_check: Callable[[], bool] | None = None
+ABORT_POLL_SECONDS = 0.5
+
+
+def set_global_abort_check(fn: Callable[[], bool] | None) -> None:
+    """Register a predicate that returns True when all generation must stop now."""
+    global _global_abort_check
+    _global_abort_check = fn
+
+
+def _should_abort() -> bool:
+    fn = _global_abort_check
+    if fn is None:
+        return False
+    try:
+        return bool(fn())
+    except Exception:
+        # A broken predicate must never wedge generation on (or off).
+        return False
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -57,12 +84,27 @@ async def _stream_json_lines(
     base_url: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     last_exc: Exception | None = None
+    # Don't even open a connection while paused — a new request issued during a
+    # pause must not spin up the GPU.
+    if _should_abort():
+        logger.info("Generation suppressed: global kill-switch is active (power off/pause).")
+        return
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         client = await _get_client(base_url)
         try:
             async with client.stream("POST", path, json=payload) as resp:
                 resp.raise_for_status()
+                next_abort_check = 0.0
                 async for line in resp.aiter_lines():
+                    # Cooperative kill-switch: poll at most every ABORT_POLL_SECONDS
+                    # so the cost is negligible at token rate. Returning here exits
+                    # the `async with`, closing the connection and aborting Ollama.
+                    now = time.monotonic()
+                    if now >= next_abort_check:
+                        next_abort_check = now + ABORT_POLL_SECONDS
+                        if _should_abort():
+                            logger.info("Generation aborted by global kill-switch (power off/pause).")
+                            return
                     if not line:
                         continue
                     try:

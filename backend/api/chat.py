@@ -1664,6 +1664,11 @@ async def _stream_chat(
 async def _safe_stream_chat(*args, **kwargs) -> AsyncGenerator[str, None]:
     """Wraps _stream_chat so any unhandled exception yields a done:true error event
     instead of silently dropping the SSE connection."""
+    # Global pause (thermal-safety kill-switch). Surface a clear message instead
+    # of an empty reply when generation is paused, so the user knows to resume.
+    if ollama_client._should_abort():
+        yield f"data: {json.dumps({'text': 'Generation is paused. Tap Resume (the Pause control) to continue.', 'done': True, 'sources': [], 'paused': True})}\n\n"
+        return
     try:
         async for chunk in _stream_chat(*args, **kwargs):
             yield chunk

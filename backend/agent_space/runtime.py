@@ -29,6 +29,16 @@ review_store = ReviewStore()
 snapshot_store = SnapshotStore()
 memory_index_store = MemoryIndexStore()
 power_manager = PowerManager()
+
+# Thermal-safety kill-switch: when power is OFF (paused from any client, incl.
+# the phone), abort every in-flight Ollama generation so the GPU stops decoding
+# instead of running hot to a disconnected client. Wired here because runtime is
+# the one place that owns the PowerManager singleton; ollama_client stays free of
+# any agent_space import (no cycle).
+from models import ollama_client as _ollama_client
+
+_ollama_client.set_global_abort_check(lambda: not power_manager.is_enabled())
+
 chat_store = AgentSpaceChatStore()
 team_store = TeamStore()
 skill_store = SkillStore(settings_store=settings_store)

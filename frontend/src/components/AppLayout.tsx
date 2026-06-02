@@ -7,6 +7,7 @@ import LoadingScreen from './LoadingScreen';
 import { prefetchRoute } from '../lib/routePrefetch';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import MobileNav from './MobileNav';
+import GlobalPauseButton from './GlobalPauseButton';
 import { AppAssistDock } from './AppAssistDock';
 import CommandPalette from './CommandPalette';
 import type { SpeedMode } from '../lib/types';
@@ -366,6 +367,7 @@ export default function AppLayout() {
 
                     {/* Right actions */}
                     <div className="flex shrink-0 items-center gap-1">
+                        <GlobalPauseButton variant="inline" />
                         <NavLink
                             to="/workflow"
                             onMouseEnter={() => prefetchRoute('/workflow')}
@@ -462,6 +464,7 @@ export default function AppLayout() {
                     </ErrorBoundary>
                 </main>
             </div>
+            {isMobile && <GlobalPauseButton variant="floating" />}
             {isMobile && <MobileNav />}
             <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         </div>

@@ -478,6 +478,24 @@ async def unload_model(model: str) -> None:
         logger.warning("Could not unload %s — Ollama not reachable", model)
 
 
+async def list_loaded_models() -> list[str]:
+    """Names of models currently resident in VRAM/RAM, via Ollama's /api/ps.
+
+    Returns [] if nothing is loaded or Ollama is unreachable — i.e. "the GPU is
+    not holding a model." Used by the activity/thermal status surface so the user
+    can confirm the laptop isn't sitting with a model loaded in the background.
+    """
+    try:
+        client = await _get_client()
+        resp = await client.get("/api/ps")
+        resp.raise_for_status()
+        names = [m.get("name") or m.get("model") for m in resp.json().get("models", [])]
+        return [n for n in names if n]
+    except Exception as exc:
+        logger.debug("Could not query /api/ps for loaded models: %s", exc)
+        return []
+
+
 async def unload_all_models() -> None:
     """Unload every model Ollama has resident. Used before loading the 32B deep model
     and at shutdown so the GPU is cool when the next session starts.
@@ -487,15 +505,7 @@ async def unload_all_models() -> None:
     legacy models (granite3-guardian, qwen3.5, llama3.2, deepseek-r1, qwen2.5:32b)
     still get freed if some background path loaded them.
     """
-    loaded: list[str] = []
-    try:
-        client = await _get_client()
-        resp = await client.get("/api/ps")
-        resp.raise_for_status()
-        loaded = [m.get("name") or m.get("model") for m in resp.json().get("models", [])]
-        loaded = [n for n in loaded if n]
-    except Exception as exc:
-        logger.debug("Could not query /api/ps for loaded models: %s", exc)
+    loaded = await list_loaded_models()
     for model in loaded:
         try:
             await unload_model(model)

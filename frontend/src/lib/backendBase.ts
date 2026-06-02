@@ -15,6 +15,14 @@ function resolveBackendBase(): string {
         return '';
     }
 
+    // Any HTTPS origin means the backend is fronting this page through a reverse
+    // proxy (e.g. `tailscale serve`), so the API lives at the SAME origin. A
+    // separate http://host:8000 from an https page would be mixed-content blocked
+    // anyway — same-origin is the only correct answer.
+    if (protocol === 'https:') {
+        return '';
+    }
+
     // Vite dev: use same-origin so /api/* and /health go through vite.config.mjs proxy to :8000.
     // This ensures remote clients (phone, Tailscale) route correctly instead of hitting their own 127.0.0.1.
     if (import.meta.env.DEV) {

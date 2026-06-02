@@ -858,6 +858,20 @@ export async function getPowerState() {
     return resp.json();
 }
 
+export interface AgentActivity {
+    power_enabled: boolean;
+    model_loaded: boolean;
+    loaded_models: string[];
+    active_runs: number;
+    clients_present: boolean;
+}
+
+export async function getActivity(): Promise<AgentActivity> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/activity`);
+    if (!resp.ok) throw new Error(`activity failed: ${resp.status}`);
+    return resp.json();
+}
+
 export async function setPowerState(enabled: boolean, releaseGpu?: boolean) {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/power`, {
         method: 'POST',

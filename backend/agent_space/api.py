@@ -1231,6 +1231,24 @@ async def set_power(req: PowerUpdateRequest) -> dict[str, Any]:
     return await power_manager.set_state(req.enabled, release_gpu_on_off=req.release_gpu_on_off)
 
 
+@router.get("/activity")
+async def get_activity() -> dict[str, Any]:
+    """Thermal-safety status at a glance: is a model loaded in VRAM, is any run
+    working, is a client connected, and is power on. Lets the UI honestly show
+    'GPU idle' vs 'working' so the user can confirm Ollama isn't running on
+    nothing in the background.
+    """
+    loaded_models = await ollama_client.list_loaded_models()
+    active_runs = sum(1 for run in orchestrator.list_runs(limit=50) if run.get("status") == "running")
+    return {
+        "power_enabled": power_manager.is_enabled(),
+        "model_loaded": bool(loaded_models),
+        "loaded_models": loaded_models,
+        "active_runs": active_runs,
+        "clients_present": instance_lifecycle.has_recent_clients(),
+    }
+
+
 @router.get("/settings")
 async def get_settings() -> dict[str, Any]:
     return _redact_secret_settings(settings_store.get())

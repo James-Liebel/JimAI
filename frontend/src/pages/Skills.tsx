@@ -236,7 +236,7 @@ export default function Skills() {
                 description="Markdown SKILL packs for Chat and agents — toggle skills for chat, edit full files, auto-create and rank from any objective."
             />
             <div className="min-h-0 flex flex-1 flex-col gap-3 overflow-hidden p-4 md:flex-row md:gap-4">
-                <aside className="flex w-full shrink-0 flex-col border border-surface-5 bg-surface-1 md:w-[min(100%,320px)] md:rounded-xl">
+                <aside className="flex max-h-[45%] w-full shrink-0 flex-col overflow-hidden border border-surface-5 bg-surface-1 md:max-h-none md:w-[min(100%,320px)] md:rounded-xl">
                     <div className="border-b border-surface-5 p-3">
                         <div className="flex items-center gap-2">
                             <BookOpen className="h-4 w-4 text-accent" aria-hidden />

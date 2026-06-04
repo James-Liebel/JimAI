@@ -295,7 +295,11 @@ export function ReviewBoard({ scope, variant, pageTitle, pageDescription, onOpen
             <aside
                 className={cn(
                     'border-surface-4 bg-surface-1 overflow-auto flex flex-col min-h-0',
-                    isEmbedded ? 'max-h-[40%] shrink-0 border-b border-[#2A2A30]' : 'md:w-[340px] md:max-h-none md:border-r',
+                    // Mobile (flex-col): bound the list height so its inner flex-1
+                    // doesn't collapse to zero (which read as "page didn't load").
+                    isEmbedded
+                        ? 'max-h-[40%] shrink-0 border-b border-[#2A2A30]'
+                        : 'max-h-[42%] shrink-0 border-b md:max-h-none md:w-[340px] md:shrink-0 md:border-b-0 md:border-r',
                 )}
             >
                 {isEmbedded ? (

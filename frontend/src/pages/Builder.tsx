@@ -3,6 +3,7 @@ import type * as Monaco from 'monaco-editor';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { ArrowUpCircle, Bot, Github } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getGitHubStatus } from '../lib/githubApi';
 import GitHubPanel from '../components/GitHubPanel';
@@ -146,7 +147,17 @@ export default function Builder() {
         return out;
     }, [builderModelChoice, ollamaModels]);
 
+    const isMobile = useMediaQuery('(max-width: 768px)');
     const showSidePanels = builderWorkspaceUnlocked;
+
+    // On phones the side panels become full-width slide-over drawers; start them
+    // collapsed so the editor/welcome is the primary view, not stacked overlays.
+    useEffect(() => {
+        if (isMobile) {
+            setSidebarOpen(false);
+            setRightPanelOpen(false);
+        }
+    }, [isMobile]);
 
     const unlockBuilderWorkspace = useCallback(() => {
         try {
@@ -444,12 +455,13 @@ export default function Builder() {
                 return next;
             });
             unlockBuilderWorkspace();
+            if (isMobile) setSidebarOpen(false); // reveal the editor after picking a file
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to open file.');
         } finally {
             setLoadingFile(false);
         }
-    }, [unlockBuilderWorkspace, upsertTab]);
+    }, [isMobile, unlockBuilderWorkspace, upsertTab]);
 
     const openLocalFileToTab = useCallback(
         async (file: File) => {
@@ -1182,10 +1194,22 @@ export default function Builder() {
                     onToggleRight={() => setRightPanelOpen((s) => !s)}
                 />
 
+                {/* Mobile: tap-away backdrop closes whichever drawer is open. */}
+                {isMobile && showSidePanels && (sidebarOpen || rightPanelOpen) && (
+                    <div
+                        className="fixed inset-0 z-30 bg-black/50"
+                        aria-hidden
+                        onClick={() => { setSidebarOpen(false); setRightPanelOpen(false); }}
+                    />
+                )}
+
                 {showSidePanels && sidebarOpen && (
                     <aside
-                        className="flex min-h-0 shrink-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]"
-                        style={{ width: sidebarWidth }}
+                        className={cn(
+                            'flex min-h-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]',
+                            isMobile ? 'fixed inset-y-0 left-0 z-40 w-[86%] max-w-[340px] shadow-elevation-3' : 'shrink-0',
+                        )}
+                        style={isMobile ? undefined : { width: sidebarWidth }}
                     >
                         {sidebarTab === 'explorer' && (
                             <div className="flex min-h-0 flex-1 flex-col">
@@ -1331,7 +1355,7 @@ export default function Builder() {
                         )}
                     </aside>
                 )}
-                {showSidePanels && sidebarOpen && (
+                {!isMobile && showSidePanels && sidebarOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setSidebarWidth((w) => Math.min(520, Math.max(200, w + dx)))}
@@ -1576,7 +1600,7 @@ export default function Builder() {
                 />
                 </div>
 
-                {showSidePanels && rightPanelOpen && (
+                {!isMobile && showSidePanels && rightPanelOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setRightWidth((w) => Math.min(560, Math.max(220, w - dx)))}
@@ -1584,7 +1608,13 @@ export default function Builder() {
                     />
                 )}
                 {showSidePanels && rightPanelOpen && (
-                <aside className="flex shrink-0 flex-col border-l border-[#2A2A30] bg-[#111113]" style={{ width: rightWidth }}>
+                <aside
+                    className={cn(
+                        'flex flex-col border-l border-[#2A2A30] bg-[#111113]',
+                        isMobile ? 'fixed inset-y-0 right-0 z-40 w-[92%] max-w-[400px] shadow-elevation-3' : 'shrink-0',
+                    )}
+                    style={isMobile ? undefined : { width: rightWidth }}
+                >
                     <div className="flex shrink-0 items-center justify-between border-b border-[#2A2A30] px-3 py-2">
                         <div className="min-w-0">
                             <p className="truncate text-[12px] font-semibold text-text-primary">Agent</p>

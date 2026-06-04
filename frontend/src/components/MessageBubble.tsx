@@ -168,12 +168,12 @@ export default function MessageBubble({ message }: Props) {
             >
                 <div
                     className={cn(
-                        isUser ? 'max-w-none' : 'prose prose-invert prose-sm max-w-none',
+                        isUser ? 'max-w-none' : 'prose prose-invert prose-sm max-w-none break-words',
                         message.isStreaming && !isUser && 'streaming-cursor',
                     )}
                 >
                     {isUser ? (
-                        <p className="m-0 whitespace-pre-wrap text-sm leading-relaxed text-text-primary">{message.content}</p>
+                        <p className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">{message.content}</p>
                     ) : (
                         <>
                         {message.browserScreenshotBase64 && (

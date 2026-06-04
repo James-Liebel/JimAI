@@ -85,12 +85,14 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
                 aria-pressed={paused}
                 title={meta.title}
                 className={cn(
-                    'fixed right-3 top-3 z-[60] flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
+                    // Centered at the top so it never overlaps the header's New /
+                    // menu buttons; z-40 keeps it under full-screen drawers (z-50+).
+                    'fixed left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
                     paused
                         ? 'animate-pulse-soft border-accent-red/50 bg-accent-red/20 text-accent-red'
                         : 'border-surface-4 bg-surface-2/90 text-text-secondary',
                 )}
-                style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+                style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
             >
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
                 <span>{meta.word}</span>

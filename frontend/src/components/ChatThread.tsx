@@ -46,29 +46,12 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
                     <div className={`rounded-2xl shadow-elevation-2 bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
                         AI
                     </div>
-                    <h2 className={`font-semibold text-text-secondary mb-1 ${isMobile ? 'text-sm' : 'text-base'}`}>
+                    <h2 className={`font-semibold text-text-secondary ${isMobile ? 'text-sm' : 'text-base'}`}>
                         jimAI
                     </h2>
-                    <p className={`text-text-muted max-w-sm text-center ${isMobile ? 'text-xs' : 'text-xs'}`}>
-                        {isMobile
-                            ? 'Ask anything — math, code, data, images, or any website.'
-                            : 'Paste anything — code, math, data, images. Mention a URL and the browser runs automatically. The system picks the right tool.'}
+                    <p className={`mt-1 text-text-muted ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                        How can I help?
                     </p>
-                    <div className={`mt-4 grid gap-2 w-full ${isMobile ? 'grid-cols-2 max-w-sm' : 'grid-cols-2 max-w-lg mt-6'}`}>
-                        {[
-                            { icon: '∑', label: 'Math', desc: 'Proofs, LaTeX', color: 'text-accent-blue' },
-                            { icon: '⟨/⟩', label: 'Code', desc: 'Write, fix', color: 'text-accent-green' },
-                            { icon: '📊', label: 'Data', desc: 'EDA, ML', color: 'text-accent-amber' },
-                            { icon: '👁', label: 'Vision', desc: 'Images, OCR', color: 'text-accent-purple' },
-                        ].map((item) => (
-                            <div key={item.label} className={`bg-surface-1 rounded-card border border-surface-4 transition-colors hover:border-accent/40 hover:bg-surface-2 ${isMobile ? 'p-2.5' : 'p-3'}`}>
-                                <div className={`${item.color} font-medium flex items-center gap-1.5 mb-0.5 ${isMobile ? 'text-xs' : 'text-xs'}`}>
-                                    <span>{item.icon}</span> {item.label}
-                                </div>
-                                <p className={`text-text-muted ${isMobile ? 'text-[11px]' : 'text-[11px]'}`}>{item.desc}</p>
-                            </div>
-                        ))}
-                    </div>
                 </div>
             )}
 

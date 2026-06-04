@@ -400,6 +400,15 @@ body {
 }
 
 @media (max-width: 768px) {
+    /* iOS auto-zooms the viewport when a focused form control has font-size
+       < 16px. Forcing >=16px on mobile prevents that disorienting zoom-in on
+       focus (overrides Tailwind text-* utilities, hence !important). */
+    input,
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+
     pre {
         max-width: 100vw;
         overflow-x: auto;

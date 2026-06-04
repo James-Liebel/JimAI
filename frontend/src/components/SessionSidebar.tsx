@@ -56,7 +56,7 @@ export default function SessionSidebar({
         <div className={cn(
             'flex h-full flex-col border-surface-4 bg-surface-1',
             isMobile
-                ? 'fixed inset-0 z-50 w-full animate-fade-in'
+                ? 'fixed inset-0 z-[55] w-full animate-fade-in'
                 : 'w-72 shrink-0 border-r',
         )}>
             {/* Header */}

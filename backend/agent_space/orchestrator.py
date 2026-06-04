@@ -29,7 +29,8 @@ from .snapshot_store import SnapshotStore
 from .skill_store import SkillStore
 from .team_store import TeamStore
 from .web_research import fetch_web, search_web
-from . import orch_helpers, orch_planning
+from . import knowledge_store, orch_helpers, orch_planning
+from config.role_prompts import SELF_IMPROVE_FILE_REWRITE
 from config.settings import BROWSER_EXTRACT_MAX_CHARS
 
 
@@ -204,6 +205,15 @@ class AgentSpaceOrchestrator:
             except Exception:
                 # Re-raise so the action dispatcher reports the denial.
                 raise
+
+    def has_active_runs(self) -> bool:
+        """True while any run task is still executing.
+
+        Used by the idle Ollama reaper to keep the model resident while an
+        autonomous job is genuinely working (even with no client connected),
+        and to allow reaping once all work is done.
+        """
+        return any(not task.done() for task in self._tasks.values())
 
     async def reset_runtime_state(self) -> dict[str, Any]:
         stopped_tasks = 0
@@ -754,6 +764,12 @@ class AgentSpaceOrchestrator:
         return orch_helpers._select_actions_for_worker(actions, complexity_level=complexity_level, worker_level=worker_level)
 
     async def _execute_run(self, run_id: str, payload: dict[str, Any]) -> None:
+        # Mark every generation in this run's task as autonomous so the
+        # no-client dead-man's switch leaves it alone — an agent legitimately
+        # cycling through work must not be killed just because no UI is open.
+        # (The manual power-off kill-switch still stops it.)
+        from models import ollama_client as _oc
+        _oc.GENERATION_KIND.set("autonomous")
         run = self.runs[run_id]
         run["status"] = "running"
         run["started_at"] = _now()
@@ -2429,11 +2445,18 @@ class AgentSpaceOrchestrator:
             "Current file content:\n"
             f"{source}"
         )
+        # Strong coder standards + the user's editable knowledge file replace the old
+        # bare "return file content only" system prompt — this is what lifts the
+        # quality of self-improve code changes.
+        system = SELF_IMPROVE_FILE_REWRITE
+        knowledge = knowledge_store.knowledge_prompt_block()
+        if knowledge:
+            system = f"{system}\n\n{knowledge}"
         try:
             text = await ollama_client.chat_full(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "Return full file content only."},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": ask},
                 ],
                 temperature=0.1,
@@ -2526,6 +2549,10 @@ class AgentSpaceOrchestrator:
         try:
             await self._run_pre_action_hooks(run_id=run_id, agent_id=agent_id, action=action)
         except Exception as hook_exc:
+            logger.warning(
+                "Action %r by %s denied by pre-action hook in run %s: %s",
+                action_type, agent_id, run_id, hook_exc,
+            )
             await self._emit(
                 run_id,
                 "action.denied",
@@ -2534,6 +2561,7 @@ class AgentSpaceOrchestrator:
             )
             return {"success": False, "denied": True, "error": str(hook_exc), "action_type": action_type}
 
+        raised_exc: Exception | None = None
         try:
             if action_type == "read_file":
                 rel, abs_path = self._resolve_repo_path(str(action.get("path", "")), run_id=run_id)
@@ -2975,8 +3003,19 @@ class AgentSpaceOrchestrator:
                 raise RuntimeError(f"Unsupported action type '{action_type}'.")
         except Exception as exc:
             result = {"success": False, "error": str(exc)}
+            raised_exc = exc
 
         self.logs.log_action(run_id, agent_id, action, result)
+        if not result.get("success", False):
+            # Detailed, per-action-type failure logging so every failure mode is
+            # diagnosable: full stack trace when the action raised, error detail
+            # when it returned success=False without raising.
+            logger.warning(
+                "Action %r by %s failed in run %s: %s",
+                action_type, agent_id, run_id,
+                result.get("error") or result.get("stderr") or "unspecified failure",
+                exc_info=raised_exc,
+            )
         await self._emit(
             run_id,
             "action.completed",

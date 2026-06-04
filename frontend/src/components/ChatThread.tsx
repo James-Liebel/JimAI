@@ -43,32 +43,15 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
         <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-2 py-4' : 'px-4 py-6'} space-y-3`}>
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-text-muted animate-fade-in px-4">
-                    <div className={`rounded-none bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
+                    <div className={`rounded-2xl shadow-elevation-2 bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
                         AI
                     </div>
-                    <h2 className={`font-semibold text-text-secondary mb-1 ${isMobile ? 'text-sm' : 'text-base'}`}>
+                    <h2 className={`font-semibold text-text-secondary ${isMobile ? 'text-sm' : 'text-base'}`}>
                         jimAI
                     </h2>
-                    <p className={`text-text-muted max-w-sm text-center ${isMobile ? 'text-xs' : 'text-xs'}`}>
-                        {isMobile
-                            ? 'Ask anything — math, code, data, images, or any website.'
-                            : 'Paste anything — code, math, data, images. Mention a URL and the browser runs automatically. The system picks the right tool.'}
+                    <p className={`mt-1 text-text-muted ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                        How can I help?
                     </p>
-                    <div className={`mt-4 grid gap-2 w-full ${isMobile ? 'grid-cols-2 max-w-sm' : 'grid-cols-2 max-w-lg mt-6'}`}>
-                        {[
-                            { icon: '∑', label: 'Math', desc: 'Proofs, LaTeX', color: 'text-accent-blue' },
-                            { icon: '⟨/⟩', label: 'Code', desc: 'Write, fix', color: 'text-accent-green' },
-                            { icon: '📊', label: 'Data', desc: 'EDA, ML', color: 'text-accent-amber' },
-                            { icon: '👁', label: 'Vision', desc: 'Images, OCR', color: 'text-accent-purple' },
-                        ].map((item) => (
-                            <div key={item.label} className={`bg-surface-1 rounded-none border border-surface-4 ${isMobile ? 'p-2.5' : 'p-3'}`}>
-                                <div className={`${item.color} font-medium flex items-center gap-1.5 mb-0.5 ${isMobile ? 'text-xs' : 'text-xs'}`}>
-                                    <span>{item.icon}</span> {item.label}
-                                </div>
-                                <p className={`text-text-muted ${isMobile ? 'text-[11px]' : 'text-[11px]'}`}>{item.desc}</p>
-                            </div>
-                        ))}
-                    </div>
                 </div>
             )}
 
@@ -80,11 +63,11 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
 
             {isStreaming && messages.length > 0 && messages[messages.length - 1]?.content === '' && (
                 <div className="flex justify-start animate-fade-in">
-                    <div className="bg-surface-1 rounded-none px-4 py-3 border border-surface-4">
+                    <div className="bg-surface-1 rounded-panel px-4 py-3 border border-surface-4 shadow-elevation-1">
                         <div className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
-                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
-                            <div className="w-1.5 h-1.5 rounded-none bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
                             <span className="ml-2 text-[11px] text-text-muted">
                                 {searchingWeb ? (searchStatus || 'Searching web…') : 'Thinking...'}
                             </span>

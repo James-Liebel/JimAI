@@ -858,6 +858,20 @@ export async function getPowerState() {
     return resp.json();
 }
 
+export interface AgentActivity {
+    power_enabled: boolean;
+    model_loaded: boolean;
+    loaded_models: string[];
+    active_runs: number;
+    clients_present: boolean;
+}
+
+export async function getActivity(): Promise<AgentActivity> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/activity`);
+    if (!resp.ok) throw new Error(`activity failed: ${resp.status}`);
+    return resp.json();
+}
+
 export async function setPowerState(enabled: boolean, releaseGpu?: boolean) {
     const resp = await fetchWithTimeout(`${BASE}/api/agent-space/power`, {
         method: 'POST',
@@ -1700,6 +1714,38 @@ export async function runSelfImprove(payload: {
     if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
         throw new Error(data.detail || `run self improve failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export interface SelfImproveKnowledge {
+    knowledge: string;
+    max_chars: number;
+}
+
+/** The editable coding-knowledge file injected into the self-improve coder/proposal prompts. */
+export async function getSelfImproveKnowledge(): Promise<SelfImproveKnowledge> {
+    const resp = await fetchWithTimeout(`${BASE}/api/agent-space/self-improve/knowledge`, {}, 15000);
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `get coding knowledge failed: ${resp.status}`);
+    }
+    return resp.json();
+}
+
+export async function saveSelfImproveKnowledge(knowledge: string): Promise<SelfImproveKnowledge> {
+    const resp = await fetchWithTimeout(
+        `${BASE}/api/agent-space/self-improve/knowledge`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ knowledge }),
+        },
+        15000,
+    );
+    if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.detail || `save coding knowledge failed: ${resp.status}`);
     }
     return resp.json();
 }

@@ -132,7 +132,7 @@ export default function SystemAudit() {
                     <div key={check.id} className="rounded-btn border border-surface-4 bg-surface-0 p-3">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                                <span className={`w-2 h-2 rounded-none flex-shrink-0 ${statusDotClass(check.status)}`} />
+                                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(check.status)}`} />
                                 <p className="text-sm text-text-primary truncate">{check.title}</p>
                             </div>
                             <span className={`text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-btn border flex-shrink-0 ${statusTone(check.status)}`}>

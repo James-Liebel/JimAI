@@ -4,6 +4,17 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
+import { prefetchRoute } from './lib/routePrefetch';
+// Self-hosted webfonts (bundled woff2 — no external egress, instant offline cold
+// start). Weights mirror the former Google Fonts request: Outfit 400–700,
+// JetBrains Mono 400–600.
+import '@fontsource/outfit/400.css';
+import '@fontsource/outfit/500.css';
+import '@fontsource/outfit/600.css';
+import '@fontsource/outfit/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
+import '@fontsource/jetbrains-mono/600.css';
 import './index.css';
 
 const SERVICE_WORKER_VERSION = '2026-03-22-1';
@@ -21,7 +32,7 @@ const Research = lazy(() => import('./pages/Research'));
 const SelfCode = lazy(() => import('./pages/SelfCode'));
 const Settings = lazy(() => import('./pages/Settings'));
 const AgentBrowser = lazy(() => import('./pages/AgentBrowser'));
-const BrowserAtlas = lazy(() => import('./pages/BrowserAtlas'));
+const Atlas = lazy(() => import('./pages/Atlas'));
 const Builder = lazy(() => import('./pages/Builder'));
 const SystemAudit = lazy(() => import('./pages/SystemAudit'));
 const Automation = lazy(() => import('./pages/Automation'));
@@ -76,7 +87,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
                         <Route path="/workflow" element={<WorkflowReview />} />
                         <Route path="/research" element={<Research />} />
                         <Route path="/browser" element={<AgentBrowser />} />
-                        <Route path="/atlas" element={<BrowserAtlas />} />
+                        <Route path="/atlas" element={<Atlas />} />
                         <Route path="/builder" element={<Builder />} />
                         <Route path="/automation" element={<Automation />} />
                         <Route path="/system" element={<Navigate to="/chat" replace />} />
@@ -111,4 +122,9 @@ const idle: (cb: () => void) => void =
 idle(() => {
     void importChat();
     void import('./components/MessageBubble');
+    // Then warm the rest of the primary tabs in the background, so switching to
+    // any of them is instant instead of paying the lazy-chunk fetch on click.
+    idle(() => {
+        ['/atlas', '/builder', '/agents', '/self-code'].forEach(prefetchRoute);
+    });
 });

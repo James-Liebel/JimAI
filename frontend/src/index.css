@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
+/* Fonts are self-hosted and imported in main.tsx (@fontsource, bundled woff2).
+   Kept out of this file so the @font-face assets resolve through Vite's JS
+   graph rather than adding an extra request in the CSS path. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -64,6 +65,11 @@ body {
     color: var(--text-primary);
     letter-spacing: 0.01em;
     background: var(--bg-base);
+    /* Crisp type + no blue flash on tap — small things that read as "polished". */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
@@ -233,15 +239,20 @@ select:-webkit-autofill:focus {
 }
 
 button {
+    cursor: pointer;
     transition:
         background-color 150ms ease,
         color 150ms ease,
         border-color 150ms ease,
+        box-shadow 150ms ease,
+        transform 120ms cubic-bezier(0.22, 1, 0.36, 1),
         opacity 150ms ease;
 }
 
+/* Tactile press: a hair of downward travel instead of a flat opacity dip. */
 button:not(:disabled):active {
-    opacity: 0.85;
+    transform: translateY(0.5px);
+    opacity: 0.92;
 }
 
 button:focus-visible {
@@ -389,6 +400,15 @@ body {
 }
 
 @media (max-width: 768px) {
+    /* iOS auto-zooms the viewport when a focused form control has font-size
+       < 16px. Forcing >=16px on mobile prevents that disorienting zoom-in on
+       focus (overrides Tailwind text-* utilities, hence !important). */
+    input,
+    textarea,
+    select {
+        font-size: 16px !important;
+    }
+
     pre {
         max-width: 100vw;
         overflow-x: auto;

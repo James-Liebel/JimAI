@@ -7,6 +7,7 @@ import LoadingScreen from './LoadingScreen';
 import { prefetchRoute } from '../lib/routePrefetch';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import MobileNav from './MobileNav';
+import GlobalPauseButton from './GlobalPauseButton';
 import { AppAssistDock } from './AppAssistDock';
 import CommandPalette from './CommandPalette';
 import type { SpeedMode } from '../lib/types';
@@ -14,14 +15,15 @@ import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
 import { API_BASE, apiUrl } from '../lib/backendBase';
 
+// Autonomy and Security are platform internals (they run on the backend
+// automatically) — reachable from Settings and the command palette rather than
+// occupying a top-level tab.
 const NAV_ITEMS = [
     { to: '/chat', label: 'Chat' },
     { to: '/atlas', label: 'Atlas' },
     { to: '/builder', label: 'Builder' },
     { to: '/agents', label: 'Agents' },
     { to: '/self-code', label: 'SelfCode' },
-    { to: '/autonomy', label: 'Autonomy' },
-    { to: '/security', label: 'Security' },
 ];
 
 const TERMINAL_RUN_EVENTS = new Set(['run.completed', 'run.failed', 'run.stopped']);
@@ -351,10 +353,10 @@ export default function AppLayout() {
                                 className={({ isActive }) =>
                                     cn(
                                         'relative flex items-center px-3.5 text-xs font-medium tracking-wide transition-colors duration-150 md:px-4',
-                                        'after:absolute after:inset-x-1 after:bottom-0 after:h-[2px] after:rounded-t-full after:transition-opacity after:duration-150',
+                                        'after:absolute after:inset-x-2 after:bottom-0 after:h-[2px] after:rounded-t-full after:bg-accent after:transition-all after:duration-200 after:ease-out-soft',
                                         isActive
-                                            ? 'text-text-primary after:bg-accent after:opacity-100'
-                                            : 'text-text-muted hover:text-text-secondary after:bg-accent after:opacity-0',
+                                            ? 'text-text-primary after:opacity-100'
+                                            : 'text-text-muted hover:text-text-primary after:opacity-0 hover:after:opacity-30',
                                     )
                                 }
                             >
@@ -365,6 +367,7 @@ export default function AppLayout() {
 
                     {/* Right actions */}
                     <div className="flex shrink-0 items-center gap-1">
+                        <GlobalPauseButton variant="inline" />
                         <NavLink
                             to="/workflow"
                             onMouseEnter={() => prefetchRoute('/workflow')}
@@ -461,6 +464,7 @@ export default function AppLayout() {
                     </ErrorBoundary>
                 </main>
             </div>
+            {isMobile && <GlobalPauseButton variant="floating" />}
             {isMobile && <MobileNav />}
             <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
         </div>

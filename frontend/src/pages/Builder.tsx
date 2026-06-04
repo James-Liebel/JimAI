@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { ArrowUpCircle, Bot, ChevronRight, Files, GitBranch, Github, Keyboard, Maximize2, Search, Terminal } from 'lucide-react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowUpCircle, Bot, Github } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getGitHubStatus } from '../lib/githubApi';
 import GitHubPanel from '../components/GitHubPanel';
@@ -20,134 +21,36 @@ import { BuilderGitHubCloneModal } from '../components/builder/BuilderGitHubClon
 import { ResizeHandle } from '../components/builder/ResizeHandle';
 import { cn, readSharedWorkspaceDraft, writeSharedWorkspaceDraft } from '../lib/utils';
 import { listOllamaModels } from '../lib/workspaceAgentsApi';
-
-const BUILDER_MODEL_CHOICE_KEY = 'jimai-builder-model-choice';
-const BUILDER_WORKSPACE_UNLOCKED_KEY = 'jimai-builder-workspace-unlocked';
-
-type AgentChatLine = { id: string; role: 'user' | 'assistant' | 'system'; content: string; at: number };
-
-function readSessionBuilderUnlocked(): boolean {
-    try {
-        return sessionStorage.getItem(BUILDER_WORKSPACE_UNLOCKED_KEY) === '1';
-    } catch {
-        return false;
-    }
-}
-
-type NodeStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
-type PendingCreate = { parentPath: string; kind: 'file' | 'folder'; value: string };
-type TerminalRow = { id: string; command: string; cwd: string; exitCode: number; stdout: string; stderr: string; timestamp: number };
-type FlowNode = { id: string; role: string; workerLevel: number; dependsOn: string[]; description?: string; status?: NodeStatus };
-type FileTab = { id: string; type: 'file'; title: string; path: string; content: string; dirty: boolean; language: string };
-type DiffTab = { id: string; type: 'diff'; title: string; path: string; reviewId: string; reviewStatus: string; original: string; modified: string };
-type Tab = FileTab | DiffTab;
-
-const detectLanguage = (path: string) => {
-    const lower = path.toLowerCase();
-    if (lower.endsWith('.tsx') || lower.endsWith('.ts')) return 'typescript';
-    if (lower.endsWith('.jsx') || lower.endsWith('.js')) return 'javascript';
-    if (lower.endsWith('.py')) return 'python';
-    if (lower.endsWith('.json')) return 'json';
-    if (lower.endsWith('.md')) return 'markdown';
-    if (lower.endsWith('.html')) return 'html';
-    if (lower.endsWith('.css')) return 'css';
-    if (lower.endsWith('.yml') || lower.endsWith('.yaml')) return 'yaml';
-    return 'plaintext';
-};
-const normalizeProfile = (value: unknown): 'safe' | 'dev' | 'unrestricted' => (value === 'dev' || value === 'unrestricted' ? value : 'safe');
-const joinRepoPath = (parentPath: string, childName: string) => (parentPath && parentPath !== '.' ? `${parentPath}/${childName}` : childName).replace(/\\/g, '/');
-
-function sanitizeCloneDir(name: string): string {
-    return name.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 64);
-}
-
-function defaultCloneFolderFromUrl(url: string): string {
-    const u = url.trim().replace(/\.git$/i, '').replace(/\/$/, '');
-    const part = u.split(/[/:]/).filter(Boolean).pop() || 'repo';
-    const cleaned = sanitizeCloneDir(part);
-    return cleaned || 'repo';
-}
-const parentDirectory = (path: string) => {
-    const parts = String(path || '').replace(/\\/g, '/').split('/');
-    parts.pop();
-    return parts.filter(Boolean).join('/') || '.';
-};
-
-/** Directory paths from repo root down to the parent of `filePath` (inclusive of `.`). */
-function dirsAlongPath(filePath: string): string[] {
-    const norm = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
-    const parts = norm.split('/').filter(Boolean);
-    if (parts.length <= 1) return ['.'];
-    const out: string[] = ['.'];
-    let acc = '';
-    for (let i = 0; i < parts.length - 1; i++) {
-        acc = acc ? `${acc}/${parts[i]}` : parts[i];
-        out.push(acc);
-    }
-    return out;
-}
-
-function dirsAlongPathWithinRoot(workspaceRoot: string, filePath: string): string[] {
-    const w = workspaceRoot === '.' ? '' : workspaceRoot.replace(/\\/g, '/').replace(/^\/+/, '');
-    if (!w) return dirsAlongPath(filePath);
-    return dirsAlongPath(filePath).filter((p) => p === w || p.startsWith(`${w}/`));
-}
-
-function filterRepoTree(node: agentApi.RepoTreeNode, q: string): agentApi.RepoTreeNode | null {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return node;
-    if (node.type === 'file') {
-        return node.name.toLowerCase().includes(needle) || node.path.toLowerCase().includes(needle) ? node : null;
-    }
-    const rawKids = node.children || [];
-    const mapped = rawKids.map((c) => filterRepoTree(c, q)).filter((c): c is agentApi.RepoTreeNode => c != null);
-    if (mapped.length) return { ...node, children: mapped };
-    if (node.name.toLowerCase().includes(needle) || node.path.toLowerCase().includes(needle)) return { ...node, children: rawKids };
-    return null;
-}
-const formatTime = (ts?: number) => (ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--');
-const statusTone = (status: NodeStatus) => status === 'running' ? 'border-accent/40 bg-accent/10' : status === 'completed' ? 'border-accent-green/40 bg-accent-green/10' : status === 'failed' ? 'border-accent-red/40 bg-accent-red/10' : 'border-surface-4 bg-surface-1';
-
-function parseSubagentId(message: string, type: string) {
-    if (!message) return '';
-    if (type === 'subagent.started') return message.match(/Starting\s+([^\s]+)/i)?.[1] || '';
-    if (type === 'subagent.completed') return message.match(/(?:Planner|Tester|Verifier|Subagent)\s+([^\s]+)\s+completed/i)?.[1] || '';
-    if (type === 'subagent.error') return message.match(/Subagent\s+([^\s]+)\s+failed/i)?.[1] || '';
-    return '';
-}
-
-function extractWorkflowNodes(events: agentApi.AgentSpaceEvent[]): FlowNode[] {
-    for (let i = events.length - 1; i >= 0; i -= 1) {
-        const evt = events[i];
-        if (evt.type !== 'run.workflow') continue;
-        const rows = Array.isArray((evt.data as { subagents?: unknown })?.subagents) ? (evt.data as { subagents?: Array<Record<string, unknown>> }).subagents || [] : [];
-        return rows
-            .map((row) => ({
-                id: String(row.id || '').trim(),
-                role: String(row.role || 'coder'),
-                workerLevel: Number(row.worker_level || 1) || 1,
-                dependsOn: Array.isArray(row.depends_on) ? row.depends_on.map((dep) => String(dep || '').trim()).filter(Boolean) : [],
-                description: String(row.description || ''),
-            }))
-            .filter((row) => row.id);
-    }
-    return [];
-}
-
-function buildDiffTab(review: agentApi.AgentSpaceReview, path: string): DiffTab | null {
-    const change = (review.changes || []).find((row) => row.path === path) || review.changes?.[0];
-    if (!change) return null;
-    return {
-        id: `review:${review.id}:${path}`,
-        type: 'diff',
-        title: `${path.split('/').pop() || path} · diff`,
-        path,
-        reviewId: review.id,
-        reviewStatus: review.status,
-        original: String(change.old_content || ''),
-        modified: String(change.new_content || ''),
-    };
-}
+import {
+    BUILDER_MODEL_CHOICE_KEY,
+    BUILDER_WORKSPACE_UNLOCKED_KEY,
+    buildDiffTab,
+    defaultCloneFolderFromUrl,
+    deriveAgentActions,
+    detectLanguage,
+    dirsAlongPath,
+    dirsAlongPathWithinRoot,
+    extractWorkflowNodes,
+    filterRepoTree,
+    joinRepoPath,
+    normalizeProfile,
+    parentDirectory,
+    parseSubagentId,
+    readSessionBuilderUnlocked,
+    sanitizeCloneDir,
+    statusTone,
+    type AgentChatLine,
+    type FlowNode,
+    type NodeStatus,
+    type PendingCreate,
+    type Tab,
+    type TerminalRow,
+} from '../components/builder/builderHelpers';
+import { FileTreeNode } from '../components/builder/FileTreeNode';
+import { BuilderShortcutsModal } from '../components/builder/BuilderShortcutsModal';
+import { BuilderActivityBar, BuilderTopBar } from '../components/builder/BuilderChrome';
+import { BuilderBottomPanel } from '../components/builder/BuilderBottomPanel';
+import { BuilderAgentActions } from '../components/builder/BuilderAgentActions';
 
 export default function Builder() {
     const [searchParams] = useSearchParams();
@@ -189,6 +92,7 @@ export default function Builder() {
     const [cloneBusy, setCloneBusy] = useState(false);
     const [githubCloneModalOpen, setGithubCloneModalOpen] = useState(false);
     const welcomeFileInputRef = useRef<HTMLInputElement>(null);
+    const agentScrollRef = useRef<HTMLDivElement>(null);
     const [sidebarWidth, setSidebarWidth] = useState(() => loadBuilderLayout().sidebarWidth);
     const [rightWidth, setRightWidth] = useState(() => loadBuilderLayout().rightWidth);
     const [bottomPanelHeight, setBottomPanelHeight] = useState(() => loadBuilderLayout().bottomHeight);
@@ -243,7 +147,17 @@ export default function Builder() {
         return out;
     }, [builderModelChoice, ollamaModels]);
 
+    const isMobile = useMediaQuery('(max-width: 768px)');
     const showSidePanels = builderWorkspaceUnlocked;
+
+    // On phones the side panels become full-width slide-over drawers; start them
+    // collapsed so the editor/welcome is the primary view, not stacked overlays.
+    useEffect(() => {
+        if (isMobile) {
+            setSidebarOpen(false);
+            setRightPanelOpen(false);
+        }
+    }, [isMobile]);
 
     const unlockBuilderWorkspace = useCallback(() => {
         try {
@@ -541,12 +455,13 @@ export default function Builder() {
                 return next;
             });
             unlockBuilderWorkspace();
+            if (isMobile) setSidebarOpen(false); // reveal the editor after picking a file
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to open file.');
         } finally {
             setLoadingFile(false);
         }
-    }, [unlockBuilderWorkspace, upsertTab]);
+    }, [isMobile, unlockBuilderWorkspace, upsertTab]);
 
     const openLocalFileToTab = useCallback(
         async (file: File) => {
@@ -1005,25 +920,13 @@ export default function Builder() {
         return activityRows.filter((r) => r.prefix === bottomLogTab);
     }, [activityRows, bottomLogTab]);
 
-    const agentActivityDigest = useMemo(() => {
-        const lines: string[] = [];
-        for (const evt of events.slice(-80)) {
-            const t = evt.type || '';
-            if (
-                t.includes('error')
-                || t.includes('failed')
-                || t === 'run.log'
-                || t.startsWith('subagent')
-                || t === 'run.workflow'
-                || t.includes('action')
-            ) {
-                const msg = typeof evt.message === 'string' && evt.message.trim() ? evt.message.trim() : '';
-                const bit = msg || (evt.data ? JSON.stringify(evt.data).slice(0, 160) : '');
-                if (bit) lines.push(bit);
-            }
-        }
-        return lines.slice(-24).join('\n');
-    }, [events]);
+    const agentActions = useMemo(() => deriveAgentActions(events), [events]);
+
+    // Keep the agent transcript pinned to the newest line as actions stream in.
+    useEffect(() => {
+        const el = agentScrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [agentChatMessages.length, agentActions.length]);
 
     const searchFilteredTreeRoot = useMemo(() => {
         if (!treeData) return null;
@@ -1257,143 +1160,56 @@ export default function Builder() {
         return () => window.removeEventListener('keydown', onEsc);
     }, [shortcutsOpen]);
 
-    const activityBtnClass = (active: boolean) =>
-        cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center transition-colors duration-150',
-            active ? 'border-l-2 border-l-[#3B82F6] bg-[#3B82F6]/8 text-text-primary' : 'text-text-muted hover:bg-[#222228] hover:text-text-secondary',
-        );
-
     return (
         <div className="h-full min-h-0 flex flex-col bg-[#1e1e1e] text-text-primary font-sans">
-            {!minimalChrome && (
-            <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[#2A2A30] bg-[#1A1A1E] px-2.5 text-[11px] text-text-secondary">
-                <span className="shrink-0 text-sm font-medium text-text-primary">Builder</span>
-                <span className="hidden min-w-0 flex-1 items-center gap-2 truncate sm:flex">
-                    <span className="text-text-muted">·</span>
-                    <span className="truncate text-[11px] text-text-muted">{sharedSavedTeamName || sharedTeamName || 'Team'}</span>
-                    {(runId || sharedLastRunId) && (
-                        <>
-                            <span className="text-text-muted">·</span>
-                            <span className="shrink-0 text-[11px] text-text-muted">
-                                {runStatus || sharedLastRunStatus || 'idle'} · {(runId || sharedLastRunId).slice(0, 8)}
-                            </span>
-                        </>
-                    )}
-                </span>
-                <div className="ml-auto flex shrink-0 items-center gap-1">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            if (!builderWorkspaceUnlocked) {
-                                setMessage('Open or clone a project first to use the Git sidebar.');
-                                return;
-                            }
-                            setSidebarOpen(true);
-                            setSidebarTab('source-control');
-                        }}
-                        className="px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
-                        title="Open source control in sidebar (Ctrl+Shift+G). Use Expand there for a larger panel."
-                    >
-                        Git
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setShortcutsOpen(true)}
-                        className="flex h-7 w-7 items-center justify-center text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
-                        title="Keyboard shortcuts"
-                        aria-label="Keyboard shortcuts"
-                    >
-                        <Keyboard size={15} strokeWidth={1.5} aria-hidden />
-                    </button>
-                    {builderFullLayout ? (
-                        <Link
-                            to="/builder"
-                            className="px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
-                            title="Show app navigation bar"
-                        >
-                            Exit full
-                        </Link>
-                    ) : (
-                        <Link
-                            to="/builder?full=1"
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-text-secondary hover:bg-white/[0.06] hover:text-text-primary"
-                            title="Hide app nav"
-                        >
-                            <Maximize2 size={12} aria-hidden />
-                            <span className="hidden sm:inline">Full</span>
-                        </Link>
-                    )}
-                </div>
-            </div>
-            )}
+            <BuilderTopBar
+                minimalChrome={minimalChrome}
+                teamLabel={sharedSavedTeamName || sharedTeamName || 'Team'}
+                activeRunId={runId || sharedLastRunId}
+                runStatusLabel={runStatus || sharedLastRunStatus || 'idle'}
+                builderFullLayout={builderFullLayout}
+                onGit={() => {
+                    if (!builderWorkspaceUnlocked) {
+                        setMessage('Open or clone a project first to use the Git sidebar.');
+                        return;
+                    }
+                    setSidebarOpen(true);
+                    setSidebarTab('source-control');
+                }}
+                onOpenShortcuts={() => setShortcutsOpen(true)}
+            />
 
             <div className="flex min-h-0 flex-1">
-                <nav
-                    className="flex w-12 shrink-0 flex-col items-center gap-0.5 border-r border-[#2A2A30] bg-[#1A1A1E] py-1"
-                    aria-label="Activity bar"
-                >
-                    {showSidePanels && (
-                        <>
-                            <button
-                                type="button"
-                                className={activityBtnClass(sidebarOpen && sidebarTab === 'explorer')}
-                                title="Explorer (Ctrl+Shift+E)"
-                                onClick={() => {
-                                    setSidebarOpen(true);
-                                    setSidebarTab('explorer');
-                                }}
-                            >
-                                <Files size={20} strokeWidth={1.5} aria-hidden />
-                            </button>
-                            <button
-                                type="button"
-                                className={activityBtnClass(sidebarOpen && sidebarTab === 'search')}
-                                title="Search — Find files & text (Ctrl+Shift+F)"
-                                onClick={() => {
-                                    setSidebarOpen(true);
-                                    setSidebarTab('search');
-                                }}
-                            >
-                                <Search size={20} strokeWidth={1.5} aria-hidden />
-                            </button>
-                            <button
-                                type="button"
-                                className={activityBtnClass(sidebarOpen && sidebarTab === 'source-control')}
-                                title="Source Control (Ctrl+Shift+G)"
-                                onClick={() => {
-                                    setSidebarOpen(true);
-                                    setSidebarTab('source-control');
-                                }}
-                            >
-                                <GitBranch size={20} strokeWidth={1.5} aria-hidden />
-                            </button>
-                        </>
-                    )}
-                    <div className="min-h-2 flex-1" />
-                    <button
-                        type="button"
-                        className={activityBtnClass(bottomPanelOpen)}
-                        title="Toggle panel — Terminal (Ctrl+` or Ctrl+J)"
-                        onClick={() => setBottomPanelOpen((s) => !s)}
-                    >
-                        <Terminal size={20} strokeWidth={1.5} aria-hidden />
-                    </button>
-                    {showSidePanels && (
-                        <button
-                            type="button"
-                            className={activityBtnClass(rightPanelOpen)}
-                            title="Toggle AI sidebar (Ctrl+L)"
-                            onClick={() => setRightPanelOpen((s) => !s)}
-                        >
-                            <Bot size={20} strokeWidth={1.5} aria-hidden />
-                        </button>
-                    )}
-                </nav>
+                <BuilderActivityBar
+                    showSidePanels={showSidePanels}
+                    sidebarOpen={sidebarOpen}
+                    sidebarTab={sidebarTab}
+                    bottomPanelOpen={bottomPanelOpen}
+                    rightPanelOpen={rightPanelOpen}
+                    onSelectSidebarTab={(tab) => {
+                        setSidebarOpen(true);
+                        setSidebarTab(tab);
+                    }}
+                    onToggleBottom={() => setBottomPanelOpen((s) => !s)}
+                    onToggleRight={() => setRightPanelOpen((s) => !s)}
+                />
+
+                {/* Mobile: tap-away backdrop closes whichever drawer is open. */}
+                {isMobile && showSidePanels && (sidebarOpen || rightPanelOpen) && (
+                    <div
+                        className="fixed inset-0 z-30 bg-black/50"
+                        aria-hidden
+                        onClick={() => { setSidebarOpen(false); setRightPanelOpen(false); }}
+                    />
+                )}
 
                 {showSidePanels && sidebarOpen && (
                     <aside
-                        className="flex min-h-0 shrink-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]"
-                        style={{ width: sidebarWidth }}
+                        className={cn(
+                            'flex min-h-0 flex-col border-r border-[#2A2A30] bg-[#1A1A1E]',
+                            isMobile ? 'fixed inset-y-0 left-0 z-40 w-[86%] max-w-[340px] shadow-elevation-3' : 'shrink-0',
+                        )}
+                        style={isMobile ? undefined : { width: sidebarWidth }}
                     >
                         {sidebarTab === 'explorer' && (
                             <div className="flex min-h-0 flex-1 flex-col">
@@ -1539,7 +1355,7 @@ export default function Builder() {
                         )}
                     </aside>
                 )}
-                {showSidePanels && sidebarOpen && (
+                {!isMobile && showSidePanels && sidebarOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setSidebarWidth((w) => Math.min(520, Math.max(200, w + dx)))}
@@ -1766,89 +1582,25 @@ export default function Builder() {
                     </div>
                 </section>
 
-                {bottomPanelOpen && (
-                    <>
-                        <ResizeHandle
-                            axis="vertical"
-                            onDelta={(dy) => setBottomPanelHeight((h) => Math.min(600, Math.max(100, h - dy)))}
-                            onCommit={commitBottomLayout}
-                        />
-                        <section className="shrink-0 border-t border-[#2A2A30] bg-[#111113]">
-                            <div className="flex flex-col gap-2 border-b border-[#2A2A30] px-2.5 py-1.5 sm:flex-row sm:items-center sm:justify-between">
-                                <div className="flex flex-wrap items-center gap-0.5">
-                                    {(['all', 'terminal', 'agent'] as const).map((key) => (
-                                        <button
-                                            key={key}
-                                            type="button"
-                                            onClick={() => setBottomLogTab(key)}
-                                            className={cn(
-                                                'rounded-badge px-2.5 py-1 text-[11px] font-medium transition-colors',
-                                                bottomLogTab === key
-                                                    ? 'bg-[#1A1A1E] text-text-primary'
-                                                    : 'text-text-muted hover:text-text-secondary',
-                                            )}
-                                        >
-                                            {key === 'all' ? 'All' : key === 'terminal' ? 'Terminal' : 'Log'}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:justify-end">
-                                    <input
-                                        value={terminalCwd}
-                                        onChange={(e) => setTerminalCwd(e.target.value)}
-                                        className="w-28 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1 font-mono text-[11px] text-text-primary outline-none focus:border-[#3B82F6]"
-                                        placeholder="cwd"
-                                    />
-                                    <input
-                                        value={terminalCommand}
-                                        onChange={(e) => setTerminalCommand(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') runTerminalCommand().catch(() => undefined);
-                                        }}
-                                        className="min-w-[8rem] flex-1 rounded-btn border border-[#2A2A30] bg-[#0A0A0B] px-2 py-1 font-mono text-[11px] text-text-primary outline-none focus:border-[#3B82F6] sm:max-w-xs"
-                                        placeholder="Command…"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => runTerminalCommand().catch(() => undefined)}
-                                        disabled={runningTerminal}
-                                        className="shrink-0 rounded-btn border border-[#3B82F6]/35 px-2.5 py-1 text-[11px] font-medium text-[#3B82F6] transition-colors hover:bg-[#3B82F6]/10 disabled:opacity-50"
-                                    >
-                                        {runningTerminal ? 'Running…' : 'Run'}
-                                    </button>
-                                </div>
-                            </div>
-                            <div
-                                style={{ height: bottomPanelHeight }}
-                                className="overflow-auto px-3 py-2 font-mono text-[11px] leading-5 text-text-secondary"
-                            >
-                                {filteredActivityRows.length === 0 ? (
-                                    <p className="text-[11px] text-text-muted">
-                                        {activityRows.length === 0
-                                            ? 'No shell output or agent events yet.'
-                                            : 'Nothing in this filter.'}
-                                    </p>
-                                ) : (
-                                    filteredActivityRows.map((row) => (
-                                        <div key={row.id} className="border-b border-[#2A2A30]/50 py-1.5 last:border-b-0">
-                                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-muted">
-                                                <span>{formatTime(row.timestamp)}</span>
-                                                <span className="capitalize">{row.prefix}</span>
-                                                <span className="text-text-secondary">{row.title}</span>
-                                            </div>
-                                            <pre className={cn('mt-0.5 whitespace-pre-wrap break-words', row.tone)}>
-                                                {row.body || '(no output)'}
-                                            </pre>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </section>
-                    </>
-                )}
+                <BuilderBottomPanel
+                    open={bottomPanelOpen}
+                    height={bottomPanelHeight}
+                    onResizeDelta={(dy) => setBottomPanelHeight((h) => Math.min(600, Math.max(100, h - dy)))}
+                    onResizeCommit={commitBottomLayout}
+                    logTab={bottomLogTab}
+                    onSelectLogTab={setBottomLogTab}
+                    terminalCwd={terminalCwd}
+                    onTerminalCwdChange={setTerminalCwd}
+                    terminalCommand={terminalCommand}
+                    onTerminalCommandChange={setTerminalCommand}
+                    onRunTerminal={() => runTerminalCommand().catch(() => undefined)}
+                    runningTerminal={runningTerminal}
+                    activityRows={activityRows}
+                    filteredActivityRows={filteredActivityRows}
+                />
                 </div>
 
-                {showSidePanels && rightPanelOpen && (
+                {!isMobile && showSidePanels && rightPanelOpen && (
                     <ResizeHandle
                         axis="horizontal"
                         onDelta={(dx) => setRightWidth((w) => Math.min(560, Math.max(220, w - dx)))}
@@ -1856,11 +1608,17 @@ export default function Builder() {
                     />
                 )}
                 {showSidePanels && rightPanelOpen && (
-                <aside className="flex shrink-0 flex-col border-l border-[#2A2A30] bg-[#111113]" style={{ width: rightWidth }}>
+                <aside
+                    className={cn(
+                        'flex flex-col border-l border-[#2A2A30] bg-[#111113]',
+                        isMobile ? 'fixed inset-y-0 right-0 z-40 w-[92%] max-w-[400px] shadow-elevation-3' : 'shrink-0',
+                    )}
+                    style={isMobile ? undefined : { width: rightWidth }}
+                >
                     <div className="flex shrink-0 items-center justify-between border-b border-[#2A2A30] px-3 py-2">
                         <div className="min-w-0">
                             <p className="truncate text-[12px] font-semibold text-text-primary">Agent</p>
-                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} workers · {runReviews.length} reviews</p>
+                            <p className="truncate text-[10px] text-text-muted">{runStatus || 'idle'} · {visualNodes.length || previewNodes.length || 0} workers · {agentActions.length} actions · {runReviews.length} reviews</p>
                         </div>
                         <Bot className="h-4 w-4 shrink-0 text-accent/80" aria-hidden />
                     </div>
@@ -1890,9 +1648,9 @@ export default function Builder() {
                                 ))}
                             </select>
                         </div>
-                        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+                        <div ref={agentScrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
                             <div className="space-y-2">
-                                {agentChatMessages.length === 0 && (
+                                {agentChatMessages.length === 0 && agentActions.length === 0 && (
                                     <p className="text-[11px] leading-relaxed text-text-muted">
                                         Describe what you want changed in this workspace. If a run is already active, messages are sent to it; otherwise a new autonomous run starts.
                                     </p>
@@ -1912,14 +1670,9 @@ export default function Builder() {
                                         {line.content}
                                     </div>
                                 ))}
+                                <BuilderAgentActions actions={agentActions} onOpenFile={(path) => openFile(path).catch(() => undefined)} />
                             </div>
                         </div>
-                        {agentActivityDigest.trim() && (
-                            <div className="shrink-0 border-t border-[#2A2A30] px-3 py-2">
-                                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">Recent activity</p>
-                                <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{agentActivityDigest}</pre>
-                            </div>
-                        )}
                         <div className="flex shrink-0 flex-col gap-2 border-t border-[#2A2A30] p-3">
                             <textarea
                                 rows={4}
@@ -2213,75 +1966,15 @@ export default function Builder() {
                     persistMinimalChrome(false);
                 }}
             />
-            {shortcutsOpen && (
-                <div
-                    className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[10vh]"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="builder-shortcuts-title"
-                >
-                    <button
-                        type="button"
-                        className="absolute inset-0 cursor-default"
-                        aria-label="Close shortcuts"
-                        onClick={() => setShortcutsOpen(false)}
-                    />
-                    <div className="relative z-10 w-full max-w-md border border-white/[0.1] bg-[#252526] p-4 shadow-none">
-                        <div className="flex items-start justify-between gap-2">
-                            <h2 id="builder-shortcuts-title" className="text-sm font-medium text-text-primary">
-                                Keyboard shortcuts
-                            </h2>
-                            <button
-                                type="button"
-                                onClick={() => setShortcutsOpen(false)}
-                                className="px-2 py-0.5 text-text-muted hover:bg-white/[0.06] hover:text-text-primary"
-                            >
-                                Esc
-                            </button>
-                        </div>
-                        <ul className="mt-4 space-y-2.5 text-[12px] text-text-secondary">
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+P</kbd>{' '}
-                                Command palette
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+B</kbd> Toggle sidebar
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+E</kbd> Explorer
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+F</kbd> Search
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+Shift+G</kbd> Source control
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+`</kbd> or{' '}
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+J</kbd> Bottom panel
-                            </li>
-                            <li>
-                                <kbd className="border border-white/10 bg-[#1e1e1e] px-1.5 py-0.5 font-mono text-[11px]">Ctrl+L</kbd> AI sidebar
-                            </li>
-                        </ul>
-                        <div className="mt-4 border-t border-white/[0.08] pt-4">
-                            <label className="flex cursor-pointer items-center gap-2 text-[12px] text-text-secondary">
-                                <input
-                                    type="checkbox"
-                                    className="h-3.5 w-3.5 border border-white/20 bg-[#1e1e1e]"
-                                    checked={minimalChrome}
-                                    onChange={(e) => {
-                                        const v = e.target.checked;
-                                        setMinimalChrome(v);
-                                        persistMinimalChrome(v);
-                                    }}
-                                />
-                                Minimal chrome (hide top bar)
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <BuilderShortcutsModal
+                open={shortcutsOpen}
+                onClose={() => setShortcutsOpen(false)}
+                minimalChrome={minimalChrome}
+                onMinimalChromeChange={(v) => {
+                    setMinimalChrome(v);
+                    persistMinimalChrome(v);
+                }}
+            />
             <BuilderCommandPalette open={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} actions={paletteActions} />
             <BuilderGitHubCloneModal
                 open={githubCloneModalOpen}
@@ -2290,234 +1983,5 @@ export default function Builder() {
             />
             <GitHubPanel open={showGitHubModal} onClose={() => setShowGitHubModal(false)} onRepositoryChanged={refreshTree} />
         </div>
-    );
-}
-
-type FileTreeNodeProps = {
-    node: agentApi.RepoTreeNode;
-    depth: number;
-    selectedDirectory: string;
-    selectedFilePath: string;
-    pendingCreate: PendingCreate | null;
-    onOpenFile: (path: string) => void;
-    onSelectDirectory: (path: string) => void;
-    onRequestCreate: (parentPath: string, kind: 'file' | 'folder') => void;
-    onChangePendingValue: (value: string) => void;
-    onCreate: () => void | Promise<void>;
-    onCancelCreate: () => void;
-    creatingNode: boolean;
-    writeMode: 'direct' | 'review';
-    expandedDirs?: Set<string>;
-    onToggleDir?: (path: string) => void;
-    showCreateActions?: boolean;
-};
-
-function FileTreeNode({
-    node,
-    depth,
-    selectedDirectory,
-    selectedFilePath,
-    pendingCreate,
-    onOpenFile,
-    onSelectDirectory,
-    onRequestCreate,
-    onChangePendingValue,
-    onCreate,
-    onCancelCreate,
-    creatingNode,
-    writeMode,
-    expandedDirs,
-    onToggleDir,
-    showCreateActions = true,
-}: FileTreeNodeProps) {
-    if (node.type === 'file') {
-        return (
-            <button
-                type="button"
-                onClick={() => onOpenFile(node.path)}
-                className={cn('flex w-full items-center rounded-none px-2 py-1 text-left text-xs', selectedFilePath === node.path ? 'bg-accent/15 text-accent' : 'text-text-secondary hover:bg-surface-2')}
-                style={{ paddingLeft: `${depth * 14 + 10}px` }}
-            >
-                <span className="truncate">{node.name}</span>
-            </button>
-        );
-    }
-    const children = Array.isArray(node.children) ? node.children : [];
-    const isSelected = selectedDirectory === node.path;
-    const showInlineCreate = pendingCreate?.parentPath === node.path;
-    const controlled = expandedDirs != null && onToggleDir != null;
-    const isOpen = controlled
-        ? expandedDirs.has(node.path)
-        : depth < 1 || selectedDirectory.startsWith(node.path === '.' ? '' : `${node.path}/`) || isSelected;
-
-    const rowPad = `${depth * 14 + 8}px`;
-    const createRow = showInlineCreate && (
-        <div className="px-2 py-1" style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}>
-            <div className="rounded-none border border-surface-4 bg-surface-0 p-2">
-                <p className="text-[10px] text-text-secondary">
-                    New {pendingCreate!.kind} in {pendingCreate!.parentPath} · {writeMode === 'review' && pendingCreate!.kind === 'file' ? 'submit to review' : 'write directly'}
-                </p>
-                <input
-                    value={pendingCreate!.value}
-                    onChange={(e) => onChangePendingValue(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') onCreate();
-                        if (e.key === 'Escape') onCancelCreate();
-                    }}
-                    className="mt-2 w-full rounded-none border border-surface-4 bg-surface-0 px-2 py-1 text-[11px] text-text-primary outline-none"
-                    placeholder={`Enter ${pendingCreate!.kind} name`}
-                />
-                <div className="mt-2 flex gap-2">
-                    <button type="button" onClick={() => onCreate()} disabled={creatingNode} className="rounded-none border border-accent/40 px-2 py-1 text-[10px] text-accent disabled:opacity-50">
-                        {creatingNode ? (writeMode === 'review' && pendingCreate!.kind === 'file' ? 'Submitting…' : 'Creating…') : writeMode === 'review' && pendingCreate!.kind === 'file' ? 'Submit Review' : 'Create'}
-                    </button>
-                    <button type="button" onClick={onCancelCreate} className="rounded-none border border-surface-4 px-2 py-1 text-[10px] text-text-secondary hover:bg-surface-2">
-                        Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-
-    if (controlled) {
-        return (
-            <div className="mb-0.5">
-                <div className={cn('flex items-center gap-0.5 rounded-none py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary')} style={{ paddingLeft: rowPad }}>
-                    <button
-                        type="button"
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                        aria-expanded={isOpen}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onToggleDir(node.path);
-                        }}
-                    >
-                        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', isOpen && 'rotate-90')} aria-hidden />
-                    </button>
-                    <button type="button" onClick={() => onSelectDirectory(node.path)} className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left hover:bg-surface-2/80">
-                        {node.name}
-                    </button>
-                    {showCreateActions && (
-                        <span className="flex shrink-0 items-center gap-0.5 pr-1">
-                            <button
-                                type="button"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    onSelectDirectory(node.path);
-                                    onRequestCreate(node.path, 'file');
-                                }}
-                                className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                                title="New file"
-                            >
-                                +F
-                            </button>
-                            <button
-                                type="button"
-                                onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    onSelectDirectory(node.path);
-                                    onRequestCreate(node.path, 'folder');
-                                }}
-                                className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                                title="New folder"
-                            >
-                                +D
-                            </button>
-                        </span>
-                    )}
-                </div>
-                {isOpen && (
-                    <div className="mt-0.5">
-                        {createRow}
-                        {children.map((child) => (
-                            <FileTreeNode
-                                key={`${child.path}-${child.name}`}
-                                node={child}
-                                depth={depth + 1}
-                                selectedDirectory={selectedDirectory}
-                                selectedFilePath={selectedFilePath}
-                                pendingCreate={pendingCreate}
-                                onOpenFile={onOpenFile}
-                                onSelectDirectory={onSelectDirectory}
-                                onRequestCreate={onRequestCreate}
-                                onChangePendingValue={onChangePendingValue}
-                                onCreate={onCreate}
-                                onCancelCreate={onCancelCreate}
-                                creatingNode={creatingNode}
-                                writeMode={writeMode}
-                                expandedDirs={expandedDirs}
-                                onToggleDir={onToggleDir}
-                                showCreateActions={showCreateActions}
-                            />
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    }
-
-    return (
-        <details open={isOpen} className="mb-0.5">
-            <summary
-                className={cn('flex cursor-pointer list-none items-center justify-between gap-2 rounded-none px-2 py-1 text-xs', isSelected ? 'bg-surface-2 text-text-primary' : 'text-text-primary hover:bg-surface-2')}
-                style={{ paddingLeft: rowPad }}
-                onClick={() => onSelectDirectory(node.path)}
-            >
-                <span className="truncate">{node.name}</span>
-                {showCreateActions && (
-                    <span className="flex shrink-0 items-center gap-1">
-                        <button
-                            type="button"
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                onSelectDirectory(node.path);
-                                onRequestCreate(node.path, 'file');
-                            }}
-                            className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                            title="New file"
-                        >
-                            +F
-                        </button>
-                        <button
-                            type="button"
-                            onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                onSelectDirectory(node.path);
-                                onRequestCreate(node.path, 'folder');
-                            }}
-                            className="px-1 text-[10px] text-text-muted hover:bg-surface-3 hover:text-text-primary"
-                            title="New folder"
-                        >
-                            +D
-                        </button>
-                    </span>
-                )}
-            </summary>
-            <div className="mt-0.5">
-                {createRow}
-                {children.map((child) => (
-                    <FileTreeNode
-                        key={`${child.path}-${child.name}`}
-                        node={child}
-                        depth={depth + 1}
-                        selectedDirectory={selectedDirectory}
-                        selectedFilePath={selectedFilePath}
-                        pendingCreate={pendingCreate}
-                        onOpenFile={onOpenFile}
-                        onSelectDirectory={onSelectDirectory}
-                        onRequestCreate={onRequestCreate}
-                        onChangePendingValue={onChangePendingValue}
-                        onCreate={onCreate}
-                        onCancelCreate={onCancelCreate}
-                        creatingNode={creatingNode}
-                        writeMode={writeMode}
-                    />
-                ))}
-            </div>
-        </details>
     );
 }

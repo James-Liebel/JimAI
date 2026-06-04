@@ -29,11 +29,26 @@ review_store = ReviewStore()
 snapshot_store = SnapshotStore()
 memory_index_store = MemoryIndexStore()
 power_manager = PowerManager()
+
+# Thermal-safety kill-switch: when power is OFF (paused from any client, incl.
+# the phone), abort every in-flight Ollama generation so the GPU stops decoding
+# instead of running hot to a disconnected client. Wired here because runtime is
+# the one place that owns the PowerManager singleton; ollama_client stays free of
+# any agent_space import (no cycle).
+from models import ollama_client as _ollama_client
+
+_ollama_client.set_global_abort_check(lambda: not power_manager.is_enabled())
+
 chat_store = AgentSpaceChatStore()
+# `instance_lifecycle` is constructed just below; the dead-man's switch is wired
+# right after it so interactive generation auto-aborts once every client has been
+# gone past the presence window — while autonomous runs (marked via
+# GENERATION_KIND) keep cycling. See instance_lifecycle.has_recent_clients.
 team_store = TeamStore()
 skill_store = SkillStore(settings_store=settings_store)
 browser_manager = BrowserAgentManager()
 instance_lifecycle = InstanceLifecycleManager()
+_ollama_client.set_client_presence_check(instance_lifecycle.has_recent_clients)
 n8n_manager = N8nRuntimeManager(settings_store=settings_store)
 workflow_store = WorkflowStore(settings_store=settings_store)
 free_stack_manager = FreeStackIntegrationManager(settings_store=settings_store)
@@ -51,6 +66,10 @@ orchestrator = AgentSpaceOrchestrator(
     browser_manager=browser_manager,
     free_stack_manager=free_stack_manager,
 )
+
+# Idle Ollama reaper gate: the lifecycle manager may free VRAM / stop Ollama when
+# no clients are connected, but must NOT do so while an autonomous run is working.
+instance_lifecycle.set_active_run_check(orchestrator.has_active_runs)
 
 proactive_engine = ProactiveEngine(
     orchestrator=orchestrator,

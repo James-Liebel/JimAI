@@ -17,12 +17,19 @@ import re
 import urllib.parse
 from typing import Any, AsyncGenerator
 
+import httpx
+
 from config.settings import OLLAMA_BROWSER_KEEP_ALIVE
 from models import ollama_client
 
 logger = logging.getLogger(__name__)
 
 MAX_STEPS_DEFAULT = 20
+# A transient inference failure (Ollama blip) should not kill a whole run mid-task.
+# Tolerate this many consecutive planner failures, backing off between them, before
+# giving up — past this the backend is genuinely down rather than blipping.
+MAX_CONSECUTIVE_PLANNER_ERRORS = 3
+PLANNER_ERROR_BACKOFF_SECONDS = 0.75
 # Legacy run_browser_agent model (unused by Atlas chat panel)
 AGENT_MODEL = "qwen2.5-coder:1.5b"
 
@@ -469,6 +476,7 @@ async def run_browser_agent(
     # owns the entire stepping loop here.
     sig_history: list[tuple[str, str]] = []
     last_executed_url: str = opened.get("url", start_url)
+    consecutive_errors = 0
 
     try:
         for step in range(1, max_steps + 1):
@@ -517,9 +525,26 @@ async def run_browser_agent(
                 )
                 if not raw.strip():
                     raw = '{"action": "wait", "thought": "Empty model response."}'
-            except Exception as exc:
+                consecutive_errors = 0
+            except (asyncio.TimeoutError, ConnectionError, httpx.HTTPError) as exc:
+                # Transient inference failure that survived the client's retry
+                # budget. Don't abort the whole run on one blip — surface it,
+                # back off, and retry this step. Give up only after several
+                # consecutive failures (backend genuinely down).
+                consecutive_errors += 1
                 yield {"type": "error", "step": step, "error": str(exc)}
-                break
+                if consecutive_errors >= MAX_CONSECUTIVE_PLANNER_ERRORS:
+                    yield {
+                        "type": "stopped",
+                        "reason": f"Model backend unavailable after {consecutive_errors} consecutive failures.",
+                    }
+                    return
+                await asyncio.sleep(PLANNER_ERROR_BACKOFF_SECONDS * consecutive_errors)
+                continue
+            except Exception as exc:
+                # Non-transient error (e.g. a bug) — fail fast rather than loop.
+                yield {"type": "error", "step": step, "error": str(exc)}
+                return
 
             action = _parse_action(raw)
             action_type = str(action.get("action", "wait")).lower()
@@ -993,6 +1018,12 @@ async def chat_browser_step(
     except asyncio.TimeoutError:
         logger.warning("chat_browser_step timed out after 60s")
         raw = '{"action":"wait","thought":"Model timed out.","response":"Taking a moment to retry."}'
+    except (ConnectionError, httpx.HTTPError) as exc:
+        # Ollama is unreachable or a transient transport error survived the
+        # client's retry budget (ollama_client retries connect/timeout 3x).
+        # Degrade to a safe wait so the Atlas chat panel never 500s on a blip.
+        logger.warning("chat_browser_step inference call failed: %s", exc)
+        raw = '{"action":"wait","thought":"Local model unreachable.","response":"I could not reach the local model just now — retrying."}'
 
     parsed = _parse_action_strict(raw)
     normalized = _normalize_chat_action(parsed, message=message, url=url, page_text=page_text)

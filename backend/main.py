@@ -452,3 +452,61 @@ async def metrics_endpoint():
     body, content_type = get_metrics_output()
     from fastapi.responses import Response
     return Response(content=body, media_type=content_type)
+
+
+# ── Static frontend (single-origin hosting) ────────────────────────────
+# Serve the built SPA from the backend so the entire app is ONE origin. That lets
+# `tailscale serve https / http://127.0.0.1:8000` front everything with valid
+# HTTPS — no CORS, no second port — while the backend stays loopback-bound (the
+# assert_safe_bind guard is satisfied; nothing is exposed unauthenticated). This
+# is a no-op in dev when frontend/dist has not been built (Vite serves the UI
+# then). Mounted LAST so every API router and the health/metrics routes win.
+from pathlib import Path as _Path
+
+_FRONTEND_DIST = _Path(__file__).resolve().parent.parent / "frontend" / "dist"
+# Paths that must keep their real (often 404) response instead of the SPA shell,
+# so a stray API call or missing asset never gets a 200 HTML page back.
+_NON_SPA_PREFIXES = ("api/", "assets/", "health", "metrics", "docs", "redoc", "openapi.json", "ws/")
+
+if _FRONTEND_DIST.is_dir():
+    from starlette.staticfiles import StaticFiles as _StaticFiles
+    from starlette.responses import FileResponse as _FileResponse
+    from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+    def _spa_shell_or_none(path: str):
+        """index.html for a client-side route, else None (keep the real 404).
+
+        Normalizes separators/leading slash so the prefix guard matches regardless
+        of how Starlette hands us the sub-path — notably it uses os.sep, so on
+        Windows the path arrives back-slashed (e.g. 'api\\foo')."""
+        normalized = path.replace("\\", "/").lstrip("/")
+        if normalized.startswith(_NON_SPA_PREFIXES):
+            return None
+        index = _FRONTEND_DIST / "index.html"
+        return _FileResponse(index) if index.is_file() else None
+
+    class _SpaStaticFiles(_StaticFiles):
+        """StaticFiles that falls back to index.html for client-side routes
+        (e.g. /builder, /agents) so a hard refresh on a deep link still loads the
+        SPA, while real asset 404s and API paths keep their normal response.
+
+        Starlette signals a missing file by RAISING HTTPException(404) (not by
+        returning one), so both branches are handled."""
+
+        async def get_response(self, path, scope):
+            try:
+                response = await super().get_response(path, scope)
+            except _StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    shell = _spa_shell_or_none(path)
+                    if shell is not None:
+                        return shell
+                raise
+            if response.status_code == 404:
+                shell = _spa_shell_or_none(path)
+                if shell is not None:
+                    return shell
+            return response
+
+    app.mount("/", _SpaStaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")
+    logger.info("Serving built frontend from %s (single-origin mode).", _FRONTEND_DIST)

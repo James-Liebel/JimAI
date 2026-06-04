@@ -1,7 +1,7 @@
 import json
 import pytest
 
-from agent_space import api as agent_api
+from agent_space import self_improve_helpers as si
 
 
 @pytest.mark.anyio
@@ -28,9 +28,9 @@ async def test_critic_prune_keeps_only_keep_verdict(monkeypatch):
     async def fake_chat_full(**kwargs):
         return json.dumps(ranked_payload)
 
-    monkeypatch.setattr(agent_api.ollama_client, "chat_full", fake_chat_full)
+    monkeypatch.setattr(si.ollama_client, "chat_full", fake_chat_full)
 
-    kept = await agent_api._critic_prune(candidates, model="x", max_suggestions=5)
+    kept = await si._critic_prune(candidates, model="x", max_suggestions=5)
     titles = [k["title"] for k in kept]
     assert titles == ["B", "A"]
 
@@ -40,15 +40,15 @@ async def test_critic_prune_falls_back_to_input_on_failure(monkeypatch):
     async def fake_chat_full(**kwargs):
         raise RuntimeError("model down")
 
-    monkeypatch.setattr(agent_api.ollama_client, "chat_full", fake_chat_full)
+    monkeypatch.setattr(si.ollama_client, "chat_full", fake_chat_full)
 
     candidates = [{"title": "A"}, {"title": "B"}, {"title": "C"}]
-    kept = await agent_api._critic_prune(candidates, model="x", max_suggestions=2)
+    kept = await si._critic_prune(candidates, model="x", max_suggestions=2)
     assert kept == candidates[:2]
 
 
 def test_candidates_to_strings_includes_scope_and_acceptance():
-    out = agent_api._candidates_to_strings([
+    out = si._candidates_to_strings([
         {"title": "Refactor X", "scope_files": ["a.py", "b.py"], "acceptance": "tests green"},
     ])
     assert len(out) == 1

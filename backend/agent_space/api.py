@@ -18,18 +18,11 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from .rate_limiter import check_run_rate_limit
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 
 from models import ollama_client
-from config.role_prompts import (
-    SELF_IMPROVE_GENERATOR,
-    SELF_IMPROVE_CRITIC,
-    SELF_IMPROVE_STRENGTHEN,
-    SELF_IMPROVE_ARCHITECT,
-    SELF_IMPROVE_CODER,
-    SELF_IMPROVE_VERIFIER,
-)
 from .config import DEFAULT_SETTINGS
+from . import knowledge_store
 from .exporter import export_items
 from .api_routes_browser import register_browser_routes
 from .api_routes_chat_research import register_chat_research_routes
@@ -70,6 +63,56 @@ from .runtime import (
 )
 from .web_research import search_web
 from .memory_index import IGNORED_DIR_NAMES, TEXT_SUFFIXES
+from .api_models import (
+    AssistBaseRequest,
+    AssistSpawnRunRequest,
+    BuilderClarifyRequest,
+    BuilderLaunchRequest,
+    BuilderPreviewRequest,
+    ExportRequest,
+    FreeStackNotifyRequest,
+    InstanceHeartbeatRequest,
+    InstanceRegisterRequest,
+    InstanceUnregisterRequest,
+    N8nInstallRequest,
+    N8nStartRequest,
+    OpenSourceSearchRequest,
+    PowerUpdateRequest,
+    ProactiveGoalCreateRequest,
+    ProactiveGoalUpdateRequest,
+    RejectRequest,
+    ResetDataRequest,
+    ReviewCommitRequest,
+    RunMessageRequest,
+    RunStartRequest,
+    SelfImproveKnowledgeRequest,
+    SelfImproveRunRequest,
+    SelfImproveStrengthenRequest,
+    SelfImproveSuggestRequest,
+    SettingsUpdateRequest,
+    SkillAutoAddRequest,
+    SkillSelectRequest,
+    SkillUpsertRequest,
+    StopRunRequest,
+    TeamAgentRequest,
+    TeamMessageRequest,
+    TeamUpsertRequest,
+    ToolReadRequest,
+    ToolReplaceRequest,
+    ToolShellRequest,
+    ToolWriteRequest,
+    WorkflowImportN8nRequest,
+    WorkflowRunRequest,
+    WorkflowUpsertRequest,
+    WorkspaceTextSearchRequest,
+)
+from .self_improve_helpers import (
+    _generate_self_improve_suggestions,
+    _normalize_suggestion_texts,
+    _safe_parse_json_object,
+    _stream_self_improve_suggestions,
+    _strengthen_self_improve_prompt,
+)
 
 router = APIRouter(prefix="/api/agent-space", tags=["agent-space"])
 
@@ -125,388 +168,6 @@ def _append_settings_audit(changes: dict[str, Any]) -> None:
         logger.warning("Failed to append settings audit entry", exc_info=True)
 
 
-class RunStartRequest(BaseModel):
-    objective: str = Field(min_length=1, max_length=10000)
-    autonomous: bool = True
-
-    @field_validator("objective", mode="before")
-    @classmethod
-    def strip_objective(cls, v: str) -> str:
-        if isinstance(v, str):
-            v = v.strip()
-        return v
-    team_id: str | None = None
-    team: dict[str, Any] | None = None
-    allowed_paths: list[str] | None = None
-    review_gate: bool | None = None
-    allow_shell: bool | None = None
-    command_profile: str | None = None
-    max_actions: int | None = None
-    max_seconds: int | None = None
-    subagent_retry_attempts: int | None = None
-    continue_on_subagent_failure: bool | None = None
-    force_research: bool | None = None
-    required_checks: list[str] | None = None
-    create_git_checkpoint: bool | None = None
-    subagents: list[dict[str, Any]] | None = None
-    actions: list[dict[str, Any]] | None = None
-    review_scope: str | None = None
-
-
-class StopRunRequest(BaseModel):
-    reason: str = ""
-
-
-class AssistBaseRequest(BaseModel):
-    """Cross-surface assist: ephemeral agents planned by the app to analyze or delegate work."""
-
-    question: str = Field(min_length=1, max_length=12000)
-    surface: str = Field(default="general", max_length=64)
-    context: str = Field(default="", max_length=50000)
-    max_agents: int = Field(default=5, ge=2, le=10)
-
-
-class AssistSpawnRunRequest(AssistBaseRequest):
-    autonomous: bool = True
-
-
-class PowerUpdateRequest(BaseModel):
-    enabled: bool
-    release_gpu_on_off: bool | None = None
-
-
-class SettingsUpdateRequest(BaseModel):
-    model: str | None = None
-    command_profile: str | None = None
-    review_gate: bool | None = None
-    allow_shell: bool | None = None
-    max_actions: int | None = None
-    max_seconds: int | None = None
-    subagent_retry_attempts: int | None = None
-    continue_on_subagent_failure: bool | None = None
-    required_checks: list[str] | None = None
-    release_gpu_on_off: bool | None = None
-    backend_port: int | None = None
-    frontend_port: int | None = None
-    desktop_mode: bool | None = None
-    create_git_checkpoint: bool | None = None
-    run_budget_tokens: int | None = None
-    proactive_enabled: bool | None = None
-    proactive_tick_seconds: int | None = None
-    phone_notifications_enabled: bool | None = None
-    phone_notification_min_seconds: int | None = None
-    phone_notifications_on_failure: bool | None = None
-    auto_self_improve_on_failure_enabled: bool | None = None
-    auto_self_improve_on_failure_include_stopped: bool | None = None
-    auto_self_improve_on_failure_cooldown_seconds: int | None = None
-    auto_self_improve_on_failure_max_per_day: int | None = None
-    self_learning_enabled: bool | None = None
-    self_learning_focus: str | None = None
-    autonomous_web_research_enabled: bool | None = None
-    chat_auto_web_research_enabled: bool | None = None
-    run_auto_force_research_enabled: bool | None = None
-    deep_research_before_build_enabled: bool | None = None
-    deep_research_min_queries: int | None = None
-    overnight_autonomy_enabled: bool | None = None
-    overnight_max_hours: int | None = None
-    overnight_max_actions: int | None = None
-    strict_verification: bool | None = None
-    automation_engine: str | None = None
-    automation_open_workflows_enabled: bool | None = None
-    automation_n8n_enabled: bool | None = None
-    automation_n8n_mode: str | None = None
-    automation_n8n_url: str | None = None
-    automation_n8n_port: int | None = None
-    automation_n8n_auto_start: bool | None = None
-    automation_n8n_stop_on_shutdown: bool | None = None
-    automation_n8n_start_timeout_seconds: int | None = None
-    automation_n8n_start_command: str | None = None
-    automation_n8n_install_path: str | None = None
-    builder_open_source_lookup_enabled: bool | None = None
-    builder_open_source_max_repos: int | None = None
-    free_stack_enabled: bool | None = None
-    free_stack_env_path: str | None = None
-    free_stack_gotify_enabled: bool | None = None
-    free_stack_gotify_url: str | None = None
-    free_stack_gotify_token: str | None = None
-    ollama_url: str | None = None
-    github_token: str | None = None
-    agent_models: dict[str, str] | None = None
-
-
-class RejectRequest(BaseModel):
-    reason: str = ""
-
-
-class ReviewCommitRequest(BaseModel):
-    message: str = Field(min_length=3, max_length=300)
-    auto_apply: bool = True
-
-
-class ExportRequest(BaseModel):
-    target_folder: str
-    include_paths: list[str] = Field(default_factory=list)
-    label: str = ""
-
-
-class ResetDataRequest(BaseModel):
-    clear_reviews: bool = True
-    clear_runs: bool = True
-    clear_snapshots: bool = True
-    clear_logs: bool = True
-    clear_memory: bool = True
-    clear_index: bool = True
-    clear_chats: bool = True
-    clear_runtime: bool = True
-    clear_generated: bool = True
-    clear_self_improvement: bool = True
-    clear_proactive_goals: bool = True
-    clear_teams: bool = False
-    clear_exports: bool = False
-    clear_workflows: bool = True
-    reset_settings: bool = False
-
-
-class ToolReadRequest(BaseModel):
-    path: str
-
-
-class ToolWriteRequest(BaseModel):
-    path: str
-    content: str
-    review_gate: bool = True
-
-
-class ToolReplaceRequest(BaseModel):
-    path: str
-    find: str
-    replace: str
-    review_gate: bool = True
-    count: int = -1
-
-
-class ToolShellRequest(BaseModel):
-    command: str
-    cwd: str = "."
-    profile: str | None = None
-    timeout: int = 120
-
-
-class WorkspaceTextSearchRequest(BaseModel):
-    """Literal substring search across text-like files under the repository (IDE-style find in files)."""
-
-    query: str = Field(..., min_length=1, max_length=500)
-    path_prefix: str = ""
-    max_results: int = Field(default=150, ge=1, le=500)
-
-
-class TeamAgentRequest(BaseModel):
-    id: str
-    role: str = "coder"
-    depends_on: list[str] = Field(default_factory=list)
-    actions: list[dict[str, Any]] | None = None
-    checks: list[str] | None = None
-    description: str = ""
-    worker_level: int | None = None
-    model: str | None = None
-
-
-class TeamUpsertRequest(BaseModel):
-    id: str | None = None
-    name: str
-    description: str = ""
-    agents: list[TeamAgentRequest] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class SkillUpsertRequest(BaseModel):
-    name: str = Field(min_length=2, max_length=160)
-    description: str = Field(default="", max_length=1000)
-    content: str = ""
-    tags: list[str] = Field(default_factory=list)
-    complexity: int = Field(default=3, ge=1, le=5)
-    source: str = "custom"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    slug: str | None = Field(default=None, max_length=120)
-
-
-class SkillAutoAddRequest(BaseModel):
-    objective: str = Field(min_length=4, max_length=10000)
-    max_new_skills: int = Field(default=3, ge=1, le=10)
-
-
-class SkillSelectRequest(BaseModel):
-    objective: str = Field(min_length=4, max_length=10000)
-    limit: int = Field(default=8, ge=1, le=20)
-    include_context: bool = True
-
-
-class TeamMessageRequest(BaseModel):
-    run_id: str = ""
-    from_agent: str
-    to_agent: str = ""
-    channel: str = "general"
-    content: str
-
-
-class RunMessageRequest(BaseModel):
-    from_agent: str
-    to_agent: str = ""
-    channel: str = "general"
-    content: str
-
-
-class InstanceRegisterRequest(BaseModel):
-    instance_id: str = ""
-    client: str = "ui"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class InstanceHeartbeatRequest(BaseModel):
-    instance_id: str
-    client: str = "ui"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class InstanceUnregisterRequest(BaseModel):
-    instance_id: str
-    reason: str = ""
-
-
-class ProactiveGoalCreateRequest(BaseModel):
-    name: str
-    objective: str
-    interval_seconds: int = 900
-    enabled: bool = True
-    run_template: dict[str, Any] = Field(default_factory=dict)
-
-
-class ProactiveGoalUpdateRequest(BaseModel):
-    name: str | None = None
-    objective: str | None = None
-    interval_seconds: int | None = None
-    enabled: bool | None = None
-    run_template: dict[str, Any] | None = None
-    next_run_at: float | None = None
-
-
-class SelfImproveSuggestRequest(BaseModel):
-    prompt: str = Field(min_length=5, max_length=6000)
-    max_suggestions: int = Field(default=8, ge=1, le=20)
-
-
-class SelfImproveRunRequest(BaseModel):
-    prompt: str = Field(min_length=5, max_length=6000)
-    confirmed_suggestions: list[str] = Field(default_factory=list)
-    direct_prompt_mode: bool = False
-
-
-class SelfImproveStrengthenRequest(BaseModel):
-    prompt: str = Field(min_length=5, max_length=6000)
-
-
-class N8nStartRequest(BaseModel):
-    force: bool = False
-
-
-class N8nInstallRequest(BaseModel):
-    set_as_default: bool = True
-
-
-class FreeStackNotifyRequest(BaseModel):
-    title: str = "jimAI test notification"
-    message: str = "jimAI free-stack integration is connected."
-    priority: int = 5
-
-
-class WorkflowUpsertRequest(BaseModel):
-    id: str | None = None
-    name: str = Field(min_length=1, max_length=200)
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-    graph: dict[str, Any] = Field(default_factory=dict)
-    public_sources: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class WorkflowRunRequest(BaseModel):
-    input: dict[str, Any] = Field(default_factory=dict)
-    max_steps: int = Field(default=120, ge=1, le=1000)
-    continue_on_error: bool = False
-
-
-class WorkflowImportN8nRequest(BaseModel):
-    workflow_json: dict[str, Any] = Field(default_factory=dict)
-    name: str = ""
-    description: str = ""
-    tags: list[str] = Field(default_factory=lambda: ["n8n-import"])
-
-
-class OpenSourceSearchRequest(BaseModel):
-    query: str = Field(min_length=1, max_length=300)
-    limit: int = Field(default=8, ge=1, le=20)
-    min_stars: int = Field(default=20, ge=0, le=500000)
-    language: str = ""
-    include_unknown_license: bool = False
-
-
-class BuilderClarifyRequest(BaseModel):
-    prompt: str = Field(min_length=5)
-    context: str = ""
-    max_questions: int = Field(default=6, ge=1, le=12)
-
-
-class BuilderLaunchRequest(BaseModel):
-    prompt: str = Field(min_length=5)
-    context: str = ""
-    answers: dict[str, str] = Field(default_factory=dict)
-    team_name: str = "Auto Build Team"
-    save_team: bool = True
-    auto_agent_packs: bool = True
-    use_saved_teams: bool = True
-    review_gate: bool = True
-    allow_shell: bool = False
-    command_profile: str = "safe"
-    required_checks: list[str] = Field(default_factory=list)
-    autonomous: bool = True
-    max_actions: int | None = None
-    max_seconds: int | None = None
-    subagent_retry_attempts: int | None = None
-    continue_on_subagent_failure: bool | None = None
-    force_research: bool | None = None
-    create_git_checkpoint: bool | None = None
-    ollama_model: str | None = None
-    builder_model_mode: str = "manual"
-
-
-class BuilderPreviewRequest(BaseModel):
-    prompt: str = Field(min_length=1)
-    context: str = ""
-    team_name: str = "Auto Build Team"
-    auto_agent_packs: bool = True
-    use_saved_teams: bool = True
-    ollama_model: str | None = None
-    builder_model_mode: str = "manual"
-
-
-def _safe_parse_json_object(text: str) -> dict[str, Any] | None:
-    try:
-        loaded = json.loads(text)
-        if isinstance(loaded, dict):
-            return loaded
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("_safe_parse_json_object: initial JSON parse failed, trying regex extraction", exc_info=True)
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        return None
-    try:
-        loaded = json.loads(match.group(0))
-        if isinstance(loaded, dict):
-            return loaded
-    except (json.JSONDecodeError, ValueError):
-        return None
-    return None
-
-
 def _fallback_builder_questions(prompt: str, max_questions: int) -> list[str]:
     base = [
         "What platform do you want first: web app, desktop app, mobile app, or API service?",
@@ -522,434 +183,6 @@ def _fallback_builder_questions(prompt: str, max_questions: int) -> list[str]:
     if "ai" in text or "agent" in text:
         base.insert(2, "Which model providers/modes are allowed (local-only Ollama is default) and what tools should agents use?")
     return base[: max(1, max_questions)]
-
-
-def _normalize_suggestion_texts(items: list[str], *, max_items: int) -> list[str]:
-    cleaned: list[str] = []
-    seen: set[str] = set()
-    for item in items:
-        text = " ".join(str(item or "").strip().split())
-        if not text:
-            continue
-        key = text.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        cleaned.append(text)
-        if len(cleaned) >= max(1, max_items):
-            break
-    return cleaned
-
-
-_TARGET_SIGNAL_TOKENS = (
-    "frontend/", "backend/", "page", "endpoint", "workflow", "review",
-    "builder", "self-code", "settings", "metric", "event", "summary", "retry",
-)
-
-
-def _specificify_suggestions(items: list[str], prompt: str, *, max_items: int) -> list[str]:
-    """Normalize, dedup, and ensure each suggestion has a concrete target.
-
-    Suggestions that already mention a file path / known UI surface are left
-    alone; vague ones get a trailing 'Target: ... Expected result: ...' hint
-    derived from the original user prompt so the downstream coder has scope.
-    """
-    prompt_hint = " ".join(str(prompt or "").strip().split())[:90]
-    out: list[str] = []
-    for item in items:
-        cleaned = " ".join(str(item or "").strip().split())
-        if not cleaned:
-            continue
-        lower = cleaned.lower()
-        if any(tok in lower for tok in _TARGET_SIGNAL_TOKENS) and len(cleaned.split()) >= 8:
-            out.append(cleaned)
-        else:
-            out.append(
-                f"{cleaned} Target: Improve this scope -> {prompt_hint}. "
-                "Expected result: measurable reliability or UX gain."
-            )
-    return _normalize_suggestion_texts(out, max_items=max_items)
-
-
-def _fallback_self_improve_suggestions(prompt: str, focus: str, *, max_items: int) -> list[str]:
-    prompt_hint = str(prompt or "").strip()
-    base = [
-        (
-            "Improve `frontend/src/pages/SelfCode.tsx` so users can run prompt-direct or "
-            "suggestion-confirmed flows with clear disabled states and completion feedback."
-        ),
-        (
-            "Improve `backend/agent_space/orchestrator.py` action resilience by retrying failed "
-            "recoverable actions and applying fallback methods before marking failure."
-        ),
-        (
-            "Add automatic run-completion summaries that include status, action count, "
-            "review/snapshot outputs, and confirmed self-improve goals."
-        ),
-        (
-            "Improve planner and verifier handoff quality by requiring specific follow-up messages "
-            "with actionable checks for unresolved risks."
-        ),
-        (
-            f"Prioritize self-learning focus `{focus}` with concrete file/endpoint targets "
-            "and acceptance checks in each proposal."
-        ),
-        (
-            f"Strengthen build reliability for this request scope: {prompt_hint}. "
-            "Target result: fewer failed runs and faster autonomous completion."
-        ),
-    ]
-    return _specificify_suggestions(base, prompt_hint, max_items=max_items)
-
-
-def _build_codebase_signal(max_chars: int = 2400) -> str:
-    """Compact, model-friendly summary of *current* codebase pain points.
-
-    Three sections, each capped to keep the payload short:
-      1. Run metrics — actions/runs failure rates from the LogStore.
-      2. Recent issues — last 15 entries from issues.jsonl with source+type+message.
-      3. Heaviest files — top files by line count under backend/agent_space,
-         backend/api, frontend/src/pages so the model knows where complexity sits.
-
-    Returns "" if nothing meaningful is available (fresh checkout, no logs).
-    """
-    lines: list[str] = []
-    try:
-        metrics = log_store.get_metrics()
-        if metrics:
-            failed_actions = int(metrics.get("actions_failed", 0))
-            total_actions = int(metrics.get("actions_total", 0))
-            fail_pct = (100.0 * failed_actions / total_actions) if total_actions else 0.0
-            lines.append(
-                "Run metrics: "
-                f"runs_started={metrics.get('runs_started', 0)} "
-                f"completed={metrics.get('runs_completed', 0)} "
-                f"failed={metrics.get('runs_failed', 0)} "
-                f"actions_failed={failed_actions}/{total_actions} ({fail_pct:.1f}%) "
-                f"rollbacks={metrics.get('rollbacks', 0)}"
-            )
-    except Exception:
-        pass
-
-    try:
-        issues = log_store.list_issues(60)[-15:]
-        if issues:
-            lines.append("Recent issues (newest last):")
-            for entry in issues:
-                src = str(entry.get("source", ""))[:24]
-                kind = str(entry.get("type", ""))[:32]
-                msg = " ".join(str(entry.get("message", "")).split())[:120]
-                lines.append(f"  - [{src}/{kind}] {msg}")
-    except Exception:
-        pass
-
-    try:
-        targets = [
-            PROJECT_ROOT / "backend" / "agent_space",
-            PROJECT_ROOT / "backend" / "api",
-            PROJECT_ROOT / "frontend" / "src" / "pages",
-        ]
-        sized: list[tuple[int, str]] = []
-        for root in targets:
-            if not root.exists():
-                continue
-            for path in root.rglob("*"):
-                if not path.is_file():
-                    continue
-                suffix = path.suffix.lower()
-                if suffix not in {".py", ".ts", ".tsx"}:
-                    continue
-                try:
-                    n_lines = sum(1 for _ in path.open("r", encoding="utf-8", errors="ignore"))
-                except Exception:
-                    continue
-                rel = path.relative_to(PROJECT_ROOT).as_posix()
-                sized.append((n_lines, rel))
-        sized.sort(reverse=True)
-        top = sized[:12]
-        if top:
-            lines.append("Heaviest source files (lines):")
-            for n_lines, rel in top:
-                lines.append(f"  - {rel} ({n_lines} lines)")
-    except Exception:
-        pass
-
-    if not lines:
-        return ""
-    blob = "\n".join(lines)
-    if len(blob) > max_chars:
-        blob = blob[: max_chars - 3] + "..."
-    return blob
-
-
-def _generator_user_prompt(
-    prompt: str,
-    focus: str,
-    max_suggestions: int,
-    signal: str = "",
-) -> str:
-    parts = [
-        f"User improvement prompt:\n{prompt.strip()}",
-        f"Current self-learning focus: {focus}",
-    ]
-    if signal:
-        parts.append(
-            "Current codebase signal (use this to anchor concrete proposals — "
-            "prefer files/issues that appear here over generic ideas):\n" + signal
-        )
-    parts.append(
-        f"Generate 8–{max(8, max_suggestions + 2)} candidates per the schema in your system prompt. "
-        "Every candidate must name at least one file in scope_files; prefer files appearing in the "
-        "codebase signal above. If you propose a fix for a listed issue, mention the issue type in rationale."
-    )
-    return "\n\n".join(parts)
-
-
-def _critic_user_prompt(candidates_json: str, max_suggestions: int) -> str:
-    return (
-        f"Score and rank these candidates per the schema in your system prompt. "
-        f"Keep at most {max_suggestions} candidates with verdict='keep'.\n\n"
-        f"Candidates:\n{candidates_json}"
-    )
-
-
-async def _critic_prune(
-    raw_candidates: list[dict[str, Any]],
-    model: str,
-    max_suggestions: int,
-) -> list[dict[str, Any]]:
-    """Second pass: same model, lower temperature, scores and prunes candidates.
-
-    Returns ranked entries (verdict=='keep') ordered best-first. On failure,
-    falls back to the input order truncated to max_suggestions.
-    """
-    if not raw_candidates:
-        return []
-    try:
-        text = await ollama_client.chat_full(
-            model=model,
-            messages=[
-                {"role": "system", "content": SELF_IMPROVE_CRITIC},
-                {"role": "user", "content": _critic_user_prompt(
-                    json.dumps({"candidates": raw_candidates}, ensure_ascii=False),
-                    max_suggestions,
-                )},
-            ],
-            temperature=0.05,
-        )
-        parsed = _safe_parse_json_object(text) or {}
-        ranked = parsed.get("ranked") if isinstance(parsed, dict) else []
-        if not isinstance(ranked, list):
-            ranked = []
-        kept = [r for r in ranked if isinstance(r, dict) and str(r.get("verdict")) == "keep"]
-        kept.sort(key=lambda r: int(r.get("overall") or 0), reverse=True)
-        return kept[:max_suggestions]
-    except Exception:
-        return raw_candidates[:max_suggestions]
-
-
-def _candidates_to_strings(candidates: list[dict[str, Any]]) -> list[str]:
-    out: list[str] = []
-    for c in candidates:
-        title = str(c.get("title") or "").strip()
-        if not title:
-            continue
-        scope = c.get("scope_files") or []
-        scope_str = ", ".join(str(s) for s in scope if s) if isinstance(scope, list) else ""
-        acceptance = str(c.get("acceptance") or "").strip()
-        bits = [title]
-        if scope_str:
-            bits.append(f"Scope: {scope_str}.")
-        if acceptance:
-            bits.append(f"Done when: {acceptance}.")
-        out.append(" ".join(bits))
-    return out
-
-
-async def _generate_self_improve_suggestions(prompt: str, max_suggestions: int) -> dict[str, Any]:
-    settings = settings_store.get()
-    model = str(settings.get("model", "qwen2.5-coder:14b"))
-    focus = str(settings.get("self_learning_focus", "general"))
-    fallback = _fallback_self_improve_suggestions(prompt, focus, max_items=max_suggestions)
-    suggestions = list(fallback)
-    autonomous_notes: list[str] = []
-
-    signal = _build_codebase_signal()
-    try:
-        gen_text = await ollama_client.chat_full(
-            model=model,
-            messages=[
-                {"role": "system", "content": SELF_IMPROVE_GENERATOR},
-                {"role": "user", "content": _generator_user_prompt(prompt, focus, max_suggestions, signal)},
-            ],
-            temperature=0.4,
-        )
-        parsed = _safe_parse_json_object(gen_text) or {}
-        candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
-        if not isinstance(candidates, list):
-            candidates = []
-
-        ranked = await _critic_prune(candidates, model, max_suggestions)
-        kept_strings = _candidates_to_strings(ranked)
-        if kept_strings:
-            suggestions = _specificify_suggestions(kept_strings, prompt, max_items=max_suggestions)
-        else:
-            suggestions = fallback
-        autonomous_notes = [
-            f"critic verdict: {len(ranked)} kept of {len(candidates)} generated"
-        ] if candidates else []
-    except Exception:
-        suggestions = fallback
-        autonomous_notes = []
-
-    return {
-        "model": model,
-        "focus": focus,
-        "suggestions": suggestions,
-        "autonomous_notes": autonomous_notes,
-    }
-
-
-async def _stream_self_improve_suggestions(
-    prompt: str,
-    max_suggestions: int,
-    request: Request,
-) -> AsyncGenerator[dict[str, Any], None]:
-    """Stream NDJSON events for suggest: meta, action, chunk, progress, then result (or stopped)."""
-    settings = settings_store.get()
-    model = str(settings.get("model", "qwen2.5-coder:14b"))
-    focus = str(settings.get("self_learning_focus", "general"))
-    fallback = _fallback_self_improve_suggestions(prompt, focus, max_items=max_suggestions)
-    yield {"type": "meta", "model": model, "focus": focus}
-    yield {"type": "action", "stage": "ollama", "label": "Calling local model (streaming)…"}
-
-    signal = _build_codebase_signal()
-    if signal:
-        yield {
-            "type": "action",
-            "stage": "signal",
-            "label": f"Loaded codebase signal · {signal.count(chr(10)) + 1} lines",
-        }
-    llm_prompt = _generator_user_prompt(prompt, focus, max_suggestions, signal)
-    parts: list[str] = []
-    progress_mark = 0
-    try:
-        async for piece in ollama_client.chat_stream(
-            model=model,
-            messages=[
-                {"role": "system", "content": SELF_IMPROVE_GENERATOR},
-                {"role": "user", "content": llm_prompt},
-            ],
-            temperature=0.4,
-        ):
-            parts.append(piece)
-            yield {"type": "chunk", "text": piece}
-            total_chars = sum(len(p) for p in parts)
-            if total_chars - progress_mark >= 4096:
-                progress_mark = total_chars
-                yield {"type": "progress", "chars": total_chars}
-            if await request.is_disconnected():
-                yield {"type": "stopped", "reason": "client_disconnected", "partial_chars": total_chars}
-                return
-    except asyncio.CancelledError:
-        yield {
-            "type": "stopped",
-            "reason": "cancelled",
-            "partial_chars": sum(len(p) for p in parts),
-        }
-        raise
-
-    yield {"type": "action", "stage": "parse", "label": "Parsing JSON response…"}
-    text = "".join(parts)
-    suggestions = list(fallback)
-    autonomous_notes: list[str] = []
-    try:
-        parsed = _safe_parse_json_object(text) or {}
-        candidates = parsed.get("candidates") if isinstance(parsed, dict) else []
-        if not isinstance(candidates, list):
-            candidates = []
-
-        yield {
-            "type": "action",
-            "stage": "critic",
-            "label": f"Scoring {len(candidates)} candidates with critic pass…",
-        }
-        ranked = await _critic_prune(candidates, model, max_suggestions)
-        kept_strings = _candidates_to_strings(ranked)
-        if kept_strings:
-            suggestions = _specificify_suggestions(kept_strings, prompt, max_items=max_suggestions)
-        else:
-            suggestions = fallback
-        autonomous_notes = [
-            f"critic verdict: {len(ranked)} kept of {len(candidates)} generated"
-        ] if candidates else []
-    except Exception:
-        suggestions = fallback
-        autonomous_notes = []
-
-    suggestion_rows = [
-        {"id": f"suggestion-{idx + 1}", "text": str(t), "source": "autonomous"}
-        for idx, t in enumerate(suggestions)
-    ]
-    yield {
-        "type": "result",
-        "prompt": prompt,
-        "model": model,
-        "focus": focus,
-        "requires_confirmation": True,
-        "autonomous_notes": autonomous_notes,
-        "suggestions": suggestion_rows,
-    }
-
-
-async def _strengthen_self_improve_prompt(prompt: str) -> dict[str, Any]:
-    """Rewrite a vague user request into a structured self-improve spec.
-
-    Returns: strengthened_prompt (backward-compatible), objective,
-    acceptance_criteria, scope_files, risks, model.
-    """
-    settings = settings_store.get()
-    model = str(settings.get("model", "qwen2.5-coder:14b"))
-    cleaned = str(prompt or "").strip()
-    llm_user = f"User request to strengthen:\n{cleaned}"
-    base_result = {
-        "strengthened_prompt": cleaned,
-        "objective": "",
-        "acceptance_criteria": [],
-        "scope_files": [],
-        "risks": [],
-        "model": model,
-    }
-    try:
-        text = await ollama_client.chat_full(
-            model=model,
-            messages=[
-                {"role": "system", "content": SELF_IMPROVE_STRENGTHEN},
-                {"role": "user", "content": llm_user},
-            ],
-            temperature=0.2,
-        )
-        parsed = _safe_parse_json_object(text) or {}
-        if not isinstance(parsed, dict):
-            return base_result
-
-        def _str_list(key: str) -> list[str]:
-            v = parsed.get(key)
-            if not isinstance(v, list):
-                return []
-            return [str(item).strip() for item in v if str(item or "").strip()]
-
-        strengthened = str(parsed.get("strengthened_prompt") or "").strip() or cleaned
-        return {
-            "strengthened_prompt": strengthened,
-            "objective": str(parsed.get("objective") or "").strip(),
-            "acceptance_criteria": _str_list("acceptance_criteria"),
-            "scope_files": _str_list("scope_files"),
-            "risks": _str_list("risks"),
-            "model": model,
-        }
-    except Exception:
-        return base_result
 
 
 def _fallback_builder_team() -> list[dict[str, Any]]:
@@ -1998,6 +1231,24 @@ async def set_power(req: PowerUpdateRequest) -> dict[str, Any]:
     return await power_manager.set_state(req.enabled, release_gpu_on_off=req.release_gpu_on_off)
 
 
+@router.get("/activity")
+async def get_activity() -> dict[str, Any]:
+    """Thermal-safety status at a glance: is a model loaded in VRAM, is any run
+    working, is a client connected, and is power on. Lets the UI honestly show
+    'GPU idle' vs 'working' so the user can confirm Ollama isn't running on
+    nothing in the background.
+    """
+    loaded_models = await ollama_client.list_loaded_models()
+    active_runs = sum(1 for run in orchestrator.list_runs(limit=50) if run.get("status") == "running")
+    return {
+        "power_enabled": power_manager.is_enabled(),
+        "model_loaded": bool(loaded_models),
+        "loaded_models": loaded_models,
+        "active_runs": active_runs,
+        "clients_present": instance_lifecycle.has_recent_clients(),
+    }
+
+
 @router.get("/settings")
 async def get_settings() -> dict[str, Any]:
     return _redact_secret_settings(settings_store.get())
@@ -2568,6 +1819,22 @@ async def self_improve_run(req: SelfImproveRunRequest) -> dict[str, Any]:
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/self-improve/knowledge")
+async def self_improve_get_knowledge() -> dict[str, Any]:
+    """Return the editable coding-knowledge file injected into self-improve prompts."""
+    return {
+        "knowledge": knowledge_store.get_knowledge(),
+        "max_chars": knowledge_store.MAX_KNOWLEDGE_CHARS,
+    }
+
+
+@router.post("/self-improve/knowledge")
+async def self_improve_set_knowledge(req: SelfImproveKnowledgeRequest) -> dict[str, Any]:
+    """Persist the coding-knowledge file. Returns the saved (capped) content."""
+    saved = knowledge_store.set_knowledge(req.knowledge)
+    return {"knowledge": saved, "max_chars": knowledge_store.MAX_KNOWLEDGE_CHARS}
 
 
 @router.post("/assist/plan")

@@ -3,8 +3,10 @@
 import asyncio
 import json
 import logging
+import time
 from collections import OrderedDict
-from typing import AsyncGenerator
+from contextvars import ContextVar
+from typing import AsyncGenerator, Callable
 
 import httpx
 
@@ -16,6 +18,60 @@ _client: httpx.AsyncClient | None = None
 _npu_client: httpx.AsyncClient | None = None
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY_SECONDS = 0.35
+
+# Global cooperative kill-switch. agent_space wires this to the PowerManager
+# (see agent_space/runtime.py) so a power-off / pause aborts every in-flight
+# generation within ABORT_POLL_SECONDS — closing the Ollama HTTP connection,
+# which makes Ollama stop decoding and free the GPU immediately. This is the
+# single thermal-safety choke point: ALL inference streams through
+# _stream_json_lines, so one check here covers chat, agent runs, and research.
+_global_abort_check: Callable[[], bool] | None = None
+ABORT_POLL_SECONDS = 0.5
+
+# Per-call generation kind. "interactive" is the default (a chat/UI request that
+# only makes sense while someone is watching); autonomous agent runs set this to
+# "autonomous" so they keep working even when no client is connected. Set on the
+# ContextVar inside a task, it propagates to every nested generation in that task.
+GENERATION_KIND: ContextVar[str] = ContextVar("ollama_generation_kind", default="interactive")
+
+# Dead-man's switch input: returns True while at least one client is recently
+# present. Wired to the app-instance tracker in agent_space/runtime.py.
+_client_presence_check: Callable[[], bool] | None = None
+
+
+def set_global_abort_check(fn: Callable[[], bool] | None) -> None:
+    """Register a predicate that returns True when ALL generation must stop now."""
+    global _global_abort_check
+    _global_abort_check = fn
+
+
+def set_client_presence_check(fn: Callable[[], bool] | None) -> None:
+    """Register a predicate that returns True while a client is recently connected."""
+    global _client_presence_check
+    _client_presence_check = fn
+
+
+def _should_abort() -> bool:
+    # Hard global kill (manual power-off / pause) — applies to ALL generation.
+    fn = _global_abort_check
+    if fn is not None:
+        try:
+            if fn():
+                return True
+        except Exception:
+            # A broken predicate must never wedge generation on (or off).
+            pass
+    # Dead-man's switch: interactive generation with no client watching is
+    # "Ollama running on nothing" — abort it so the GPU idles. Autonomous runs
+    # are exempt: they legitimately keep cycling while no UI is connected.
+    presence = _client_presence_check
+    if presence is not None and GENERATION_KIND.get() == "interactive":
+        try:
+            if not presence():
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -57,12 +113,27 @@ async def _stream_json_lines(
     base_url: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     last_exc: Exception | None = None
+    # Don't even open a connection while paused — a new request issued during a
+    # pause must not spin up the GPU.
+    if _should_abort():
+        logger.info("Generation suppressed: global kill-switch is active (power off/pause).")
+        return
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         client = await _get_client(base_url)
         try:
             async with client.stream("POST", path, json=payload) as resp:
                 resp.raise_for_status()
+                next_abort_check = 0.0
                 async for line in resp.aiter_lines():
+                    # Cooperative kill-switch: poll at most every ABORT_POLL_SECONDS
+                    # so the cost is negligible at token rate. Returning here exits
+                    # the `async with`, closing the connection and aborting Ollama.
+                    now = time.monotonic()
+                    if now >= next_abort_check:
+                        next_abort_check = now + ABORT_POLL_SECONDS
+                        if _should_abort():
+                            logger.info("Generation aborted by global kill-switch (power off/pause).")
+                            return
                     if not line:
                         continue
                     try:
@@ -407,6 +478,24 @@ async def unload_model(model: str) -> None:
         logger.warning("Could not unload %s — Ollama not reachable", model)
 
 
+async def list_loaded_models() -> list[str]:
+    """Names of models currently resident in VRAM/RAM, via Ollama's /api/ps.
+
+    Returns [] if nothing is loaded or Ollama is unreachable — i.e. "the GPU is
+    not holding a model." Used by the activity/thermal status surface so the user
+    can confirm the laptop isn't sitting with a model loaded in the background.
+    """
+    try:
+        client = await _get_client()
+        resp = await client.get("/api/ps")
+        resp.raise_for_status()
+        names = [m.get("name") or m.get("model") for m in resp.json().get("models", [])]
+        return [n for n in names if n]
+    except Exception as exc:
+        logger.debug("Could not query /api/ps for loaded models: %s", exc)
+        return []
+
+
 async def unload_all_models() -> None:
     """Unload every model Ollama has resident. Used before loading the 32B deep model
     and at shutdown so the GPU is cool when the next session starts.
@@ -416,15 +505,7 @@ async def unload_all_models() -> None:
     legacy models (granite3-guardian, qwen3.5, llama3.2, deepseek-r1, qwen2.5:32b)
     still get freed if some background path loaded them.
     """
-    loaded: list[str] = []
-    try:
-        client = await _get_client()
-        resp = await client.get("/api/ps")
-        resp.raise_for_status()
-        loaded = [m.get("name") or m.get("model") for m in resp.json().get("models", [])]
-        loaded = [n for n in loaded if n]
-    except Exception as exc:
-        logger.debug("Could not query /api/ps for loaded models: %s", exc)
+    loaded = await list_loaded_models()
     for model in loaded:
         try:
             await unload_model(model)

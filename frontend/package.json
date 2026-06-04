@@ -12,6 +12,8 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
+        "@fontsource/jetbrains-mono": "^5.2.8",
+        "@fontsource/outfit": "^5.2.8",
         "@monaco-editor/react": "^4.6.0",
         "@radix-ui/react-scroll-area": "^1.1.0",
         "@radix-ui/react-separator": "^1.1.0",

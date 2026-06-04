@@ -246,7 +246,6 @@ export default function Chat() {
                                 >
                                     Open in Builder →
                                 </button>
-                                <span className="text-xs text-text-muted">Builder can run agents and edit files autonomously</span>
                             </div>
                         )}
 

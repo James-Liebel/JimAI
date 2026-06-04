@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Brain, ShieldCheck } from 'lucide-react';
 import * as agentApi from '../lib/agentSpaceApi';
 import { getStoredGitHubToken, setStoredGitHubToken } from '../lib/githubApi';
 import { PageHeader } from '../components/PageHeader';
+import { prefetchRoute } from '../lib/routePrefetch';
 
 export default function Settings() {
     const [settings, setSettings] = useState<Record<string, unknown>>({});
@@ -498,6 +501,43 @@ export default function Settings() {
                             </div>
                         </div>
                     )}
+                </div>
+            </section>
+
+            <section className="rounded-card border border-surface-4 bg-surface-1 p-5 md:p-6 space-y-4">
+                <h2 className="text-sm font-semibold text-text-primary">Platform Monitoring</h2>
+                <p className="text-xs text-text-secondary">
+                    Autonomy and security run continuously inside the platform. Open their live views to inspect memory, skills, reflections, and the defensive agents.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    <Link
+                        to="/autonomy"
+                        onMouseEnter={() => prefetchRoute('/autonomy')}
+                        onFocus={() => prefetchRoute('/autonomy')}
+                        className="flex items-start gap-3 rounded-btn border border-surface-4 bg-surface-0 p-4 transition-colors hover:border-accent/40 hover:bg-surface-2"
+                    >
+                        <span className="mt-0.5 rounded-btn border border-accent/30 bg-accent/10 p-2 text-accent">
+                            <Brain className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block text-sm font-medium text-text-primary">Autonomy</span>
+                            <span className="mt-0.5 block text-xs text-text-secondary">Episodic memory, skill library, reflections, and the heartbeat scheduler.</span>
+                        </span>
+                    </Link>
+                    <Link
+                        to="/security"
+                        onMouseEnter={() => prefetchRoute('/security')}
+                        onFocus={() => prefetchRoute('/security')}
+                        className="flex items-start gap-3 rounded-btn border border-surface-4 bg-surface-0 p-4 transition-colors hover:border-accent/40 hover:bg-surface-2"
+                    >
+                        <span className="mt-0.5 rounded-btn border border-accent/30 bg-accent/10 p-2 text-accent">
+                            <ShieldCheck className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                            <span className="block text-sm font-medium text-text-primary">Security</span>
+                            <span className="mt-0.5 block text-xs text-text-secondary">Prompt shield, secret scanner, tool gate, egress guardian, and supply-chain sentinel.</span>
+                        </span>
+                    </Link>
                 </div>
             </section>
 

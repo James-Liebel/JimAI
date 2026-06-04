@@ -1706,7 +1706,16 @@ export default function BrowserAtlas() {
                         {tabs.length > 1 && (
                             <span
                                 role="button"
+                                aria-label="Close tab"
+                                tabIndex={0}
                                 onClick={(e) => closeTab(tab.id, e)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        closeTab(tab.id);
+                                    }
+                                }}
                                 className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:text-accent-red transition-opacity"
                             >
                                 <X size={9} />
@@ -1718,6 +1727,7 @@ export default function BrowserAtlas() {
                     onClick={() => openNewTab()}
                     className="shrink-0 p-1.5 mb-0.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
                     title="New tab"
+                    aria-label="New tab"
                 >
                     <Plus size={11} />
                 </button>
@@ -1730,6 +1740,7 @@ export default function BrowserAtlas() {
                     disabled={!canGoBack}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
                     title="Back"
+                    aria-label="Back"
                 >
                     <ArrowLeft size={13} />
                 </button>
@@ -1738,6 +1749,7 @@ export default function BrowserAtlas() {
                     disabled={!canGoForward}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
                     title="Forward"
+                    aria-label="Forward"
                 >
                     <ArrowRight size={13} />
                 </button>
@@ -1745,6 +1757,7 @@ export default function BrowserAtlas() {
                     onClick={() => loading ? getWv()?.stop() : getWv()?.reload()}
                     className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors"
                     title={loading ? 'Stop' : 'Reload'}
+                    aria-label={loading ? 'Stop' : 'Reload'}
                 >
                     <RotateCcw size={12} className={cn(loading && 'animate-spin')} />
                 </button>
@@ -1752,6 +1765,7 @@ export default function BrowserAtlas() {
                     onClick={() => openNewTab('https://accounts.google.com/signin')}
                     className="p-1.5 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 transition-colors"
                     title="Sign in to Google (opens new tab — cookies persist across the Atlas session)"
+                    aria-label="Sign in to Google"
                 >
                     <LogIn size={12} />
                 </button>
@@ -1759,6 +1773,7 @@ export default function BrowserAtlas() {
                     onClick={() => { const wv = getWv(); if (wv) void tryAutofill(wv); }}
                     className="p-1.5 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 transition-colors"
                     title="Autofill saved login for this site"
+                    aria-label="Autofill saved login for this site"
                 >
                     <KeyRound size={12} />
                 </button>
@@ -1766,6 +1781,7 @@ export default function BrowserAtlas() {
                     onClick={() => void saveLoginOnCurrentPage()}
                     className="p-1.5 rounded text-text-muted hover:text-accent-green hover:bg-surface-2 transition-colors"
                     title="Save the username & password currently typed into this page"
+                    aria-label="Save login for this page"
                 >
                     <Save size={12} />
                 </button>
@@ -1779,6 +1795,7 @@ export default function BrowserAtlas() {
                         value={navInput}
                         onChange={(e) => setNavInput(e.target.value)}
                         placeholder="Search or enter URL"
+                        aria-label="Address bar — search or enter URL"
                         spellCheck={false}
                     />
                 </form>
@@ -1856,6 +1873,8 @@ export default function BrowserAtlas() {
                                 taskPanelOpen ? 'text-accent-blue' : 'text-text-muted hover:text-accent-blue',
                             )}
                             title="Task library — 100 pre-built tasks"
+                            aria-label="Task library"
+                            aria-pressed={taskPanelOpen}
                         >
                             <ListChecks size={11} />
                         </button>
@@ -1867,6 +1886,8 @@ export default function BrowserAtlas() {
                                 benchmarkMode ? 'text-accent-amber' : 'text-text-muted hover:text-accent-amber',
                             )}
                             title="Benchmark mode — run and grade all 100 tasks"
+                            aria-label="Benchmark mode"
+                            aria-pressed={benchmarkMode}
                         >
                             <FlaskConical size={11} />
                         </button>
@@ -1875,6 +1896,7 @@ export default function BrowserAtlas() {
                             disabled={agentRunning}
                             className="p-1 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 disabled:opacity-30 transition-colors"
                             title="Manual mode — browse freely, AI panel hides"
+                            aria-label="Manual mode"
                         >
                             <MousePointer2 size={11} />
                         </button>
@@ -1883,6 +1905,7 @@ export default function BrowserAtlas() {
                             disabled={agentRunning}
                             className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 disabled:opacity-30 transition-colors"
                             title="Clear chat"
+                            aria-label="Clear chat"
                         >
                             <X size={11} />
                         </button>
@@ -1975,6 +1998,7 @@ export default function BrowserAtlas() {
                                     autoFocus
                                     className="w-full border border-surface-4 bg-surface-2 rounded px-2 py-1 text-[11px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue"
                                     placeholder="Search 100 tasks…"
+                                    aria-label="Search tasks"
                                     value={taskSearch}
                                     onChange={e => { setTaskSearch(e.target.value); setExpandedCategory(null); }}
                                 />
@@ -2011,6 +2035,7 @@ export default function BrowserAtlas() {
                                             <button
                                                 onClick={() => setExpandedCategory(p => p === cat.name ? null : cat.name)}
                                                 className="w-full flex items-center justify-between px-2.5 py-1.5 hover:bg-surface-2 transition-colors"
+                                                aria-expanded={expandedCategory === cat.name}
                                             >
                                                 <span className="text-[11px] font-semibold text-text-secondary">{cat.name}</span>
                                                 <span className="flex items-center gap-1">
@@ -2049,6 +2074,7 @@ export default function BrowserAtlas() {
                             rows={4}
                             className="w-full resize-none border border-surface-4 bg-surface-2 rounded px-2.5 py-1.5 text-[12px] text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-blue transition-colors leading-relaxed"
                             placeholder={agentRunning ? 'Agent running…' : 'Tell the agent what to do…'}
+                            aria-label="Message to the AI agent"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !agentRunning) { e.preventDefault(); sendMessage(); } }}
@@ -2060,6 +2086,7 @@ export default function BrowserAtlas() {
                                     onClick={stopAgent}
                                     className="p-1.5 rounded border border-accent-red/40 bg-accent-red/10 text-accent-red hover:bg-accent-red/20 transition-colors"
                                     title="Stop agent"
+                                    aria-label="Stop agent"
                                 >
                                     <Square size={13} />
                                 </button>
@@ -2069,6 +2096,7 @@ export default function BrowserAtlas() {
                                     disabled={!input.trim()}
                                     className="p-1.5 rounded border border-accent-blue/50 bg-accent-blue/10 text-accent-blue hover:bg-accent-blue/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                     title="Send (Enter)"
+                                    aria-label="Send message"
                                 >
                                     <Send size={13} />
                                 </button>

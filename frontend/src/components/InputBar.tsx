@@ -94,6 +94,9 @@ export default function InputBar({
     }, [text, pastedImage, isStreaming, onSend]);
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        // Phones have no Shift+Enter, so let Enter insert a newline and send via the
+        // button. On desktop, Enter sends and Shift+Enter inserts a newline.
+        if (isMobile) return;
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
@@ -270,7 +273,7 @@ export default function InputBar({
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder="Ask anything… Shift+Enter for new line"
+                    placeholder={isMobile ? 'Ask anything…' : 'Ask anything… Shift+Enter for new line'}
                     rows={1}
                     className={cn(
                         'flex-1 bg-transparent text-text-primary resize-none outline-none placeholder:text-text-muted',

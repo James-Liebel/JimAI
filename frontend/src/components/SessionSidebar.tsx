@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Trash2, X, Plus, Search } from 'lucide-react';
+import { MessageSquare, Trash2, X, Plus, Search, ChevronLeft } from 'lucide-react';
 import type { ChatListItem } from '../lib/api';
 import { cn } from '../lib/utils';
 
@@ -62,37 +62,51 @@ export default function SessionSidebar({
             {/* Header */}
             <div className={cn(
                 'flex items-center justify-between border-b border-surface-4',
-                isMobile ? 'px-4 py-3' : 'px-3 py-2',
+                isMobile ? 'px-2 py-2' : 'px-3 py-2',
             )}>
-                <span className={cn(
-                    'font-medium text-text-secondary',
-                    isMobile ? 'text-base' : 'text-xs',
-                )}>
-                    Chats
-                </span>
-                <div className="flex items-center gap-1">
-                    <button
-                        type="button"
-                        onClick={onNew}
-                        className={cn(
-                            'text-text-muted transition-colors hover:bg-surface-2 hover:text-accent',
-                            isMobile ? 'p-2.5' : 'p-1.5',
-                        )}
-                        title="New chat"
-                    >
-                        <Plus size={isMobile ? 20 : 14} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className={cn(
-                            'text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
-                            isMobile ? 'p-2.5' : 'p-1.5',
-                        )}
-                    >
-                        <X size={isMobile ? 20 : 14} />
-                    </button>
-                </div>
+                {isMobile ? (
+                    <>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="-ml-1 flex min-h-[44px] items-center gap-1 rounded pl-1 pr-2 text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+                            aria-label="Back to conversation"
+                        >
+                            <ChevronLeft size={24} aria-hidden="true" />
+                            <span className="text-base font-medium">Chats</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onNew}
+                            className="flex min-h-[40px] items-center gap-1.5 rounded-btn border border-surface-4 px-3 text-sm font-medium text-text-secondary transition-colors hover:border-surface-3 hover:bg-surface-3 hover:text-text-primary"
+                        >
+                            <Plus size={16} />
+                            New
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <span className="text-xs font-medium text-text-secondary">Chats</span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={onNew}
+                                className="p-1.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-accent"
+                                title="New chat"
+                            >
+                                <Plus size={14} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="p-1.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+                                aria-label="Close chat history"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Search input */}
@@ -122,7 +136,10 @@ export default function SessionSidebar({
             </div>
 
             {/* Chat list */}
-            <div className="flex-1 overflow-y-auto">
+            <div
+                className="flex-1 overflow-y-auto"
+                style={isMobile ? { paddingBottom: 'env(safe-area-inset-bottom, 0px)' } : undefined}
+            >
                 {chats.length === 0 ? (
                     <div className={cn(
                         'text-text-muted text-center py-8',

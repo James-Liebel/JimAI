@@ -54,11 +54,22 @@ html,
 body,
 #root {
     height: 100%;
-    min-height: 100dvh;
     overflow: hidden;
     font-size: 14px;
     line-height: 1.6;
     font-family: 'Outfit', 'Manrope', 'Segoe UI', sans-serif;
+}
+
+/* Size the shell to the *visible* (dynamic) viewport. Plain `height: 100%`
+   resolves to the toolbar-hidden viewport on mobile Safari/Chrome, which let the
+   fixed bottom nav + chat input slide under the browser's bottom toolbar. `100dvh`
+   tracks the currently visible area; `#root` stays `100%` so it still fits inside
+   the safe-area padding applied to `body` in standalone PWA mode. */
+@supports (height: 100dvh) {
+    html,
+    body {
+        height: 100dvh;
+    }
 }
 
 body {

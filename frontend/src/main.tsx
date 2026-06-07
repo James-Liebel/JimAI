@@ -125,6 +125,6 @@ idle(() => {
     // Then warm the rest of the primary tabs in the background, so switching to
     // any of them is instant instead of paying the lazy-chunk fetch on click.
     idle(() => {
-        ['/atlas', '/builder', '/agents', '/self-code'].forEach(prefetchRoute);
+        ['/atlas', '/builder', '/agents', '/self-code', '/workflow', '/skills', '/settings'].forEach(prefetchRoute);
     });
 });

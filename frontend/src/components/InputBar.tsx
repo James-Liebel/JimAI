@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type ClipboardEvent } from 'react';
-import { Mic, MicOff, Camera, Images, Paperclip, Send } from 'lucide-react';
+import { Mic, MicOff, Camera, Images, Paperclip, Send, Plus } from 'lucide-react';
 import { MODEL_OPTIONS } from '../lib/types';
 import { cn, fileToBase64 } from '../lib/utils';
 import { classifyLocally } from '../lib/classifier';
@@ -48,7 +48,7 @@ export default function InputBar({
     const [attachedFile, setAttachedFile] = useState<File | null>(null);
     const [pastedImage, setPastedImage] = useState<string | null>(null);
     const [routingPreview, setRoutingPreview] = useState('');
-    const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+    const [showAttachMenu, setShowAttachMenu] = useState(false);
     const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
     const handleSpeechResult = useCallback((transcript: string) => {
@@ -193,17 +193,16 @@ export default function InputBar({
                 'focus-within:border-white/45 focus-within:shadow-focus-ring',
                 isMobile && 'min-h-[52px]',
             )}>
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className={cn(
-                        'shrink-0 rounded text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary',
-                        isMobile ? 'p-2.5' : 'p-2',
-                    )}
-                    title="Attach file"
-                >
-                    <Paperclip size={isMobile ? 20 : 16} />
-                </button>
+                {!isMobile && (
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="shrink-0 rounded p-2 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+                        title="Attach file"
+                    >
+                        <Paperclip size={16} />
+                    </button>
+                )}
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -216,24 +215,24 @@ export default function InputBar({
                     <div className="relative shrink-0">
                         <button
                             type="button"
-                            onClick={() => setShowPhotoMenu((v) => !v)}
+                            onClick={() => setShowAttachMenu((v) => !v)}
                             className="rounded p-2.5 text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
-                            title="Photo options"
+                            title="Add attachment"
                         >
-                            <Camera size={20} />
+                            <Plus size={22} />
                         </button>
-                        {showPhotoMenu && (
+                        {showAttachMenu && (
                             <>
                                 {/* dismiss backdrop */}
                                 <div
                                     className="fixed inset-0 z-[55]"
-                                    onClick={() => setShowPhotoMenu(false)}
+                                    onClick={() => setShowAttachMenu(false)}
                                 />
                                 <div className="absolute bottom-full left-0 z-[56] mb-1 flex flex-col overflow-hidden rounded-lg border border-surface-5 bg-surface-1 shadow-xl">
                                     <button
                                         type="button"
                                         className="flex items-center gap-2.5 px-4 py-3 text-sm text-text-primary hover:bg-surface-2 active:bg-surface-3"
-                                        onClick={() => { setShowPhotoMenu(false); cameraInputRef.current?.click(); }}
+                                        onClick={() => { setShowAttachMenu(false); cameraInputRef.current?.click(); }}
                                     >
                                         <Camera size={16} className="shrink-0 text-text-muted" />
                                         Take Photo
@@ -241,10 +240,18 @@ export default function InputBar({
                                     <button
                                         type="button"
                                         className="flex items-center gap-2.5 px-4 py-3 text-sm text-text-primary hover:bg-surface-2 active:bg-surface-3 border-t border-surface-5"
-                                        onClick={() => { setShowPhotoMenu(false); galleryInputRef.current?.click(); }}
+                                        onClick={() => { setShowAttachMenu(false); galleryInputRef.current?.click(); }}
                                     >
                                         <Images size={16} className="shrink-0 text-text-muted" />
                                         Choose Photo
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="flex items-center gap-2.5 border-t border-surface-5 px-4 py-3 text-sm text-text-primary hover:bg-surface-2 active:bg-surface-3"
+                                        onClick={() => { setShowAttachMenu(false); fileInputRef.current?.click(); }}
+                                    >
+                                        <Paperclip size={16} className="shrink-0 text-text-muted" />
+                                        Attach File
                                     </button>
                                 </div>
                             </>
@@ -303,13 +310,17 @@ export default function InputBar({
                     onClick={handleSend}
                     disabled={isStreaming || (!text.trim() && !pastedImage)}
                     className={cn(
-                        'shrink-0 rounded transition-colors',
-                        isMobile ? 'p-2.5' : 'p-2',
+                        'shrink-0 transition-colors',
+                        isMobile ? 'rounded-full p-2.5' : 'rounded p-2',
                         isStreaming || (!text.trim() && !pastedImage)
-                            ? 'cursor-not-allowed text-text-muted'
-                            : 'text-accent hover:bg-white/5',
+                            ? isMobile
+                                ? 'cursor-not-allowed bg-surface-3 text-text-muted'
+                                : 'cursor-not-allowed text-text-muted'
+                            : isMobile
+                                ? 'bg-accent text-white hover:bg-accent/90'
+                                : 'text-accent hover:bg-white/5',
                     )}
-                    title="Send (Enter)"
+                    title={isMobile ? 'Send' : 'Send (Enter)'}
                 >
                     <Send size={isMobile ? 20 : 18} />
                 </button>

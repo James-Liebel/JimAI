@@ -1457,7 +1457,7 @@ export default function Builder() {
                     </div>
                     <div className="min-h-0 flex-1 bg-[#1e1e1e]">
                         {activeTab?.type === 'file' && <Editor height="100%" language={activeTab.language} value={activeTab.content} theme="vs-dark" onChange={(value) => updateActiveTabContent(value || '')} onMount={handleMonacoMount} options={{ minimap: { enabled: false }, fontSize: 13, wordWrap: 'on', lineNumbers: 'on', scrollBeyondLastLine: false, tabSize: 2, automaticLayout: true }} />}
-                        {activeTab?.type === 'diff' && <DiffEditor height="100%" original={activeTab.original} modified={activeTab.modified} theme="vs-dark" language={detectLanguage(activeTab.path)} options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true }} />}
+                        {activeTab?.type === 'diff' && <DiffEditor height="100%" original={activeTab.original} modified={activeTab.modified} theme="vs-dark" language={detectLanguage(activeTab.path)} options={{ readOnly: true, renderSideBySide: !isMobile, minimap: { enabled: false }, wordWrap: 'on', scrollBeyondLastLine: false, automaticLayout: true }} />}
                         {!activeTab && (
                             <div className="flex h-full min-h-0 flex-col overflow-auto bg-[#1e1e1e]">
                                 <input

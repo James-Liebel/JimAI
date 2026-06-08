@@ -31,7 +31,7 @@ export default function MobileNav() {
                     onMouseEnter={() => prefetchRoute(to)}
                     className={({ isActive }) =>
                         cn(
-                            'relative flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
+                            'relative flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
                             'before:absolute before:inset-x-3 before:top-0 before:h-[2px] before:rounded-b-full before:bg-accent before:transition-opacity before:duration-200',
                             isActive ? 'text-accent before:opacity-100' : 'text-text-muted hover:text-text-secondary before:opacity-0',
                         )
@@ -50,13 +50,13 @@ export default function MobileNav() {
                     onMouseEnter={() => prefetchRoute(to)}
                     className={({ isActive }) =>
                         cn(
-                            'relative flex min-h-[52px] flex-col items-center justify-center gap-0.5 px-2 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
-                            'before:absolute before:inset-x-2 before:top-0 before:h-[2px] before:rounded-b-full before:bg-accent before:transition-opacity before:duration-200',
+                            'relative flex min-h-[52px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[10px] font-medium tracking-wide transition-colors duration-150',
+                            'before:absolute before:inset-x-3 before:top-0 before:h-[2px] before:rounded-b-full before:bg-accent before:transition-opacity before:duration-200',
                             isActive ? 'text-accent before:opacity-100' : 'text-text-muted hover:text-text-secondary before:opacity-0',
                         )
                     }
                 >
-                    <Icon size={17} />
+                    <Icon size={19} />
                     <span>{label}</span>
                 </NavLink>
             ))}

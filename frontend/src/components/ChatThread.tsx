@@ -42,7 +42,7 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
     return (
         <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-2 py-4' : 'px-4 py-6'} space-y-3`}>
             {messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full text-text-muted animate-fade-in px-4">
+                <div className={`flex flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[14vh]' : 'h-full justify-center'}`}>
                     <div className={`rounded-2xl shadow-elevation-2 bg-gradient-to-br from-accent-blue to-accent-purple flex items-center justify-center text-white font-bold mb-4 ${isMobile ? 'w-10 h-10 text-base' : 'w-12 h-12 text-lg'}`}>
                         AI
                     </div>

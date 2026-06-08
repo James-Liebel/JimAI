@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Pause, Play, Loader2 } from 'lucide-react';
 import * as agentApi from '../lib/agentSpaceApi';
 import type { AgentActivity } from '../lib/agentSpaceApi';
@@ -67,6 +68,8 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
         }
     }, [busy, activity, poll]);
 
+    const { pathname } = useLocation();
+
     if (activity === null) return null;
 
     const phase = derivePhase(activity);
@@ -76,6 +79,10 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
     const actionLabel = paused ? 'Resume AI generation' : 'Pause AI generation';
 
     if (variant === 'floating') {
+        // On /chat the bottom holds the input bar, so the pill sits top-center
+        // (clear of the chat header's menu/New). On every other page it docks
+        // bottom-right above the nav so it never lands on a page's title/actions.
+        const onChat = pathname === '/chat';
         return (
             <button
                 type="button"
@@ -85,14 +92,15 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
                 aria-pressed={paused}
                 title={meta.title}
                 className={cn(
-                    // Centered at the top so it never overlaps the header's New /
-                    // menu buttons; z-40 keeps it under full-screen drawers (z-50+).
-                    'fixed left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
+                    'fixed z-40 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
+                    onChat ? 'left-1/2 -translate-x-1/2' : 'right-3',
                     paused
                         ? 'animate-pulse-soft border-accent-red/50 bg-accent-red/20 text-accent-red'
                         : 'border-surface-4 bg-surface-2/90 text-text-secondary',
                 )}
-                style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
+                style={onChat
+                    ? { top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }
+                    : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 52px + 0.75rem)' }}
             >
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
                 <span>{meta.word}</span>

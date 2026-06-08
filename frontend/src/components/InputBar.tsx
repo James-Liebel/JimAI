@@ -186,6 +186,75 @@ export default function InputBar({
                 </div>
             )}
 
+            {/* Model selector + routing preview — sits directly above the chat bar */}
+            <div className="flex items-center justify-between px-1">
+                <div className={cn(
+                    'text-text-muted flex items-center gap-1.5 flex-wrap',
+                    isMobile ? 'text-xs' : 'text-[11px]',
+                )}>
+                    {routingPreview && !modelOverride && (
+                        <>
+                            {routingPreview === 'browser' && (
+                                <span className="animate-fade-in flex items-center gap-1 text-cyan-400">
+                                    → 🌐 browser
+                                </span>
+                            )}
+                            {routingPreview === 'builder' && (
+                                <span className="animate-fade-in flex items-center gap-1 text-accent-green">
+                                    → 🔨 builder
+                                </span>
+                            )}
+                            {!['browser', 'builder', 'chat model', 'code model', 'math model', 'vision model', 'math + code pipeline'].includes(routingPreview)
+                             && !routingPreview.endsWith('model') && !routingPreview.includes('pipeline') && (
+                                <span className="animate-fade-in text-cyan-400">
+                                    → ⚙ {routingPreview}
+                                </span>
+                            )}
+                            {(routingPreview.endsWith('model') || routingPreview.includes('pipeline')) && (
+                                <span className="animate-fade-in">
+                                    → {routingPreview.includes('pipeline')
+                                        ? routingPreview
+                                        : resolveModelLabel(routingPreview.replace(' model', ''), speedMode)}
+                                </span>
+                            )}
+                        </>
+                    )}
+                    {modelOverride && (
+                        <span className="animate-fade-in flex items-center gap-1">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
+                            → {overrideOption?.label} (manual)
+                        </span>
+                    )}
+                </div>
+                <select
+                    value={modelSelectValue}
+                    onChange={(e) => {
+                        const value = e.target.value;
+                        if (['__speed_turbo', '__speed_fast', '__speed_balanced', '__speed_deep'].includes(value)) {
+                            const next = value.replace('__speed_', '') as 'turbo' | 'fast' | 'balanced' | 'deep';
+                            onModelOverrideChange('');
+                            onSpeedModeChange?.(next);
+                            return;
+                        }
+                        onModelOverrideChange(value);
+                    }}
+                    className={cn(
+                        'bg-surface-2 text-text-primary border border-surface-4 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
+                        isMobile ? 'text-xs px-3 py-1.5 min-h-[36px]' : 'text-[11px] px-2 py-0.5',
+                    )}
+                >
+                    <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
+                    <option value="__speed_fast">Auto Routing (Fast 7B)</option>
+                    <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
+                    <option value="__speed_deep">Auto Routing (Deep 32B)</option>
+                    {MODEL_OPTIONS.filter((opt) => opt.value !== '').map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                            {opt.label} (manual)
+                        </option>
+                    ))}
+                </select>
+            </div>
+
             {/* Main input area */}
             <div className={cn(
                 'flex min-w-0 items-end gap-1.5 rounded-panel border bg-surface-1 p-2 shadow-elevation-1 transition-colors',
@@ -324,75 +393,6 @@ export default function InputBar({
                 >
                     <Send size={isMobile ? 20 : 18} />
                 </button>
-            </div>
-
-            {/* Routing preview + override dropdown */}
-            <div className="flex items-center justify-between px-1">
-                <div className={cn(
-                    'text-text-muted flex items-center gap-1.5 flex-wrap',
-                    isMobile ? 'text-xs' : 'text-[11px]',
-                )}>
-                    {routingPreview && !modelOverride && (
-                        <>
-                            {routingPreview === 'browser' && (
-                                <span className="animate-fade-in flex items-center gap-1 text-cyan-400">
-                                    → 🌐 browser
-                                </span>
-                            )}
-                            {routingPreview === 'builder' && (
-                                <span className="animate-fade-in flex items-center gap-1 text-accent-green">
-                                    → 🔨 builder
-                                </span>
-                            )}
-                            {!['browser', 'builder', 'chat model', 'code model', 'math model', 'vision model', 'math + code pipeline'].includes(routingPreview)
-                             && !routingPreview.endsWith('model') && !routingPreview.includes('pipeline') && (
-                                <span className="animate-fade-in text-cyan-400">
-                                    → ⚙ {routingPreview}
-                                </span>
-                            )}
-                            {(routingPreview.endsWith('model') || routingPreview.includes('pipeline')) && (
-                                <span className="animate-fade-in">
-                                    → {routingPreview.includes('pipeline')
-                                        ? routingPreview
-                                        : resolveModelLabel(routingPreview.replace(' model', ''), speedMode)}
-                                </span>
-                            )}
-                        </>
-                    )}
-                    {modelOverride && (
-                        <span className="animate-fade-in flex items-center gap-1">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
-                            → {overrideOption?.label} (manual)
-                        </span>
-                    )}
-                </div>
-                <select
-                    value={modelSelectValue}
-                    onChange={(e) => {
-                        const value = e.target.value;
-                        if (['__speed_turbo', '__speed_fast', '__speed_balanced', '__speed_deep'].includes(value)) {
-                            const next = value.replace('__speed_', '') as 'turbo' | 'fast' | 'balanced' | 'deep';
-                            onModelOverrideChange('');
-                            onSpeedModeChange?.(next);
-                            return;
-                        }
-                        onModelOverrideChange(value);
-                    }}
-                    className={cn(
-                        'bg-surface-2 text-text-primary border border-surface-4 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
-                        isMobile ? 'text-xs px-3 py-1.5 min-h-[36px]' : 'text-[11px] px-2 py-0.5',
-                    )}
-                >
-                    <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
-                    <option value="__speed_fast">Auto Routing (Fast 7B)</option>
-                    <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
-                    <option value="__speed_deep">Auto Routing (Deep 32B)</option>
-                    {MODEL_OPTIONS.filter((opt) => opt.value !== '').map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                            {opt.label} (manual)
-                        </option>
-                    ))}
-                </select>
             </div>
         </div>
     );

@@ -43,16 +43,38 @@ Embedding (`nomic-embed-text`) and vision (`qwen2.5vl:7b`) models are listed but
 **excluded** from the text recipe — they need different objectives; `list` prints
 why.
 
-## 2. Train on a GPU (WSL2)
+## 2. Train on a GPU
 
-```bash
-pip install "unsloth[cu121] @ git+https://github.com/unslothai/unsloth.git" \
-            "trl>=0.9" "peft>=0.11" "datasets>=2.19" "transformers>=4.43"
-python data/training/qwen3_8b/train.py
+### Native Windows (no WSL) — verified on an RTX 5080 Laptop
+
+The reliable path on this box. Plain HF PEFT + TRL with a **bf16 LoRA** (no
+bitsandbytes/4-bit, which is flaky on native Windows + Blackwell):
+
+```powershell
+# Blackwell (RTX 50xx, sm_120) needs the cu128 wheels, NOT cu121:
+pip install --upgrade torch --index-url https://download.pytorch.org/whl/cu128
+pip install "transformers>=5.0" "trl>=1.5" "peft>=0.18" "datasets>=3.0" "accelerate>=1.0"
+
+# TRL reads a UTF-8 template with the locale codec — on Windows force UTF-8 mode:
+$env:PYTHONUTF8 = "1"
+python -m training.smoke_train --hf Qwen/Qwen2.5-Coder-3B-Instruct `
+    --sft ../data/training/qwen2.5-coder_3b/sft.jsonl `
+    --out ../data/training/qwen2.5-coder_3b/out --max-steps 20
 ```
 
-A 7–8B QLoRA fits in ~12–16 GB VRAM. The script SFT-trains on the chat data,
-then DPO-trains on preference pairs if present, and writes a GGUF adapter.
+`smoke_train.py` is a capability proof on a tiny dataset. A 3B bf16 LoRA fits
+well under 16 GB; 7–8B in bf16 is tight — drop to the WSL2/4-bit path for those.
+
+### WSL2 + Unsloth (bigger models, 4-bit QLoRA)
+
+```bash
+pip install "unsloth[cu128] @ git+https://github.com/unslothai/unsloth.git" \
+            "trl>=0.9" "peft>=0.11" "datasets>=2.19" "transformers>=4.43"
+python data/training/qwen3_8b/train.py   # the recipe.py-generated script
+```
+
+A 7–8B 4-bit QLoRA fits in ~12–16 GB VRAM. The script SFT-trains on the chat
+data, then DPO-trains on preference pairs if present, and writes a GGUF adapter.
 
 ## 3. Reload into Ollama
 

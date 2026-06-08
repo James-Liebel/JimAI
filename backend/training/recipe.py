@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PIP_REQUIREMENTS = (
-    'pip install "unsloth[cu121] @ git+https://github.com/unslothai/unsloth.git" '
+    # cu128 wheels — required for Blackwell (RTX 50xx, sm_120); cu121 will not run.
+    'pip install "unsloth[cu128] @ git+https://github.com/unslothai/unsloth.git" '
     '"trl>=0.9" "peft>=0.11" "datasets>=2.19" "transformers>=4.43"'
 )
 

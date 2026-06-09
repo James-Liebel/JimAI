@@ -65,13 +65,22 @@ pip install "transformers>=5.0" "trl>=1.5" "peft>=0.18" "datasets>=3.0" "acceler
 
 # TRL reads a UTF-8 template with the locale codec — on Windows force UTF-8 mode:
 $env:PYTHONUTF8 = "1"
-python -m training.smoke_train --hf Qwen/Qwen2.5-Coder-3B-Instruct `
+python -m training.scripts.smoke_train --hf Qwen/Qwen2.5-Coder-3B-Instruct `
     --sft ../data/training/qwen2.5-coder_3b/sft.jsonl `
     --out ../data/training/qwen2.5-coder_3b/out --max-steps 20
 ```
 
 `smoke_train.py` is a capability proof on a tiny dataset. A 3B bf16 LoRA fits
 well under 16 GB; 7–8B in bf16 is tight — drop to the WSL2/4-bit path for those.
+
+Ollama can't import a PEFT adapter directly, so merge it into the base (as f16 —
+Ollama's GGUF converter corrupts bf16) before `ollama create`:
+
+```powershell
+python -m training.scripts.merge_adapter --hf Qwen/Qwen2.5-Coder-3B-Instruct `
+    --adapter ../data/training/qwen2.5-coder_3b/out/adapter `
+    --out ../data/training/qwen2.5-coder_3b/out/merged
+```
 
 ### WSL2 + Unsloth (bigger models, 4-bit QLoRA)
 

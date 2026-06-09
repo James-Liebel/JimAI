@@ -5,7 +5,7 @@ bf16 LoRA (no bitsandbytes/4-bit), which is the reliable path on native Windows
 with a Blackwell GPU. It trains a small LoRA on the generated SFT JSONL and saves
 the adapter. It is a *capability proof*, not a quality run — the dataset is tiny.
 
-    python -m training.smoke_train --hf Qwen/Qwen2.5-Coder-3B-Instruct \
+    python -m training.scripts.smoke_train --hf Qwen/Qwen2.5-Coder-3B-Instruct \
         --sft ../data/training/qwen2.5-coder_3b/sft.jsonl \
         --out ../data/training/qwen2.5-coder_3b/out --max-steps 20
 """

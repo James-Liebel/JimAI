@@ -111,7 +111,7 @@ def prepare_model(
 
 def prepare_all(out_dir: Path) -> list[BuildResult]:
     """Prepare training artifacts for every text-trainable model in the stack."""
-    sft_examples = ds.build_sft_examples()
+    sft_examples = ds.build_sft_examples() + ds.load_external_sft(out_dir / "sources")
     dpo_pairs = ds.build_dpo_pairs()
     results: list[BuildResult] = []
     for entry in trainable_models(TrainMethod.TEXT_LORA):

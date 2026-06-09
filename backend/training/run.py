@@ -1,12 +1,14 @@
 """CLI for the fine-tuning subsystem.
 
     python -m training.run list                 # show every model + train method
+    python -m training.run fetch --role code     # pull external instruction data
     python -m training.run build-all            # prep datasets/scripts for all models
     python -m training.run build --model qwen3:8b
     python -m training.run create --tag jimai-qwen3:8b --modelfile <path>
 
-`build*` only prepares artifacts; run the emitted train.py on a GPU/WSL2 box,
-then `create` registers the trained adapter with Ollama.
+`fetch` lands role-tagged data under data/training/sources/, which `build*` folds
+in alongside mined chat history. `build*` only prepares artifacts; run the emitted
+train.py on a GPU/WSL2 box, then `create` registers the trained adapter with Ollama.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from .pipeline import BuildResult, prepare_all, prepare_model
 from . import dataset as ds
 
 DEFAULT_OUT = PROJECT_ROOT / "data" / "training"
+DEFAULT_SOURCES = DEFAULT_OUT / "sources"
 
 
 def _print_result(result: BuildResult) -> None:
@@ -60,10 +63,23 @@ def _cmd_build(args: argparse.Namespace) -> int:
     out = Path(args.out)
     result = prepare_model(
         entry, out,
-        sft_examples=ds.build_sft_examples(),
+        sft_examples=ds.build_sft_examples() + ds.load_external_sft(out / "sources"),
         dpo_pairs=ds.build_dpo_pairs(),
     )
     _print_result(result)
+    return 0
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    from .sources import SOURCES, fetch_sft
+
+    if args.role not in SOURCES:
+        print(f"No data source for role '{args.role}'. Known: {', '.join(sorted(SOURCES))}")
+        return 1
+    out = Path(args.out) if args.out else DEFAULT_SOURCES / f"{args.role}.jsonl"
+    examples = fetch_sft(args.role, limit=args.limit)
+    count = ds.write_jsonl(out, examples)
+    print(f"Fetched {count} '{args.role}' examples from {SOURCES[args.role].hf_id} -> {out}")
     return 0
 
 
@@ -91,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_one.add_argument("--model", required=True)
     p_one.add_argument("--out", default=str(DEFAULT_OUT))
     p_one.set_defaults(func=_cmd_build)
+
+    p_fetch = sub.add_parser("fetch", help="Fetch external instruction data for a role.")
+    p_fetch.add_argument("--role", required=True)
+    p_fetch.add_argument("--limit", type=int, default=2000)
+    p_fetch.add_argument(
+        "--out", default=None,
+        help="JSONL output path (default: data/training/sources/<role>.jsonl, read by build).",
+    )
+    p_fetch.set_defaults(func=_cmd_fetch)
 
     p_create = sub.add_parser("create", help="Register a trained Modelfile with Ollama.")
     p_create.add_argument("--tag", required=True)

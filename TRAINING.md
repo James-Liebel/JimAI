@@ -43,6 +43,14 @@ Embedding (`nomic-embed-text`) and vision (`qwen2.5vl:7b`) models are listed but
 **excluded** from the text recipe — they need different objectives; `list` prints
 why.
 
+**External data (optional).** To go beyond your own history, pull a curated
+instruction set for a role — `build*` folds anything under
+`data/training/sources/*.jsonl` in alongside your mined data:
+
+```bash
+python -m training.run fetch --role code   # → data/training/sources/code.jsonl
+```
+
 ## 2. Train on a GPU
 
 ### Native Windows (no WSL) — verified on an RTX 5080 Laptop
@@ -90,6 +98,10 @@ Point a role at it by adding the tag to `backend/config/models.py`.
 ## Growing the dataset
 
 - **SFT** comes from every chat you have — it grows as you use the app.
+- **External sources** (optional): `training.run fetch --role <role>` streams a
+  vetted HuggingFace instruction set (`training/sources.py`) into
+  `data/training/sources/`, tagged with the role's system prompt so it trains the
+  way it's served. Useful to bootstrap a role before you have much history.
 - **DPO** comes from the self-improve pipeline: when a proposed change is
   **approved** and another for the same run is **rejected**, that becomes a
   chosen/rejected pair (`training/dataset.py:reviews_to_dpo`). Early on this is

@@ -28,6 +28,7 @@ backend/err.txt
 data/chats/
 data/memory/
 data/app_creations/
+data/training/
 data/graph.json
 data/style_profile.json
 data/feedback.jsonl

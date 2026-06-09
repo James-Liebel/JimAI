@@ -126,3 +126,67 @@ def test_prepare_model_skips_vision_with_reason(tmp_path: Path):
     entry = next(e for e in all_models() if e.model == "qwen2.5vl:7b")
     result = prepare_model(entry, tmp_path, sft_examples=[], dpo_pairs=[])
     assert result.skipped
+
+
+# ── external data sources (pure converters, no network) ──────────────────────
+
+def test_alpaca_converter_joins_instruction_and_input():
+    from training.sources import _alpaca
+
+    user, assistant = _alpaca({"instruction": "Sort a list", "input": "[3,1,2]", "output": "sorted"})
+    assert user == "Sort a list\n\n[3,1,2]"
+    assert assistant == "sorted"
+
+
+def test_gsm8k_converter_maps_question_and_answer():
+    from training.sources import _gsm8k
+
+    user, assistant = _gsm8k({"question": "2+2?", "answer": "4"})
+    assert (user, assistant) == ("2+2?", "4")
+
+
+def test_sources_cover_core_roles():
+    from training.sources import SOURCES
+
+    assert {"code", "math", "finance", "chat"} <= set(SOURCES)
+
+
+# ── external data merges into the build path ─────────────────────────────────
+
+def test_read_jsonl_round_trips_written_rows(tmp_path: Path):
+    path = tmp_path / "rows.jsonl"
+    rows = [{"messages": [{"role": "user", "content": "hi"}], "mode": "code"}]
+    ds.write_jsonl(path, rows)
+    assert ds.read_jsonl(path) == rows
+
+
+def test_read_jsonl_missing_file_yields_no_rows(tmp_path: Path):
+    assert ds.read_jsonl(tmp_path / "absent.jsonl") == []
+
+
+def test_load_external_sft_combines_role_files_in_filename_order(tmp_path: Path):
+    ds.write_jsonl(tmp_path / "code.jsonl", [{"messages": [], "mode": "code"}])
+    ds.write_jsonl(tmp_path / "math.jsonl", [{"messages": [], "mode": "math"}])
+    assert ds.load_external_sft(tmp_path) == [
+        {"messages": [], "mode": "code"},
+        {"messages": [], "mode": "math"},
+    ]
+
+
+def test_load_external_sft_missing_dir_yields_no_examples(tmp_path: Path):
+    assert ds.load_external_sft(tmp_path / "absent") == []
+
+
+def test_external_sft_reaches_a_model_through_prepare(tmp_path: Path):
+    sources = tmp_path / "sources"
+    ds.write_jsonl(sources / "code.jsonl", [{"messages": [], "mode": "code"}])
+    entry = next(
+        e for e in trainable_models(TrainMethod.TEXT_LORA)
+        if "code" in roles_for_model(e.model) and rc.hf_repo_for(e.model)
+    )
+    result = prepare_model(
+        entry, tmp_path,
+        sft_examples=ds.load_external_sft(sources),
+        dpo_pairs=[],
+    )
+    assert result.sft_count == 1

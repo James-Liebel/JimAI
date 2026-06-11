@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import { Info } from 'lucide-react';
 import type { RoutingDecision } from '../lib/types';
+import { cn } from '../lib/utils';
 
 interface Props {
     routing: RoutingDecision;
@@ -158,9 +161,30 @@ export default function RouterBadge({ routing }: Props) {
 }
 
 function Tooltip({ reasoning }: { reasoning: string }) {
+    // Hover never fires on phones/tablets, so touch devices get an explicit ⓘ
+    // toggle instead of the hover reveal (same detection idiom as CodeBlock).
+    const [open, setOpen] = useState(false);
+    const isTouchDevice = 'ontouchstart' in window;
+    if (!reasoning) return null;
     return (
-        <div className="absolute bottom-full left-0 mb-1 w-48 p-2 bg-surface-3 border border-surface-4 rounded-card shadow-elevation-2 opacity-0 group-hover/badge:opacity-100 pointer-events-none transition-opacity z-50 text-[11px] text-text-secondary">
-            {reasoning}
-        </div>
+        <>
+            {isTouchDevice && (
+                <button
+                    type="button"
+                    onClick={() => setOpen((v) => !v)}
+                    aria-label="Routing reasoning"
+                    aria-expanded={open}
+                    className={cn('-m-1 rounded p-2', open ? 'text-text-secondary' : 'text-text-muted')}
+                >
+                    <Info size={13} />
+                </button>
+            )}
+            <div className={cn(
+                'absolute bottom-full left-0 mb-1 w-48 p-2 bg-surface-3 border border-surface-4 rounded-card shadow-elevation-2 transition-opacity z-50 text-[11px] text-text-secondary',
+                open ? 'opacity-100' : 'opacity-0 pointer-events-none group-hover/badge:opacity-100',
+            )}>
+                {reasoning}
+            </div>
+        </>
     );
 }

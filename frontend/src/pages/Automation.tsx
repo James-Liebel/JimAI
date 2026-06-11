@@ -42,6 +42,7 @@ const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
             nodeType: FLOW_NODE_LIBRARY.trigger.nodeType,
             description: FLOW_NODE_LIBRARY.trigger.description,
         },
+        style: nodeStyle('trigger'),
     },
     {
         id: 'ai-1',
@@ -52,6 +53,7 @@ const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
             nodeType: FLOW_NODE_LIBRARY.ai.nodeType,
             description: FLOW_NODE_LIBRARY.ai.description,
         },
+        style: nodeStyle('ai'),
     },
 ];
 
@@ -398,6 +400,7 @@ export default function Automation() {
                                     onConnect={onConnect}
                                     onNodeClick={(_, n) => setSelectedNodeId(n.id)}
                                     fitView
+                                    fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
                                 >
                                     <MiniMap
                                         nodeColor={(n) => FLOW_NODE_LIBRARY[((n.data as FlowNodeData)?.kind || 'action') as FlowKind].color}

@@ -83,6 +83,10 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
         // (clear of the chat header's menu/New). On every other page it docks
         // bottom-right above the nav so it never lands on a page's title/actions.
         const onChat = pathname === '/chat';
+        // Idle/loaded need no attention, so shrink to dot + icon — the wide
+        // pill was covering bottom-of-page content on every tab. Working and
+        // paused keep the word: those are the states worth a glance.
+        const compact = phase === 'loaded' || phase === 'idle';
         return (
             <button
                 type="button"
@@ -92,7 +96,8 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
                 aria-pressed={paused}
                 title={meta.title}
                 className={cn(
-                    'fixed z-40 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
+                    'fixed z-40 flex items-center rounded-full border text-xs font-semibold shadow-elevation-2 backdrop-blur transition-colors md:hidden',
+                    compact ? 'gap-1.5 p-2.5' : 'gap-2 px-3 py-1.5',
                     onChat ? 'left-1/2 -translate-x-1/2' : 'right-3',
                     paused
                         ? 'animate-pulse-soft border-accent-red/50 bg-accent-red/20 text-accent-red'
@@ -103,10 +108,10 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
                     : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 52px + 0.75rem)' }}
             >
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
-                <span>{meta.word}</span>
-                <span className="mx-0.5 h-3 w-px bg-current opacity-20" aria-hidden />
+                {!compact && <span>{meta.word}</span>}
+                {!compact && <span className="mx-0.5 h-3 w-px bg-current opacity-20" aria-hidden />}
                 <ActionIcon className={cn('h-4 w-4', busy && 'animate-spin')} aria-hidden />
-                {paused ? 'Resume' : 'Pause'}
+                {!compact && (paused ? 'Resume' : 'Pause')}
             </button>
         );
     }
@@ -114,7 +119,7 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
     return (
         <div className="flex items-center gap-1.5">
             <span
-                className="hidden items-center gap-1.5 rounded-btn px-1.5 py-1 text-[11px] text-text-muted lg:inline-flex"
+                className="hidden items-center gap-1.5 rounded-btn px-1.5 py-1 text-[11px] text-text-muted md:inline-flex"
                 title={meta.title}
             >
                 <span className={cn('h-1.5 w-1.5 rounded-full', meta.dot)} aria-hidden />

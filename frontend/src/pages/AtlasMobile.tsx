@@ -130,16 +130,16 @@ export default function AtlasMobile() {
                                 type="button"
                                 onClick={() => go(pageUrl)}
                                 aria-label="Reload"
-                                className="shrink-0 rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
+                                className="shrink-0 rounded p-2.5 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
                             >
-                                <RefreshCw className="h-3.5 w-3.5" />
+                                <RefreshCw className="h-4 w-4" />
                             </button>
                             <button
                                 type="button"
                                 onClick={readPage}
-                                className="flex shrink-0 items-center gap-1 rounded-btn border border-surface-4 px-2 py-1 text-text-secondary transition-colors hover:bg-surface-3"
+                                className="flex shrink-0 items-center gap-1.5 rounded-btn border border-surface-4 px-3 py-2 text-text-secondary transition-colors hover:bg-surface-3"
                             >
-                                <FileText className="h-3 w-3" /> Read
+                                <FileText className="h-3.5 w-3.5" /> Read
                             </button>
                         </>
                     )}

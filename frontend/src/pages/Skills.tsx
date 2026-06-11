@@ -395,8 +395,8 @@ export default function Skills() {
                     {notice ? (
                         <div className="shrink-0 border-b border-surface-5 bg-surface-0 px-3 py-2 text-[11px] text-text-secondary">{notice}</div>
                     ) : null}
-                    <div className="min-h-0 flex flex-1 flex-col gap-3 overflow-hidden p-3 md:flex-row">
-                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="min-h-0 flex flex-1 flex-col gap-3 p-3 max-md:overflow-y-auto md:flex-row md:overflow-hidden">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col max-md:flex-none">
                             <label className="text-[10px] font-medium uppercase text-text-muted">Markdown</label>
                             {loadingDetail ? (
                                 <p className="mt-2 text-xs text-text-muted">Loading…</p>
@@ -406,7 +406,7 @@ export default function Skills() {
                                     onChange={(e) => setRawMarkdown(e.target.value)}
                                     spellCheck={false}
                                     className="mt-1 min-h-[240px] flex-1 resize-none rounded-lg border border-surface-5 bg-surface-0 p-3 font-mono text-[12px] leading-relaxed text-text-primary outline-none focus:border-accent/50 md:min-h-0"
-                                    placeholder="---\nname: …\n---\n\n# …"
+                                    placeholder={'---\nname: …\n---\n\n# …'}
                                 />
                             )}
                         </div>

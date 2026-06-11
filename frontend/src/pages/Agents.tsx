@@ -476,9 +476,12 @@ export default function Agents() {
                     <Loader2 className="w-8 h-8 animate-spin" />
                 </div>
             ) : (
-                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-0 border-t border-surface-4 overflow-y-auto lg:overflow-hidden">
+                <div className="flex-1 min-h-0 block lg:grid lg:grid-cols-12 gap-0 border-t border-surface-4 overflow-y-auto lg:overflow-hidden">
+                    {/* Stacked (mobile) is block flow on purpose: in a definite-height
+                        grid the overflow-bearing panels have zero min-content, so auto
+                        rows squish them instead of letting the page scroll. */}
                     {/* Left roster */}
-                    <aside className="lg:col-span-3 border-r border-surface-5 flex flex-col min-h-[75vh] overflow-hidden bg-surface-1 lg:min-h-0">
+                    <aside className="lg:col-span-3 border-r border-surface-5 flex flex-col min-h-0 overflow-hidden bg-surface-1">
                         <div className="p-3 border-b border-surface-5">
                             <button
                                 type="button"
@@ -495,8 +498,10 @@ export default function Agents() {
                             </button>
                         </div>
 
-                        {/* Agents section */}
-                        <div className="flex-1 overflow-y-auto py-2">
+                        {/* Agents section. lg: the grid row provides height, so flex-1 fills
+                            it. Stacked (mobile): flex-1's 0% basis would collapse the list,
+                            so size to content instead, capped at half the screen. */}
+                        <div className="max-lg:max-h-[50vh] overflow-y-auto py-2 lg:flex-1">
                             <p className="px-3 pb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                                 Agents
                             </p>
@@ -624,7 +629,7 @@ export default function Agents() {
                     </aside>
 
                     {/* Center */}
-                    <main className="lg:col-span-6 flex flex-col min-h-[75vh] border-r border-surface-5 lg:min-h-0">
+                    <main className="lg:col-span-6 flex flex-col min-h-[40vh] border-r border-surface-5 lg:min-h-0">
                         {selectedTeamId ? (
                             <TeamCenter
                                 team={teams.find((t) => t.id === selectedTeamId)}
@@ -770,7 +775,7 @@ export default function Agents() {
                     </main>
 
                     {/* Skills */}
-                    <aside className="lg:col-span-3 flex flex-col min-h-[75vh] bg-surface-1 lg:min-h-0">
+                    <aside className="lg:col-span-3 flex flex-col min-h-0 bg-surface-1">
                         <div className="border-b border-surface-5 p-3">
                             <p className="mb-2.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                                 Skills

@@ -156,10 +156,10 @@ export default function Chat() {
                             <>
                                 <button
                                     onClick={() => setShowMobileDrawer(true)}
-                                    className="rounded p-1.5 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
+                                    className="rounded p-2.5 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-secondary"
                                     title="Chat history"
                                 >
-                                    <Menu size={18} />
+                                    <Menu size={20} />
                                 </button>
                                 <span className="text-sm font-semibold text-text-primary">Chat</span>
                             </>
@@ -182,7 +182,7 @@ export default function Chat() {
                             onClick={handleNewChat}
                             className={cn(
                                 'rounded-btn border border-surface-4 text-xs font-medium text-text-secondary transition-colors hover:border-surface-3 hover:bg-surface-3 hover:text-text-primary',
-                                isMobile ? 'min-h-[34px] px-3 py-1.5' : 'px-2.5 py-1.5',
+                                isMobile ? 'min-h-[40px] px-3.5 py-1.5' : 'px-2.5 py-1.5',
                             )}
                         >
                             + New

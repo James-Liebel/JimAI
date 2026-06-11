@@ -240,7 +240,7 @@ export default function InputBar({
                     }}
                     className={cn(
                         'bg-surface-2 text-text-primary border border-surface-4 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
-                        isMobile ? 'text-xs px-3 py-1.5 min-h-[36px]' : 'text-[11px] px-2 py-0.5',
+                        isMobile ? 'text-xs px-3 py-1.5 min-h-[44px]' : 'text-[11px] px-2 py-0.5',
                     )}
                 >
                     <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>

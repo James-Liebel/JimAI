@@ -24,11 +24,13 @@ const MODEL_CHOICES = [
     { value: 'qwen2.5vl:7b', label: 'Vision' },
 ];
 
+// Role accents mirror RouterBadge's color language (math=blue, code=green,
+// chat=neutral, vision=purple) so node borders actually distinguish models.
 const MODEL_COLORS: Record<string, string> = {
-    'qwen2-math:7b-instruct': '#f0f0f0',
-    'qwen2.5-coder:7b': '#d9d9d9',
-    'qwen3:8b': '#bdbdbd',
-    'qwen2.5vl:7b': '#f7f7f7',
+    'qwen2-math:7b-instruct': '#3B82F6',
+    'qwen2.5-coder:7b': '#22C55E',
+    'qwen3:8b': '#8888A0',
+    'qwen2.5vl:7b': '#A855F7',
 };
 
 function AgentNode({ data }: { data: Record<string, unknown> }) {
@@ -100,7 +102,7 @@ export default function AgentStudio() {
     const [savedTeamName, setSavedTeamName] = useState('');
 
     const onConnect = useCallback(
-        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#f0f0f0' } }, rows)),
+        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#8888A0' } }, rows)),
         [setEdges],
     );
 
@@ -416,6 +418,7 @@ export default function AgentStudio() {
                         onConnect={onConnect}
                         nodeTypes={nodeTypes}
                         fitView
+                        fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
                     >
                         <Background color="#1f1f1f" gap={24} />
                         <Controls />

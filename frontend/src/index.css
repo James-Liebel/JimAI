@@ -390,6 +390,23 @@ button:disabled {
     overflow: hidden !important;
 }
 
+.react-flow__minimap-mask {
+    fill: rgba(10, 10, 11, 0.75) !important;
+}
+
+.react-flow__minimap-node {
+    stroke: none !important;
+}
+
+.react-flow__attribution {
+    background: transparent !important;
+}
+
+.react-flow__attribution a {
+    color: var(--text-muted) !important;
+    opacity: 0.5;
+}
+
 .react-flow__handle {
     background: var(--accent) !important;
     border-color: var(--bg-elevated) !important;
@@ -413,11 +430,14 @@ body {
 @media (max-width: 768px) {
     /* iOS auto-zooms the viewport when a focused form control has font-size
        < 16px. Forcing >=16px on mobile prevents that disorienting zoom-in on
-       focus (overrides Tailwind text-* utilities, hence !important). */
+       focus (overrides Tailwind text-* utilities, hence !important). The
+       line-height must come along: Tailwind's text-xs/text-sm leave a 16-20px
+       line-height that clips 16px descenders (g, y) once the font is bumped. */
     input,
     textarea,
     select {
         font-size: 16px !important;
+        line-height: 1.35 !important;
     }
 
     pre {

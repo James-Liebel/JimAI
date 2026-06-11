@@ -257,11 +257,11 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
                             Stop
                         </button>
                     )}
-                    <button onClick={reset} title="Reset all results" className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors">
-                        <RotateCcw size={10} />
+                    <button onClick={reset} title="Reset all results" className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors">
+                        <RotateCcw size={12} />
                     </button>
-                    <button onClick={exportResults} title="Export results as JSON" className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors">
-                        <Download size={10} />
+                    <button onClick={exportResults} title="Export results as JSON" className="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors">
+                        <Download size={12} />
                     </button>
                 </div>
 
@@ -369,12 +369,12 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
                                         <button
                                             onClick={() => runSingleTask({ ...task, categoryName: cat.name } as any).catch(() => {})}
                                             disabled={isAgentRunning}
-                                            className="shrink-0 p-1 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                                            className="shrink-0 p-1.5 rounded text-text-muted hover:text-accent-blue hover:bg-surface-2 disabled:opacity-30 transition-colors"
                                             title="Run this task"
                                         >
                                             {status === 'running'
-                                                ? <Loader2 size={10} className="animate-spin text-accent-blue" />
-                                                : <Play size={10} />
+                                                ? <Loader2 size={12} className="animate-spin text-accent-blue" />
+                                                : <Play size={12} />
                                             }
                                         </button>
                                     </div>

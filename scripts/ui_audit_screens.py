@@ -21,7 +21,9 @@ ROUTES = [
 ]
 
 PROFILES = {
-    "phone": {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True, "device_scale_factor": 2},
+    # iPhone 15 Plus: 430x932pt @3x. Chromium reports safe-area insets as 0, so
+    # pages that pad by env(safe-area-inset-bottom) render tighter than on-device.
+    "phone": {"viewport": {"width": 430, "height": 932}, "is_mobile": True, "has_touch": True, "device_scale_factor": 3},
     "laptop": {"viewport": {"width": 1440, "height": 900}, "is_mobile": False, "has_touch": False, "device_scale_factor": 1},
 }
 

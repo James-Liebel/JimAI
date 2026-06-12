@@ -249,7 +249,7 @@ export default function Chat() {
                             </div>
                         )}
 
-                        <div className={`flex-shrink-0 ${isMobile ? 'px-2 pb-2 pt-1' : 'px-4 pb-3 pt-2'}`}>
+                        <div className={`flex-shrink-0 ${isMobile ? 'px-2 pb-1 pt-1' : 'px-4 pb-3 pt-2'}`}>
                             <InputBar
                                 onSend={handleSend}
                                 isStreaming={isStreaming}

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type ClipboardEvent } from 'react';
-import { Mic, MicOff, Camera, Images, Paperclip, Send, Plus } from 'lucide-react';
+import { Mic, MicOff, Camera, Images, Paperclip, Send, Plus, Sparkles, Lock, ChevronDown } from 'lucide-react';
 import { MODEL_OPTIONS } from '../lib/types';
 import { cn, fileToBase64 } from '../lib/utils';
 import { classifyLocally } from '../lib/classifier';
@@ -149,9 +149,13 @@ export default function InputBar({
     const borderClass = modelOverride && overrideOption?.color ? overrideOption.color : 'border-surface-4';
     const validSpeedModes = new Set(['turbo', 'fast', 'balanced', 'deep']);
     const modelSelectValue = modelOverride || (validSpeedModes.has(speedMode) ? `__speed_${speedMode}` : '__speed_balanced');
+    const SPEED_SHORT: Record<string, string> = { turbo: 'Turbo 3B', fast: 'Fast 7B', balanced: 'Balanced 14B', deep: 'Deep 32B' };
+    const chipLabel = modelOverride
+        ? overrideOption?.label ?? modelOverride
+        : `Auto · ${SPEED_SHORT[speedMode] ?? 'Balanced 14B'}`;
 
     return (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
             {/* Attached file pill */}
             {attachedFile && (
                 <div className="flex w-fit items-center gap-2 rounded-card border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
@@ -226,33 +230,50 @@ export default function InputBar({
                         </span>
                     )}
                 </div>
-                <select
-                    value={modelSelectValue}
-                    onChange={(e) => {
-                        const value = e.target.value;
-                        if (['__speed_turbo', '__speed_fast', '__speed_balanced', '__speed_deep'].includes(value)) {
-                            const next = value.replace('__speed_', '') as 'turbo' | 'fast' | 'balanced' | 'deep';
-                            onModelOverrideChange('');
-                            onSpeedModeChange?.(next);
-                            return;
-                        }
-                        onModelOverrideChange(value);
-                    }}
-                    className={cn(
-                        'bg-surface-2 text-text-primary border border-surface-4 rounded outline-none cursor-pointer hover:border-surface-4 transition-colors',
-                        isMobile ? 'text-xs px-3 py-1.5 min-h-[44px]' : 'text-[11px] px-2 py-0.5',
+                {/* Model chip: styled pill, with an invisible native select on top so
+                    phones still get the OS picker and keyboards still tab to it. */}
+                <div className={cn(
+                    'relative flex shrink-0 items-center gap-1.5 rounded-full border bg-surface-2/90 transition-colors',
+                    modelOverride
+                        ? `${borderClass} text-text-primary`
+                        : 'border-accent/25 bg-accent/[0.07] text-text-secondary',
+                    isMobile ? 'px-3 py-1.5' : 'px-2.5 py-1',
+                )}>
+                    {modelOverride ? (
+                        <Lock size={isMobile ? 12 : 10} className="shrink-0 opacity-70" />
+                    ) : (
+                        <Sparkles size={isMobile ? 12 : 10} className="shrink-0 text-accent" />
                     )}
-                >
-                    <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
-                    <option value="__speed_fast">Auto Routing (Fast 7B)</option>
-                    <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
-                    <option value="__speed_deep">Auto Routing (Deep 32B)</option>
-                    {MODEL_OPTIONS.filter((opt) => opt.value !== '').map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                            {opt.label} (manual)
-                        </option>
-                    ))}
-                </select>
+                    <span className={cn('whitespace-nowrap font-medium', isMobile ? 'text-xs' : 'text-[11px]')}>
+                        {chipLabel}
+                    </span>
+                    <ChevronDown size={isMobile ? 12 : 10} className="shrink-0 opacity-60" />
+                    <select
+                        aria-label="Model routing"
+                        value={modelSelectValue}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            if (['__speed_turbo', '__speed_fast', '__speed_balanced', '__speed_deep'].includes(value)) {
+                                const next = value.replace('__speed_', '') as 'turbo' | 'fast' | 'balanced' | 'deep';
+                                onModelOverrideChange('');
+                                onSpeedModeChange?.(next);
+                                return;
+                            }
+                            onModelOverrideChange(value);
+                        }}
+                        className="absolute -inset-y-2 -inset-x-1 w-[calc(100%+0.5rem)] cursor-pointer appearance-none opacity-0"
+                    >
+                        <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
+                        <option value="__speed_fast">Auto Routing (Fast 7B)</option>
+                        <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
+                        <option value="__speed_deep">Auto Routing (Deep 32B)</option>
+                        {MODEL_OPTIONS.filter((opt) => opt.value !== '').map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label} (manual)
+                            </option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
             {/* Main input area */}

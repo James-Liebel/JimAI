@@ -18,9 +18,10 @@
     --sar: env(safe-area-inset-right);
 
     /* Mobile bottom-nav sizing. A 52px touch row plus a trimmed home-indicator
-       clearance — using the full safe-area inset lifts the icons ~34px off the
-       bottom on notched iPhones, which reads as a floating bar, so take half. */
-    --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.5);
+       clearance. iPhone 15 Plus/Pro report a 34pt bottom inset; padding the full
+       inset floats the icons ~34px up, and even half reads high on the taller
+       Plus canvas (430x932pt), so keep ~30% — icons sit just above the indicator. */
+    --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.3);
     --mobile-nav-h: calc(52px + var(--mobile-nav-pad));
 
     /* Design system tokens */
@@ -418,6 +419,72 @@ button:disabled {
     border-color: var(--bg-elevated) !important;
     width: 8px !important;
     height: 8px !important;
+}
+
+/* ---- Chat hero: 3D orb + aurora backdrop (pure CSS, transform/opacity only) ---- */
+.hero-orb-scene {
+    perspective: 600px;
+}
+
+.hero-orb {
+    position: relative;
+    border-radius: 9999px;
+    background:
+        radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 30%),
+        radial-gradient(circle at 70% 80%, rgba(0, 212, 255, 0.5), rgba(0, 212, 255, 0) 48%),
+        radial-gradient(circle at 50% 45%, #6D7CFF 0%, #4F46E5 50%, #251C7E 100%);
+    box-shadow:
+        inset -8px -10px 22px rgba(8, 6, 50, 0.6),
+        inset 6px 8px 14px rgba(255, 255, 255, 0.22),
+        0 14px 38px rgba(79, 70, 229, 0.4);
+    transform-style: preserve-3d;
+    animation: orb-float 6s ease-in-out infinite;
+}
+
+.hero-orb-ring {
+    position: absolute;
+    inset: -9px;
+    border-radius: 9999px;
+    background: conic-gradient(
+        from 0deg,
+        transparent 0%, rgba(0, 212, 255, 0.85) 12%, transparent 28%,
+        transparent 52%, rgba(168, 85, 247, 0.85) 66%, transparent 84%
+    );
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+    animation: orb-spin 8s linear infinite;
+}
+
+.hero-aurora {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(52px);
+    opacity: 0.14;
+    pointer-events: none;
+    will-change: transform;
+    animation: aurora-drift 16s ease-in-out infinite alternate;
+}
+
+@keyframes orb-float {
+    0%, 100% { transform: translateY(0) rotateX(0deg) rotateY(-7deg); }
+    50% { transform: translateY(-8px) rotateX(7deg) rotateY(7deg); }
+}
+
+@keyframes orb-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes aurora-drift {
+    from { transform: translate3d(-10%, -6%, 0) scale(1); }
+    to { transform: translate3d(10%, 8%, 0) scale(1.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hero-orb,
+    .hero-orb-ring,
+    .hero-aurora {
+        animation: none;
+    }
 }
 
 html,

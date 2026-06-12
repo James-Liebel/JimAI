@@ -53,12 +53,18 @@ export default function SessionSidebar({
     };
 
     return (
-        <div className={cn(
-            'flex h-full flex-col border-surface-4 bg-surface-1',
-            isMobile
-                ? 'fixed inset-0 z-[55] w-full animate-fade-in'
-                : 'w-72 shrink-0 border-r',
-        )}>
+        <div
+            className={cn(
+                'flex h-full flex-col border-surface-4 bg-surface-1',
+                isMobile
+                    ? 'fixed inset-0 z-[55] w-full animate-fade-in'
+                    : 'w-72 shrink-0 border-r',
+            )}
+            // Fixed overlays anchor to the raw viewport, so the standalone-PWA
+            // safe-area padding on <body> never reaches them — without this the
+            // header sits under the iPhone status bar / Dynamic Island.
+            style={isMobile ? { paddingTop: 'env(safe-area-inset-top, 0px)' } : undefined}
+        >
             {/* Header */}
             <div className={cn(
                 'flex items-center justify-between border-b border-surface-4',

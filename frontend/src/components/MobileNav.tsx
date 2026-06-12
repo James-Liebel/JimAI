@@ -21,7 +21,7 @@ export default function MobileNav() {
     return (
         <nav
             className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-surface-5 bg-surface-1 md:hidden"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            style={{ paddingBottom: 'var(--mobile-nav-pad)' }}
         >
             {TABS.map(({ to, label, icon: Icon }) => (
                 <NavLink

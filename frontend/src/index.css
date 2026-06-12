@@ -17,6 +17,12 @@
     --sal: env(safe-area-inset-left);
     --sar: env(safe-area-inset-right);
 
+    /* Mobile bottom-nav sizing. A 52px touch row plus a trimmed home-indicator
+       clearance — using the full safe-area inset lifts the icons ~34px off the
+       bottom on notched iPhones, which reads as a floating bar, so take half. */
+    --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.5);
+    --mobile-nav-h: calc(52px + var(--mobile-nav-pad));
+
     /* Design system tokens */
     --bg-base: #0A0A0B;
     --bg-surface: #111113;

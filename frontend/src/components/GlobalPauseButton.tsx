@@ -105,7 +105,7 @@ export default function GlobalPauseButton({ variant = 'inline' }: Props) {
                 )}
                 style={onChat
                     ? { top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }
-                    : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 52px + 0.75rem)' }}
+                    : { bottom: 'calc(var(--mobile-nav-h, 52px) + 0.75rem)' }}
             >
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} aria-hidden />
                 {!compact && <span>{meta.word}</span>}

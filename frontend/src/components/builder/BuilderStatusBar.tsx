@@ -19,7 +19,8 @@ export function BuilderStatusBar({
     onRestoreTopBar?: () => void;
 }) {
     return (
-        <div className="flex h-7 shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[#1e1e1e] px-2 text-[11px] text-text-secondary">
+        // pr-16 below md keeps the branch label clear of the floating pause pill
+        <div className="flex h-7 shrink-0 items-center gap-2 border-t border-white/[0.08] bg-[#1e1e1e] pl-2 pr-16 text-[11px] text-text-secondary md:pr-2">
             {minimalChrome && onRestoreTopBar && (
                 <div className="flex shrink-0 items-center border-r border-white/10 pr-2">
                     <button

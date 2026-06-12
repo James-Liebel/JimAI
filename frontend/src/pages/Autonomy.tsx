@@ -203,12 +203,12 @@ export default function Autonomy() {
 
             <PageSection title="Episodic memory">
                 <StatGrid rows={memoryStatsRows} />
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
                     <input
                         value={memQuery}
                         onChange={(e) => setMemQuery(e.target.value)}
                         placeholder="search past runs..."
-                        className="flex-1 rounded-md border border-surface-4 bg-surface-2 px-3 py-1.5 text-sm"
+                        className="min-w-0 flex-1 rounded-md border border-surface-4 bg-surface-2 px-3 py-1.5 text-sm"
                     />
                     <Button variant="subtle" size="md" disabled={busy} onClick={memorySearchSubmit}>
                         Search

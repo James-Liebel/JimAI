@@ -1509,10 +1509,10 @@ export default function Builder() {
                                         </div>
                                         <div className="space-y-2 rounded-card border border-[#2A2A30] bg-[#1A1A1E] p-4">
                                             <p className="text-[12px] text-text-muted">
-                                                Clone runs <code className="bg-black/30 px-1 font-mono text-[11px]">git clone</code> in this workspace (shell must be allowed in Settings). Folder name: letters, numbers,{' '}
-                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">.</code>{' '}
-                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">_</code>{' '}
-                                                <code className="bg-black/30 px-0.5 font-mono text-[11px]">-</code>.
+                                                Clone runs <code className="rounded bg-white/10 px-1 font-mono text-[11px] text-text-secondary">git clone</code> in this workspace (shell must be allowed in Settings). Folder name: letters, numbers,{' '}
+                                                <code className="rounded bg-white/10 px-1 font-mono text-[11px] text-text-secondary">.</code>{' '}
+                                                <code className="rounded bg-white/10 px-1 font-mono text-[11px] text-text-secondary">_</code>{' '}
+                                                <code className="rounded bg-white/10 px-1 font-mono text-[11px] text-text-secondary">-</code>.
                                             </p>
                                             <input
                                                 value={cloneRepoUrl}

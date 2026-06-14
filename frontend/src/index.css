@@ -17,12 +17,12 @@
     --sal: env(safe-area-inset-left);
     --sar: env(safe-area-inset-right);
 
-    /* Mobile bottom-nav sizing. A 52px touch row plus a trimmed home-indicator
-       clearance. iPhone 15 Plus/Pro report a 34pt bottom inset; padding the full
-       inset floats the icons ~34px up, and even half reads high on the taller
-       Plus canvas (430x932pt), so keep ~30% — icons sit just above the indicator. */
-    --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.3);
-    --mobile-nav-h: calc(52px + var(--mobile-nav-pad));
+    /* Mobile bottom-nav sizing: a tall 60px touch row anchored to the very bottom
+       (the standalone <body> no longer reserves a bottom inset, so the fixed bar
+       reaches the true screen edge). A small fraction of the home-indicator inset
+       lifts the labels just clear of the indicator without floating the bar up. */
+    --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.25);
+    --mobile-nav-h: calc(60px + var(--mobile-nav-pad));
 
     /* Design system tokens */
     --bg-base: #0A0A0B;
@@ -495,8 +495,11 @@ body {
 
 @media (display-mode: standalone) {
     body {
+        /* Top inset only. A bottom inset here pads the <body> box, and iOS
+           standalone anchors `position: fixed; bottom: 0` to that padded box —
+           so it left a ~34px dead band UNDER the tab bar. The fixed nav owns its
+           own home-indicator clearance via --mobile-nav-pad instead. */
         padding-top: var(--sat);
-        padding-bottom: var(--sab);
     }
 }
 

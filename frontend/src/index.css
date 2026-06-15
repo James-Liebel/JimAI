@@ -481,9 +481,9 @@ button:disabled {
     inset: 0;
     pointer-events: none;
     background:
-        radial-gradient(58% 48% at 50% 38%, rgba(201, 100, 66, 0.22), transparent 72%),
-        radial-gradient(130% 85% at 50% -12%, rgba(201, 100, 66, 0.10), transparent 58%),
-        radial-gradient(100% 70% at 50% 114%, rgba(217, 164, 65, 0.06), transparent 64%);
+        radial-gradient(60% 50% at 50% 40%, rgba(201, 100, 66, 0.22), transparent 72%),
+        radial-gradient(140% 90% at 50% -15%, rgba(201, 100, 66, 0.10), transparent 60%),
+        radial-gradient(120% 80% at 50% 115%, rgba(217, 164, 65, 0.09), transparent 62%);
 }
 
 @keyframes orb-float {

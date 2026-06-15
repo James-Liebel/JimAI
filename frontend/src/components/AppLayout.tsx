@@ -448,7 +448,7 @@ export default function AppLayout() {
                 </div>
             )}
 
-            <div className={`flex-1 min-h-0 overflow-hidden ${isMobile ? 'pb-[var(--mobile-nav-h)]' : ''}`}>
+            <div className="flex-1 min-h-0 overflow-hidden">
                 <main
                     id="main-content"
                     tabIndex={-1}

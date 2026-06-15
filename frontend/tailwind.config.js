@@ -4,15 +4,15 @@ export default {
     theme: {
         extend: {
             colors: {
-                // Warm charcoal ramp (brown undertone) — reads cozy/editorial rather
-                // than the cold near-black of generic dark themes.
+                // Warm-neutral charcoal ramp. Low chroma (R/G/B within a few points)
+                // so it reads as a sophisticated warm grey, never brown/muddy.
                 surface: {
-                    0: '#1A1714',
-                    1: '#211D18',
-                    2: '#2A251F',
-                    3: '#332D24',
-                    4: '#3B342A',
-                    5: '#272118',
+                    0: '#1B1A18',
+                    1: '#222120',
+                    2: '#2A2826',
+                    3: '#34322F',
+                    4: '#3D3A37',
+                    5: '#282624',
                 },
                 accent: {
                     DEFAULT: '#C96442',
@@ -35,9 +35,9 @@ export default {
                     error: '#C0584B',
                 },
                 text: {
-                    primary: '#ECE7DC',
-                    secondary: '#ADA491',
-                    muted: '#867C69',
+                    primary: '#F3F1EC',
+                    secondary: '#B6B2AB',
+                    muted: '#837F78',
                 },
             },
             fontFamily: {

@@ -569,7 +569,7 @@ function CodeBlock({ code, language, showRun }: { code: string; language: string
                 style={hljsStyle}
                 language={language}
                 PreTag="div"
-                customStyle={{ margin: 0, borderRadius: '8px', fontSize: '13px', background: '#1E1A16' }}
+                customStyle={{ margin: 0, borderRadius: '8px', fontSize: '13px', background: '#201F1D' }}
             >
                 {code}
             </SyntaxHighlighter>

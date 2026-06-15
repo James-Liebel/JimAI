@@ -25,7 +25,7 @@ type FlowNodeData = {
 
 const FLOW_NODE_LIBRARY: Record<FlowKind, { title: string; nodeType: string; color: string; description: string }> = {
     trigger: { title: 'Trigger', nodeType: 'jimai.trigger.manual', color: '#6E86B8', description: 'Entry point.' },
-    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#ADA491', description: 'Transform payload.' },
+    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#B6B2AB', description: 'Transform payload.' },
     logic: { title: 'Logic', nodeType: 'jimai.logic.condition', color: '#D9A441', description: 'Conditional gate.' },
     ai: { title: 'Local AI', nodeType: 'jimai.ai.ollama', color: '#7BA05B', description: 'Local Ollama node.' },
     integration: { title: 'Integration', nodeType: 'jimai.integration.http', color: '#A07CB0', description: 'HTTP integration.' },
@@ -67,8 +67,8 @@ function nodeStyle(kind: FlowKind): Record<string, string | number> {
         border: `1px solid ${color}40`,
         borderRadius: 8,
         padding: '10px 14px',
-        color: '#ECE7DC',
-        background: '#2A251F',
+        color: '#F3F1EC',
+        background: '#2A2826',
         boxShadow: `0 0 0 1px ${color}18, 0 2px 8px rgba(0,0,0,0.4)`,
         fontSize: '12px',
         fontFamily: '"Inter", sans-serif',
@@ -144,7 +144,7 @@ function fromGraph(graph: Record<string, unknown>): { nodes: Node<FlowNodeData>[
                 target,
                 type: 'smoothstep',
                 animated: true,
-                style: { stroke: '#867C69' },
+                style: { stroke: '#837F78' },
             } as Edge;
         })
         .filter((row): row is Edge => row !== null);
@@ -408,7 +408,7 @@ export default function Automation() {
                                         zoomable
                                     />
                                     <Controls />
-                                    <Background gap={24} color="#3B342A" variant={'dots' as never} />
+                                    <Background gap={24} color="#3C3A36" variant={'dots' as never} />
                                 </ReactFlow>
                             </div>
                         </div>

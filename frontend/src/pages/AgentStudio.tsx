@@ -27,15 +27,15 @@ const MODEL_CHOICES = [
 // Role accents mirror RouterBadge's color language (math=blue, code=green,
 // chat=neutral, vision=purple) so node borders actually distinguish models.
 const MODEL_COLORS: Record<string, string> = {
-    'qwen2-math:7b-instruct': '#3B82F6',
-    'qwen2.5-coder:7b': '#22C55E',
-    'qwen3:8b': '#8888A0',
-    'qwen2.5vl:7b': '#A855F7',
+    'qwen2-math:7b-instruct': '#6E86B8',
+    'qwen2.5-coder:7b': '#7BA05B',
+    'qwen3:8b': '#ADA491',
+    'qwen2.5vl:7b': '#A07CB0',
 };
 
 function AgentNode({ data }: { data: Record<string, unknown> }) {
     const model = String(data.model || '');
-    const borderColor = MODEL_COLORS[model] || '#707070';
+    const borderColor = MODEL_COLORS[model] || '#867C69';
     const role = String(data.role || '');
     return (
         <div
@@ -102,7 +102,7 @@ export default function AgentStudio() {
     const [savedTeamName, setSavedTeamName] = useState('');
 
     const onConnect = useCallback(
-        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#8888A0' } }, rows)),
+        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#867C69' } }, rows)),
         [setEdges],
     );
 
@@ -420,7 +420,7 @@ export default function AgentStudio() {
                         fitView
                         fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
                     >
-                        <Background color="#1f1f1f" gap={24} />
+                        <Background color="#3B342A" gap={24} />
                         <Controls />
                     </ReactFlow>
                 </div>

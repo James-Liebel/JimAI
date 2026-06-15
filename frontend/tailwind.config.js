@@ -4,61 +4,66 @@ export default {
     theme: {
         extend: {
             colors: {
+                // Warm charcoal ramp (brown undertone) — reads cozy/editorial rather
+                // than the cold near-black of generic dark themes.
                 surface: {
-                    0: '#0A0A0B',
-                    1: '#111113',
-                    2: '#1A1A1E',
-                    3: '#222228',
-                    4: '#2A2A30',
-                    5: '#1E1E24',
+                    0: '#1A1714',
+                    1: '#211D18',
+                    2: '#2A251F',
+                    3: '#332D24',
+                    4: '#3B342A',
+                    5: '#272118',
                 },
                 accent: {
-                    DEFAULT: '#3B82F6',
-                    hover: '#2563EB',
-                    dim: 'rgba(59,130,246,0.12)',
+                    DEFAULT: '#C96442',
+                    hover: '#D4785A',
+                    dim: 'rgba(201,100,66,0.12)',
                     // `accent-1` is the primary-action alias used across action buttons.
-                    1: '#3B82F6',
-                    blue: '#3B82F6',
-                    green: '#22C55E',
-                    amber: '#F59E0B',
-                    red: '#EF4444',
-                    purple: '#A855F7',
+                    1: '#C96442',
+                    // Hue aliases kept for existing usages — warmed to sit in the clay palette.
+                    blue: '#6E86B8',
+                    green: '#7BA05B',
+                    amber: '#D9A441',
+                    red: '#C0584B',
+                    purple: '#A07CB0',
                 },
                 // Semantic status palette (success/warning/error) used by stat tiles,
-                // verdict badges, and audit rows.
+                // verdict badges, and audit rows — warmed to match the clay accent.
                 status: {
-                    success: '#22C55E',
-                    warning: '#F59E0B',
-                    error: '#EF4444',
+                    success: '#7BA05B',
+                    warning: '#D9A441',
+                    error: '#C0584B',
                 },
                 text: {
-                    primary: '#F0F0F5',
-                    secondary: '#8888A0',
-                    muted: '#55556A',
+                    primary: '#ECE7DC',
+                    secondary: '#ADA491',
+                    muted: '#867C69',
                 },
             },
             fontFamily: {
-                sans: ['"Outfit"', '"Geist"', '"Manrope"', 'sans-serif'],
+                sans: ['"Inter"', '-apple-system', '"Segoe UI"', 'sans-serif'],
+                serif: ['"Newsreader"', 'Georgia', 'Cambria', 'serif'],
                 mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
             },
             fontSize: {
-                base: '14px',
+                base: '15px',
             },
             lineHeight: {
                 normal: '1.6',
             },
             borderRadius: {
-                card: '6px',
-                btn: '6px',
-                badge: '4px',
-                panel: '8px',
+                card: '10px',
+                btn: '8px',
+                badge: '6px',
+                panel: '14px',
             },
-            // Dark-theme elevation: shadows must be deep to read against near-black surfaces.
+            // Dark-theme elevation: shadows stay deep to read against warm near-black
+            // surfaces, but softer than before so cards feel layered, not boxed-in.
             boxShadow: {
-                'elevation-1': '0 1px 2px 0 rgba(0, 0, 0, 0.45)',
-                'elevation-2': '0 4px 14px -3px rgba(0, 0, 0, 0.55)',
-                'elevation-3': '0 14px 40px -8px rgba(0, 0, 0, 0.65)',
-                'focus-ring': '0 0 0 2px rgba(59, 130, 246, 0.45)',
+                'elevation-1': '0 1px 2px 0 rgba(0, 0, 0, 0.40)',
+                'elevation-2': '0 4px 14px -3px rgba(0, 0, 0, 0.50)',
+                'elevation-3': '0 16px 44px -8px rgba(0, 0, 0, 0.62)',
+                'focus-ring': '0 0 0 2px rgba(201, 100, 66, 0.45)',
             },
             transitionTimingFunction: {
                 'out-soft': 'cubic-bezier(0.22, 1, 0.36, 1)',

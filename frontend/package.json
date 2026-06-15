@@ -12,7 +12,9 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
+        "@fontsource/inter": "^5.2.8",
         "@fontsource/jetbrains-mono": "^5.2.8",
+        "@fontsource/newsreader": "^5.2.10",
         "@fontsource/outfit": "^5.2.8",
         "@monaco-editor/react": "^4.6.0",
         "@radix-ui/react-scroll-area": "^1.1.0",

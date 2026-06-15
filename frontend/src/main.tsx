@@ -6,12 +6,15 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
 import { prefetchRoute } from './lib/routePrefetch';
 // Self-hosted webfonts (bundled woff2 — no external egress, instant offline cold
-// start). Weights mirror the former Google Fonts request: Outfit 400–700,
-// JetBrains Mono 400–600.
-import '@fontsource/outfit/400.css';
-import '@fontsource/outfit/500.css';
-import '@fontsource/outfit/600.css';
-import '@fontsource/outfit/700.css';
+// start). Inter carries the UI/body; Newsreader is the serif display face for
+// headings and wordmarks; JetBrains Mono is code.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/newsreader/400.css';
+import '@fontsource/newsreader/500.css';
+import '@fontsource/newsreader/600.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';

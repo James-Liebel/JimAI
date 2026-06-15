@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ThumbsUp, ThumbsDown, Check, AlertTriangle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -158,12 +159,14 @@ export default function MessageBubble({ message }: Props) {
         <div className={cn('group animate-slide-up', isUser ? 'flex justify-end' : 'flex justify-start')}>
             <div
                 className={cn(
-                    'rounded-panel border border-surface-4 px-4 py-3 shadow-elevation-1 transition-colors',
+                    'transition-colors',
+                    // User turns get a soft filled bubble; assistant turns render flat
+                    // on the page (no card/border/shadow) the way Claude/ChatGPT do.
                     isUser
-                        ? 'bg-surface-2 text-text-primary'
-                        : 'w-full bg-surface-1 text-text-primary',
-                    isUser && (isMobile ? 'max-w-[90%]' : 'max-w-[min(42rem,78%)]'),
-                    !isUser && (isMobile ? 'max-w-full' : 'max-w-[min(52rem,92%)]'),
+                        ? 'rounded-2xl bg-surface-2 px-4 py-2.5 text-text-primary'
+                        : 'w-full text-text-primary',
+                    isUser && (isMobile ? 'max-w-[90%]' : 'max-w-[min(42rem,80%)]'),
+                    !isUser && (isMobile ? 'max-w-full' : 'max-w-[min(50rem,100%)]'),
                 )}
             >
                 <div
@@ -173,7 +176,7 @@ export default function MessageBubble({ message }: Props) {
                     )}
                 >
                     {isUser ? (
-                        <p className="m-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-text-primary">{message.content}</p>
+                        <p className="m-0 whitespace-pre-wrap break-words text-[15px] leading-relaxed text-text-primary">{message.content}</p>
                     ) : (
                         <>
                         {message.browserScreenshotBase64 && (
@@ -232,7 +235,7 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Sources accordion */}
                 {!isUser && (hasSources || autoWebAttempted) && (
-                    <div className="mt-2 pt-2 border-t border-white/12 space-y-2">
+                    <div className="mt-2 pt-2 border-t border-surface-5 space-y-2">
                         <div className="flex flex-wrap items-center gap-2 text-[11px]">
                             {hasSources && (
                                 <span className="rounded-badge border border-accent/30 bg-accent/10 px-2 py-1 text-accent">
@@ -329,9 +332,9 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Review verdict (layered confirmation) */}
                 {message.routing?.review && !isUser && (
-                    <details className="mt-2 pt-2 border-t border-white/10">
-                        <summary className="text-[11px] text-text-muted cursor-pointer hover:text-text-secondary">
-                            ✓ Review
+                    <details className="mt-2 pt-2 border-t border-surface-5">
+                        <summary className="flex items-center gap-1 text-[11px] text-text-muted cursor-pointer hover:text-text-secondary">
+                            <Check size={11} /> Review
                         </summary>
                         <p className="mt-1 text-[11px] text-text-muted whitespace-pre-wrap">{message.routing.review}</p>
                     </details>
@@ -344,14 +347,14 @@ export default function MessageBubble({ message }: Props) {
 
                 {/* Self-consistency badge (math) */}
                 {message.routing?.consistency && message.routing.consistency.n_samples != null && message.routing.consistency.n_samples > 1 && !isUser && (
-                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-2">
+                    <div className="mt-2 pt-2 border-t border-surface-5 flex items-center gap-2">
                         <ConsistencyBadge consistency={message.routing.consistency} />
                     </div>
                 )}
 
                 {/* Router badge (model + compare/judge when used) */}
                 {message.routing && !isUser && (
-                    <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between flex-wrap gap-1">
+                    <div className="mt-2 pt-2 border-t border-surface-5 flex items-center justify-between flex-wrap gap-1">
                         <RouterBadge routing={message.routing} />
                         <span className="text-[10px] text-text-muted">{formatTimestamp(message.timestamp)}</span>
                     </div>
@@ -365,18 +368,19 @@ export default function MessageBubble({ message }: Props) {
                                 'flex gap-0.5 transition-opacity',
                                 isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
                             )}>
-                                <button onClick={handleThumbsUp} className={cn('rounded hover:bg-surface-3 text-text-muted hover:text-accent-green', isMobile ? 'text-sm p-2' : 'text-xs p-1')} title="Good">👍</button>
-                                <button onClick={handleThumbsDown} className={cn('rounded hover:bg-surface-3 text-text-muted hover:text-accent-red', isMobile ? 'text-sm p-2' : 'text-xs p-1')} title="Bad">👎</button>
+                                <button onClick={handleThumbsUp} className={cn('rounded text-text-muted transition-colors hover:bg-surface-3 hover:text-status-success', isMobile ? 'p-2' : 'p-1.5')} title="Good response" aria-label="Good response"><ThumbsUp size={isMobile ? 16 : 14} /></button>
+                                <button onClick={handleThumbsDown} className={cn('rounded text-text-muted transition-colors hover:bg-surface-3 hover:text-status-error', isMobile ? 'p-2' : 'p-1.5')} title="Bad response" aria-label="Bad response"><ThumbsDown size={isMobile ? 16 : 14} /></button>
                             </div>
                         )}
 
                         {(feedbackState === 'noting-up' || feedbackState === 'noting-down') && (
                             <div className="w-full animate-fade-in mt-1 space-y-2">
                                 <div className={cn(
-                                    'text-xs font-medium',
-                                    feedbackState === 'noting-up' ? 'text-accent-green' : 'text-accent-red',
+                                    'flex items-center gap-1.5 text-xs font-medium',
+                                    feedbackState === 'noting-up' ? 'text-status-success' : 'text-status-error',
                                 )}>
-                                    {feedbackState === 'noting-up' ? '👍 Good response' : '👎 Bad response'}
+                                    {feedbackState === 'noting-up' ? <ThumbsUp size={13} /> : <ThumbsDown size={13} />}
+                                    {feedbackState === 'noting-up' ? 'Good response' : 'Bad response'}
                                 </div>
 
                                 <textarea
@@ -409,8 +413,8 @@ export default function MessageBubble({ message }: Props) {
                                     <button
                                         onClick={handleSubmitFeedback}
                                         className={cn(
-                                            'bg-accent rounded text-surface-0 hover:bg-accent-hover transition-colors',
-                                            isMobile ? 'text-sm px-4 py-2' : 'text-xs px-2 py-1',
+                                            'bg-accent rounded-btn font-medium text-white hover:bg-accent-hover transition-colors',
+                                            isMobile ? 'text-sm px-4 py-2' : 'text-xs px-3 py-1',
                                         )}
                                     >
                                         Submit
@@ -444,7 +448,7 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     const [open, setOpen] = useState(false);
     if (judge.passed && judge.confidence === 'high' && judge.issues.length === 0) {
         return (
-            <div className="mt-2 pt-2 border-t border-white/10 flex items-center gap-1.5">
+            <div className="mt-2 pt-2 border-t border-surface-5 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-accent-green" title={`Verified by ${judge.judge_model} — no issues`} />
                 <span className="text-[11px] text-text-muted">Verified by {judge.judge_model}</span>
             </div>
@@ -452,9 +456,9 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     }
     if (judge.passed && (judge.confidence !== 'high' || judge.suggestions.length > 0)) {
         return (
-            <div className="mt-2 pt-2 border-t border-white/10">
-                <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+            <div className="mt-2 pt-2 border-t border-surface-5">
+                <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-[11px] text-status-warning hover:text-status-warning/80">
+                    <span className="w-2 h-2 rounded-full bg-status-warning" />
                     Suggestions available — click to expand
                 </button>
                 {open && (
@@ -467,10 +471,12 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     }
     if (!judge.passed && judge.was_revised) {
         return (
-            <details className="mt-2 pt-2 border-t border-white/10">
-                <summary className="text-[11px] text-amber-400 cursor-pointer">⚠ Response revised by judge — issues were found</summary>
+            <details className="mt-2 pt-2 border-t border-surface-5">
+                <summary className="flex items-center gap-1 text-[11px] text-status-warning cursor-pointer">
+                    <AlertTriangle size={11} /> Response revised by judge — issues were found
+                </summary>
                 <div className="mt-1.5 space-y-1 text-[11px] text-text-muted">
-                    <p className="font-medium text-amber-400">Issues:</p>
+                    <p className="font-medium text-status-warning">Issues:</p>
                     <ul className="list-disc ml-4">{judge.issues.map((i, k) => <li key={k}>{i}</li>)}</ul>
                     {judge.suggestions.length > 0 && (
                         <>
@@ -484,8 +490,10 @@ function JudgePanel({ judge }: { judge: JudgeResult }) {
     }
     if (!judge.passed) {
         return (
-            <details className="mt-2 pt-2 border-t border-white/10">
-                <summary className="text-[11px] text-accent-red cursor-pointer">⚠ Judge flagged issues — review carefully</summary>
+            <details className="mt-2 pt-2 border-t border-surface-5">
+                <summary className="flex items-center gap-1 text-[11px] text-status-error cursor-pointer">
+                    <AlertTriangle size={11} /> Judge flagged issues — review carefully
+                </summary>
                 <div className="mt-1.5 space-y-1 text-[11px] text-text-muted">
                     <ul className="list-disc ml-4">{judge.issues.map((i, k) => <li key={k}>{i}</li>)}</ul>
                     {judge.suggestions.length > 0 && (
@@ -506,7 +514,7 @@ function ConsistencyBadge({ consistency }: { consistency: ConsistencyResult }) {
     const rate = consistency.agreement_rate ?? 0;
     const agreed = n > 0 ? Math.round(rate * n) : 0;
     const label = `${agreed}/${n}`;
-    const color = rate >= 0.8 ? 'text-accent-green' : rate >= 0.6 ? 'text-amber-400' : 'text-accent-red';
+    const color = rate >= 0.8 ? 'text-accent-green' : rate >= 0.6 ? 'text-status-warning' : 'text-accent-red';
     return (
         <span
             className={cn('text-[11px] font-medium', color)}
@@ -561,7 +569,7 @@ function CodeBlock({ code, language, showRun }: { code: string; language: string
                 style={hljsStyle}
                 language={language}
                 PreTag="div"
-                customStyle={{ margin: 0, borderRadius: '6px', fontSize: '13px', background: '#0d1117' }}
+                customStyle={{ margin: 0, borderRadius: '8px', fontSize: '13px', background: '#1E1A16' }}
             >
                 {code}
             </SyntaxHighlighter>

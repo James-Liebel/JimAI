@@ -24,37 +24,38 @@
     --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.25);
     --mobile-nav-h: calc(60px + var(--mobile-nav-pad));
 
-    /* Design system tokens */
-    --bg-base: #0A0A0B;
-    --bg-surface: #111113;
-    --bg-elevated: #1A1A1E;
-    --bg-hover: #222228;
-    --border: #2A2A30;
-    --border-subtle: #1E1E24;
-    --text-primary: #F0F0F5;
-    --text-secondary: #8888A0;
-    --text-muted: #55556A;
-    --accent: #3B82F6;
-    --accent-dim: rgba(59, 130, 246, 0.12);
-    --success: #22C55E;
-    --warning: #F59E0B;
-    --danger: #EF4444;
+    /* Design system tokens — warm charcoal surfaces, cream text, clay accent. */
+    --bg-base: #1A1714;
+    --bg-surface: #211D18;
+    --bg-elevated: #2A251F;
+    --bg-hover: #332D24;
+    --border: #352F26;
+    --border-subtle: #272118;
+    --border-strong: #473F33;
+    --text-primary: #ECE7DC;
+    --text-secondary: #ADA491;
+    --text-muted: #867C69;
+    --accent: #C96442;
+    --accent-dim: rgba(201, 100, 66, 0.12);
+    --success: #7BA05B;
+    --warning: #D9A441;
+    --danger: #C0584B;
 
     /* Legacy compat aliases */
-    --bg-0: #0A0A0B;
-    --bg-1: #111113;
-    --bg-2: #1A1A1E;
-    --panel-0: #111113;
-    --panel-1: #1A1A1E;
-    --line-0: #2A2A30;
-    --line-1: #3A3A40;
-    --text-0: #F0F0F5;
-    --text-1: #8888A0;
-    --text-2: #55556A;
-    --focus: #3B82F6;
-    --ok: #22C55E;
-    --warn: #F59E0B;
-    --bad: #EF4444;
+    --bg-0: #1A1714;
+    --bg-1: #211D18;
+    --bg-2: #2A251F;
+    --panel-0: #211D18;
+    --panel-1: #2A251F;
+    --line-0: #352F26;
+    --line-1: #473F33;
+    --text-0: #ECE7DC;
+    --text-1: #ADA491;
+    --text-2: #867C69;
+    --focus: #C96442;
+    --ok: #7BA05B;
+    --warn: #D9A441;
+    --bad: #C0584B;
 }
 
 html,
@@ -62,9 +63,9 @@ body,
 #root {
     height: 100%;
     overflow: hidden;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.6;
-    font-family: 'Outfit', 'Manrope', 'Segoe UI', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Size the shell to the *visible* (dynamic) viewport. Plain `height: 100%`
@@ -81,18 +82,28 @@ body,
 
 body {
     color: var(--text-primary);
-    letter-spacing: 0.01em;
+    /* Inter is designed for tight tracking; a hair negative reads cleaner than
+       the loose spacing the old geometric face needed. */
+    letter-spacing: -0.006em;
     background: var(--bg-base);
-    /* Crisp type + no blue flash on tap — small things that read as "polished". */
+    /* Crisp type + no flash on tap — small things that read as "polished". */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
+    font-feature-settings: 'cv11', 'ss01';
+}
+
+/* Serif display face for headings/wordmarks — the editorial, warm counterpart to
+   Inter's neutral body. Applied via the `font-serif` utility, not globally. */
+.font-serif {
+    letter-spacing: -0.01em;
+    font-feature-settings: normal;
 }
 
 ::selection {
-    background: rgba(59, 130, 246, 0.3);
-    color: #F0F0F5;
+    background: rgba(201, 100, 66, 0.32);
+    color: #FBF7EF;
 }
 
 a {
@@ -120,8 +131,7 @@ a:hover {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--border-subtle);
-    background: #3A3A44;
+    background: var(--border-strong);
 }
 
 .katex {
@@ -209,7 +219,7 @@ textarea::placeholder {
 input:hover,
 textarea:hover,
 select:hover {
-    border-color: #3A3A44;
+    border-color: var(--border-strong);
 }
 
 input:focus-visible,
@@ -217,7 +227,7 @@ textarea:focus-visible,
 select:focus-visible {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.22);
     background: var(--bg-elevated);
 }
 
@@ -320,8 +330,8 @@ button:disabled {
 
 .drag-overlay {
     backdrop-filter: blur(8px);
-    background: rgba(59, 130, 246, 0.08);
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: rgba(201, 100, 66, 0.08);
+    border: 1px solid rgba(201, 100, 66, 0.22);
 }
 
 .prose pre {
@@ -329,16 +339,24 @@ button:disabled {
 }
 
 .prose code,
-.prose h1,
-.prose h2,
-.prose h3,
 .prose strong {
     color: var(--text-primary);
 }
 
+/* Serif, slightly tightened headings inside rendered answers — the editorial
+   voice that makes long replies read like a document, not a form. */
+.prose h1,
+.prose h2,
+.prose h3 {
+    color: var(--text-primary);
+    font-family: 'Newsreader', Georgia, Cambria, serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
 .prose p,
 .prose li {
-    color: #C8C8D8;
+    color: #D4CCBC;
 }
 
 .prose table,
@@ -350,21 +368,21 @@ button:disabled {
 /* React Flow dark theme overrides */
 .react-flow__node {
     font-size: 12px;
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 
 .react-flow__edge-path {
-    stroke: #3B82F6;
+    stroke: #C96442;
     stroke-width: 1.5;
     opacity: 0.7;
 }
 
 .react-flow__background {
-    background: #0A0A0B !important;
+    background: #1A1714 !important;
 }
 
 .react-flow__background pattern circle {
-    fill: #2A2A30 !important;
+    fill: #3B342A !important;
 }
 
 .react-flow__controls {
@@ -398,7 +416,7 @@ button:disabled {
 }
 
 .react-flow__minimap-mask {
-    fill: rgba(10, 10, 11, 0.75) !important;
+    fill: rgba(26, 23, 20, 0.75) !important;
 }
 
 .react-flow__minimap-node {
@@ -430,13 +448,13 @@ button:disabled {
     position: relative;
     border-radius: 9999px;
     background:
-        radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0) 30%),
-        radial-gradient(circle at 70% 80%, rgba(0, 212, 255, 0.5), rgba(0, 212, 255, 0) 48%),
-        radial-gradient(circle at 50% 45%, #6D7CFF 0%, #4F46E5 50%, #251C7E 100%);
+        radial-gradient(circle at 32% 26%, rgba(255, 248, 238, 0.92), rgba(255, 248, 238, 0) 30%),
+        radial-gradient(circle at 70% 80%, rgba(245, 180, 120, 0.5), rgba(245, 180, 120, 0) 48%),
+        radial-gradient(circle at 50% 45%, #E08A5E 0%, #C96442 50%, #5E2E1E 100%);
     box-shadow:
-        inset -8px -10px 22px rgba(8, 6, 50, 0.6),
-        inset 6px 8px 14px rgba(255, 255, 255, 0.22),
-        0 14px 38px rgba(79, 70, 229, 0.4);
+        inset -8px -10px 22px rgba(40, 18, 8, 0.6),
+        inset 6px 8px 14px rgba(255, 235, 210, 0.22),
+        0 14px 38px rgba(201, 100, 66, 0.4);
     transform-style: preserve-3d;
     animation: orb-float 6s ease-in-out infinite;
 }
@@ -447,8 +465,8 @@ button:disabled {
     border-radius: 9999px;
     background: conic-gradient(
         from 0deg,
-        transparent 0%, rgba(0, 212, 255, 0.85) 12%, transparent 28%,
-        transparent 52%, rgba(168, 85, 247, 0.85) 66%, transparent 84%
+        transparent 0%, rgba(245, 180, 120, 0.85) 12%, transparent 28%,
+        transparent 52%, rgba(201, 100, 66, 0.85) 66%, transparent 84%
     );
     -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import {
     CheckCircle2, XCircle, MinusCircle, Circle, Play, Square,
     RotateCcw, Download, ChevronDown, ChevronRight, Loader2, FlaskConical,
+    Check, X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ATLAS_TASK_CATEGORIES, type AtlasTask } from '../data/atlasTasks';
@@ -277,9 +278,9 @@ export default function AtlasBenchmarkPanel({ onRunTask, isAgentRunning, onStop 
                 {total > 0 && (
                     <div className="flex items-center gap-3 text-[10px]">
                         <span className="text-text-muted">{total}/100</span>
-                        <span className="text-accent-green font-mono">✓{pass}</span>
+                        <span className="inline-flex items-center gap-0.5 text-accent-green font-mono"><Check size={12} />{pass}</span>
                         <span className="text-accent-amber font-mono">~{partial}</span>
-                        <span className="text-accent-red font-mono">✗{fail}</span>
+                        <span className="inline-flex items-center gap-0.5 text-accent-red font-mono"><X size={12} />{fail}</span>
                         <div className="flex-1 h-1 rounded-full bg-surface-3 overflow-hidden">
                             <div
                                 className="h-full bg-accent-green rounded-full transition-all"

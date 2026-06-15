@@ -29,7 +29,7 @@ export function PageHeader({
         >
             <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 space-y-1.5">
-                    <h1 className="text-xl font-semibold tracking-tight text-text-primary">{title}</h1>
+                    <h1 className="font-serif text-2xl font-medium tracking-tight text-text-primary">{title}</h1>
                     {description ? (
                         <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{description}</p>
                     ) : null}

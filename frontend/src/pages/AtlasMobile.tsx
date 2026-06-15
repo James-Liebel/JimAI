@@ -159,7 +159,7 @@ export default function AtlasMobile() {
                 ) : (
                     <div className="flex h-full flex-col items-center justify-center px-6 text-center text-text-muted">
                         <Globe className="mb-3 h-10 w-10 opacity-25" aria-hidden />
-                        <p className="text-sm font-medium text-text-secondary">Atlas — remote browser</p>
+                        <p className="font-serif text-xl font-medium tracking-tight text-text-primary">Atlas — remote browser</p>
                         <p className="mt-1 text-xs leading-relaxed">
                             Your laptop opens the page and sends it here. Enter a URL or a search above to begin.
                         </p>

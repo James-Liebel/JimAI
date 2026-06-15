@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Check, X } from 'lucide-react';
 import type { AgentUpdate } from '../lib/types';
 import { cn } from '../lib/utils';
 import { apiUrl } from '../lib/backendBase';
@@ -70,7 +71,7 @@ export default function AgentStatus({ onClose }: Props) {
                     </span>
                 </div>
                 {onClose && (
-                    <button onClick={onClose} className="text-text-muted hover:text-text-secondary text-xs p-1">✕</button>
+                    <button onClick={onClose} className="text-text-muted hover:text-text-secondary p-1"><X size={14} /></button>
                 )}
             </div>
 
@@ -98,7 +99,13 @@ export default function AgentStatus({ onClose }: Props) {
                                     u.status === 'error' && 'text-accent-red',
                                 )}
                             >
-                                {u.status === 'done' ? '✓' : u.status === 'error' ? '✗' : '●'}{' '}
+                                {u.status === 'done' ? (
+                                    <Check size={12} className="inline align-middle text-status-success" />
+                                ) : u.status === 'error' ? (
+                                    <X size={12} className="inline align-middle text-status-error" />
+                                ) : (
+                                    <span className="inline-block h-2 w-2 rounded-full bg-text-muted align-middle" />
+                                )}{' '}
                                 <span className="opacity-60">[{u.agent}]</span> {u.step}
                             </div>
                         ))}

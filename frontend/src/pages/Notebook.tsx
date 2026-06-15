@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
+import { Play, X } from 'lucide-react';
 import { v4 as uuid } from 'uuid';
 import * as api from '../lib/api';
 import { apiUrl } from '../lib/backendBase';
@@ -103,7 +104,7 @@ export default function Notebook() {
         <div className="h-full flex flex-col bg-surface-0">
             {/* Toolbar */}
             <header className="flex-shrink-0 flex flex-wrap items-center gap-2 px-4 py-2 border-b border-surface-4 bg-surface-1">
-                <h1 className="text-xl font-semibold tracking-tight text-text-primary">Notebook</h1>
+                <h1 className="font-serif text-xl font-medium tracking-tight text-text-primary">Notebook</h1>
                 <div className="flex-1" />
                 <button
                     onClick={() => addCell('code')}
@@ -133,9 +134,9 @@ export default function Notebook() {
                                     <button
                                         onClick={() => runCell(cell.id)}
                                         disabled={cell.running}
-                                        className="px-1.5 py-0.5 text-[10px] bg-accent-green/15 text-accent-green rounded hover:bg-accent-green/25 disabled:opacity-50"
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-accent-green/15 text-accent-green rounded hover:bg-accent-green/25 disabled:opacity-50"
                                     >
-                                        {cell.running ? '...' : '▶ Run'}
+                                        {cell.running ? '...' : <><Play size={12} />Run</>}
                                     </button>
                                     <button
                                         onClick={() => askAI(cell.id)}
@@ -148,9 +149,10 @@ export default function Notebook() {
                             )}
                             <button
                                 onClick={() => deleteCell(cell.id)}
+                                aria-label="Delete cell"
                                 className="px-1.5 py-0.5 text-[10px] text-text-muted hover:text-accent-red rounded opacity-0 group-hover:opacity-100 transition-opacity"
                             >
-                                ✕
+                                <X size={14} />
                             </button>
                         </div>
 

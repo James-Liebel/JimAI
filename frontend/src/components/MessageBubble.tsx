@@ -557,7 +557,7 @@ function CodeBlock({ code, language, showRun }: { code: string; language: string
             )}>
                 <span className={cn('bg-surface-4 rounded text-text-muted', isTouchDevice ? 'px-2 py-1 text-xs' : 'px-1.5 py-0.5 text-[10px]')}>{language}</span>
                 <button onClick={handleCopy} className={cn('bg-surface-4 rounded text-text-secondary hover:text-text-primary', isTouchDevice ? 'px-2 py-1 text-xs' : 'px-1.5 py-0.5 text-[10px]')}>
-                    {copied ? '✓' : 'Copy'}
+                    {copied ? <Check size={12} /> : 'Copy'}
                 </button>
                 {showRun && (
                     <button onClick={handleRun} disabled={running} className={cn('bg-accent-green/20 text-accent-green rounded hover:bg-accent-green/30 disabled:opacity-50', isTouchDevice ? 'px-2 py-1 text-xs' : 'px-1.5 py-0.5 text-[10px]')}>

@@ -456,7 +456,7 @@ export default function Agents() {
             <header className="flex-shrink-0 border-b border-surface-5 bg-surface-1 px-5 py-3 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2.5">
                     <Bot className="w-4 h-4 text-accent" />
-                    <h1 className="text-base font-semibold tracking-tight text-text-primary">Agents</h1>
+                    <h1 className="font-serif text-xl font-medium tracking-tight text-text-primary">Agents</h1>
                     <span className="hidden text-xs text-text-muted sm:inline">
                         {agents.length > 0
                             ? `${agents.length} saved agent${agents.length === 1 ? '' : 's'} · reusable across sessions`

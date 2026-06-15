@@ -26,7 +26,7 @@ const ROLE_MODEL_MAP: Record<string, Record<string, string>> = {
 function resolveModelLabel(role: string, speedMode: string): string {
     const models = ROLE_MODEL_MAP[speedMode] || ROLE_MODEL_MAP.balanced;
     const model = models[role] || models.chat;
-    const suffix: Record<string, string> = { turbo: ' ⚡turbo', fast: ' (fast)', deep: ' (deep)' };
+    const suffix: Record<string, string> = { turbo: ' turbo', fast: ' (fast)', deep: ' (deep)' };
     return `${model}${suffix[speedMode] ?? ''}`;
 }
 

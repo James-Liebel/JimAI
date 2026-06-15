@@ -43,10 +43,10 @@ const SPEED_STYLES: Record<string, string> = {
 };
 
 const SPEED_LABEL: Record<string, string> = {
-    turbo: '⚡ turbo',
-    fast: '⚡ fast',
+    turbo: 'turbo',
+    fast: 'fast',
     balanced: 'balanced',
-    deep: '◆ deep',
+    deep: 'deep',
 };
 
 function SpeedChip({ speedMode }: { speedMode: string | undefined }) {

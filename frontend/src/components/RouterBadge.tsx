@@ -16,7 +16,7 @@ const ROLE_STYLES: Record<string, string> = {
     data: 'bg-accent-green/15 text-accent-green border-accent-green/25',
     finance: 'bg-accent-blue/15 text-accent-blue border-accent-blue/25',
     override: 'bg-surface-4/50 text-text-secondary border-surface-4',
-    deep: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+    deep: 'bg-status-warning/15 text-status-warning border-status-warning/25',
 };
 
 function modelShortName(model: string): string {
@@ -39,14 +39,14 @@ const SPEED_STYLES: Record<string, string> = {
     turbo: 'bg-accent-green/15 text-accent-green border-accent-green/30',
     fast: 'bg-accent-blue/10 text-accent-blue border-accent-blue/25',
     balanced: 'bg-surface-4/40 text-text-secondary border-surface-4',
-    deep: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    deep: 'bg-status-warning/15 text-status-warning border-status-warning/30',
 };
 
 const SPEED_LABEL: Record<string, string> = {
-    turbo: '⚡ turbo',
-    fast: '⚡ fast',
+    turbo: 'turbo',
+    fast: 'fast',
     balanced: 'balanced',
-    deep: '◆ deep',
+    deep: 'deep',
 };
 
 function SpeedChip({ speedMode }: { speedMode: string | undefined }) {
@@ -91,7 +91,7 @@ export default function RouterBadge({ routing }: Props) {
                 </span>
                 <span className="text-[9px] text-text-muted">vs</span>
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] border ${ROLE_STYLES.chat}`}>
-                    {modelShortName(compare_models[1])}{npu_used_for === 'model_b' && <span className="ml-0.5 text-[9px] text-amber-400">NPU</span>}
+                    {modelShortName(compare_models[1])}{npu_used_for === 'model_b' && <span className="ml-0.5 text-[9px] text-status-warning">NPU</span>}
                 </span>
                 <span className="text-[9px] text-text-muted">→</span>
                 <span className={`inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] border ${ROLE_STYLES.chat}`}>
@@ -142,7 +142,7 @@ export default function RouterBadge({ routing }: Props) {
                             ? 'border-accent-green/30 text-accent-green bg-accent-green/10'
                             : auto_web_research_offline
                                 ? 'border-accent-red/30 text-accent-red bg-accent-red/10'
-                                : 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+                                : 'border-status-warning/30 text-status-warning bg-status-warning/10'
                     }`}
                 >
                     {auto_web_research_ok
@@ -153,7 +153,7 @@ export default function RouterBadge({ routing }: Props) {
                 </span>
             )}
             {npu_used_for === 'review' && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[9px] border border-amber-500/25 text-amber-400 bg-amber-500/10">Review NPU</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[9px] border border-status-warning/25 text-status-warning bg-status-warning/10">Review NPU</span>
             )}
             <Tooltip reasoning={reasoning} />
         </div>

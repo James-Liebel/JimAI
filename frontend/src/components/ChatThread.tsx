@@ -40,50 +40,47 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
     }, [lastContent, isStreaming, scrollToBottom]);
 
     return (
-        <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-2 py-4' : 'px-4 py-6'} space-y-3`}>
-            {messages.length === 0 && (
+        <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-3 py-4' : 'px-6 py-8'}`}>
+            {messages.length === 0 ? (
                 <div className={`relative flex flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[16vh]' : 'h-full justify-center'}`}>
                     {/* aurora backdrop — decorative, sits behind the orb */}
                     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-                        <div className="hero-aurora left-1/2 top-[8%] h-44 w-72 -translate-x-[70%] bg-accent-blue" />
-                        <div className="hero-aurora left-1/2 top-[14%] h-40 w-64 -translate-x-[20%] bg-accent-purple [animation-delay:-8s]" />
+                        <div className="hero-aurora left-1/2 top-[8%] h-44 w-72 -translate-x-[70%] bg-accent" />
+                        <div className="hero-aurora left-1/2 top-[14%] h-40 w-64 -translate-x-[20%] bg-accent-amber [animation-delay:-8s]" />
                     </div>
-                    <div className="hero-orb-scene relative mb-5">
+                    <div className="hero-orb-scene relative mb-6">
                         <div className={`hero-orb flex items-center justify-center font-bold text-white ${isMobile ? 'h-16 w-16 text-lg' : 'h-20 w-20 text-xl'}`}>
                             <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)]">AI</span>
                             <div aria-hidden className="hero-orb-ring" />
                         </div>
                     </div>
-                    <h2 className={`relative font-semibold text-text-secondary ${isMobile ? 'text-base' : 'text-lg'}`}>
+                    <h2 className={`relative font-serif font-medium tracking-tight text-text-primary ${isMobile ? 'text-2xl' : 'text-3xl'}`}>
                         jimAI
                     </h2>
-                    <p className={`relative mt-1 text-text-muted ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                    <p className={`relative mt-2 text-text-secondary ${isMobile ? 'text-sm' : 'text-base'}`}>
                         How can I help?
                     </p>
                 </div>
-            )}
+            ) : (
+                <div className={`mx-auto w-full max-w-3xl ${isMobile ? 'space-y-5' : 'space-y-6'}`}>
+                    <Suspense fallback={<div className="text-xs text-text-muted">Loading messages…</div>}>
+                        {messages.map((msg) => (
+                            <MessageBubble key={msg.id} message={msg} />
+                        ))}
+                    </Suspense>
 
-            <Suspense fallback={<div className="text-xs text-text-muted">Loading messages...</div>}>
-                {messages.map((msg) => (
-                    <MessageBubble key={msg.id} message={msg} />
-                ))}
-            </Suspense>
-
-            {isStreaming && messages.length > 0 && messages[messages.length - 1]?.content === '' && (
-                <div className="flex justify-start animate-fade-in">
-                    <div className="bg-surface-1 rounded-panel px-4 py-3 border border-surface-4 shadow-elevation-1">
-                        <div className="flex items-center gap-1.5">
+                    {isStreaming && messages[messages.length - 1]?.content === '' && (
+                        <div className="flex items-center gap-1.5 py-1 animate-fade-in">
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '0ms' }} />
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '150ms' }} />
                             <div className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce" style={{ animationDelay: '300ms' }} />
-                            <span className="ml-2 text-[11px] text-text-muted">
-                                {searchingWeb ? (searchStatus || 'Searching web…') : 'Thinking...'}
+                            <span className="ml-2 text-xs text-text-muted">
+                                {searchingWeb ? (searchStatus || 'Searching web…') : 'Thinking…'}
                             </span>
                         </div>
-                    </div>
+                    )}
                 </div>
             )}
-
         </div>
     );
 }

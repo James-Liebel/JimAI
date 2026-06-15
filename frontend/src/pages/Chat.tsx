@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { Menu, Hammer } from 'lucide-react';
 import { useChat } from '../hooks/useChat';
 import { useUpload } from '../hooks/useUpload';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -239,7 +239,7 @@ export default function Chat() {
 
                         {showBuilderSuggestion && (
                             <div className="flex-shrink-0 flex items-center gap-3 border-t border-accent-green/20 bg-accent-green/5 px-4 py-2 animate-fade-in">
-                                <span className="text-xs text-accent-green font-medium">🔨 This looks like a build request</span>
+                                <span className="flex items-center gap-1.5 text-xs text-accent-green font-medium"><Hammer size={13} /> This looks like a build request</span>
                                 <button
                                     onClick={handleSendToBuilder}
                                     className="text-xs px-3 py-1 rounded-btn border border-accent-green/40 text-accent-green hover:bg-accent-green/10 transition-colors font-medium"

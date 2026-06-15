@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { FileUp, Check, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -63,7 +64,7 @@ export default function FileUpload({ onUpload }: Props) {
             {isDragging && (
                 <div className="fixed inset-0 z-50 drag-overlay flex items-center justify-center animate-fade-in">
                     <div className="bg-surface-2 rounded-2xl border-2 border-dashed border-accent p-12 text-center">
-                        <div className="text-5xl mb-4">📄</div>
+                        <FileUp className="mx-auto mb-4 text-accent" size={44} strokeWidth={1.5} />
                         <p className="text-lg font-medium text-text-primary">
                             Drop file to upload
                         </p>
@@ -93,7 +94,7 @@ export default function FileUpload({ onUpload }: Props) {
                     )}
                     {uploadStatus.state === 'success' && (
                         <>
-                            <span className="text-green-400">✓</span>
+                            <Check size={16} className="shrink-0 text-status-success" />
                             <span className="text-sm text-text-secondary">
                                 {uploadStatus.name} indexed
                             </span>
@@ -101,7 +102,7 @@ export default function FileUpload({ onUpload }: Props) {
                     )}
                     {uploadStatus.state === 'error' && (
                         <>
-                            <span className="text-red-400">✗</span>
+                            <X size={16} className="shrink-0 text-status-error" />
                             <span className="text-sm text-text-secondary">
                                 {uploadStatus.message || `Failed to upload ${uploadStatus.name}`}
                             </span>

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type ClipboardEvent } from 'react';
-import { Mic, MicOff, Camera, Images, Paperclip, Send, Plus, Sparkles, Lock, ChevronDown } from 'lucide-react';
+import { Mic, MicOff, Camera, Images, Paperclip, Send, Plus, Sparkles, Lock, ChevronDown, Globe, Hammer, Cog } from 'lucide-react';
 import { MODEL_OPTIONS } from '../lib/types';
 import { cn, fileToBase64 } from '../lib/utils';
 import { classifyLocally } from '../lib/classifier';
@@ -26,7 +26,7 @@ const ROLE_MODEL_MAP: Record<string, Record<string, string>> = {
 function resolveModelLabel(role: string, speedMode: string): string {
     const models = ROLE_MODEL_MAP[speedMode] || ROLE_MODEL_MAP.balanced;
     const model = models[role] || models.chat;
-    const suffix: Record<string, string> = { turbo: ' ⚡turbo', fast: ' (fast)', deep: ' (deep)' };
+    const suffix: Record<string, string> = { turbo: ' turbo', fast: ' (fast)', deep: ' (deep)' };
     return `${model}${suffix[speedMode] ?? ''}`;
 }
 
@@ -159,7 +159,7 @@ export default function InputBar({
             {/* Attached file pill */}
             {attachedFile && (
                 <div className="flex w-fit items-center gap-2 rounded-card border border-surface-4 bg-surface-2 px-3 py-1.5 text-xs text-text-secondary animate-fade-in">
-                    <span className="text-text-muted">📎</span>
+                    <Paperclip size={13} className="text-text-muted" />
                     <span>{attachedFile.name}</span>
                     <button
                         type="button"
@@ -199,24 +199,24 @@ export default function InputBar({
                     {routingPreview && !modelOverride && (
                         <>
                             {routingPreview === 'browser' && (
-                                <span className="animate-fade-in flex items-center gap-1 text-cyan-400">
-                                    → 🌐 browser
+                                <span className="animate-fade-in flex items-center gap-1 text-accent-blue">
+                                    <span className="opacity-50">→</span> <Globe size={11} /> browser
                                 </span>
                             )}
                             {routingPreview === 'builder' && (
-                                <span className="animate-fade-in flex items-center gap-1 text-accent-green">
-                                    → 🔨 builder
+                                <span className="animate-fade-in flex items-center gap-1 text-status-success">
+                                    <span className="opacity-50">→</span> <Hammer size={11} /> builder
                                 </span>
                             )}
                             {!['browser', 'builder', 'chat model', 'code model', 'math model', 'vision model', 'math + code pipeline'].includes(routingPreview)
                              && !routingPreview.endsWith('model') && !routingPreview.includes('pipeline') && (
-                                <span className="animate-fade-in text-cyan-400">
-                                    → ⚙ {routingPreview}
+                                <span className="animate-fade-in flex items-center gap-1 text-accent-blue">
+                                    <span className="opacity-50">→</span> <Cog size={11} /> {routingPreview}
                                 </span>
                             )}
                             {(routingPreview.endsWith('model') || routingPreview.includes('pipeline')) && (
                                 <span className="animate-fade-in">
-                                    → {routingPreview.includes('pipeline')
+                                    <span className="opacity-50">→</span> {routingPreview.includes('pipeline')
                                         ? routingPreview
                                         : resolveModelLabel(routingPreview.replace(' model', ''), speedMode)}
                                 </span>
@@ -225,8 +225,8 @@ export default function InputBar({
                     )}
                     {modelOverride && (
                         <span className="animate-fade-in flex items-center gap-1">
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>
-                            → {overrideOption?.label} (manual)
+                            <Lock size={10} className="opacity-70" />
+                            <span className="opacity-50">→</span> {overrideOption?.label} (manual)
                         </span>
                     )}
                 </div>
@@ -263,7 +263,7 @@ export default function InputBar({
                         }}
                         className="absolute -inset-y-2 -inset-x-1 w-[calc(100%+0.5rem)] cursor-pointer appearance-none opacity-0"
                     >
-                        <option value="__speed_turbo">⚡ Auto Routing (Turbo 3B)</option>
+                        <option value="__speed_turbo">Auto Routing (Turbo 3B)</option>
                         <option value="__speed_fast">Auto Routing (Fast 7B)</option>
                         <option value="__speed_balanced">Auto Routing (Balanced 14B)</option>
                         <option value="__speed_deep">Auto Routing (Deep 32B)</option>
@@ -280,7 +280,7 @@ export default function InputBar({
             <div className={cn(
                 'flex min-w-0 items-end gap-1.5 rounded-panel border bg-surface-1 p-2 shadow-elevation-1 transition-colors',
                 borderClass,
-                'focus-within:border-white/45 focus-within:shadow-focus-ring',
+                'focus-within:border-accent/60 focus-within:shadow-focus-ring',
                 isMobile && 'min-h-[52px]',
             )}>
                 {!isMobile && (
@@ -407,8 +407,8 @@ export default function InputBar({
                                 ? 'cursor-not-allowed bg-surface-3 text-text-muted'
                                 : 'cursor-not-allowed text-text-muted'
                             : isMobile
-                                ? 'bg-accent text-white hover:bg-accent/90'
-                                : 'text-accent hover:bg-white/5',
+                                ? 'bg-accent text-white hover:bg-accent-hover'
+                                : 'text-accent hover:bg-surface-2',
                     )}
                     title={isMobile ? 'Send' : 'Send (Enter)'}
                 >

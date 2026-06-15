@@ -337,7 +337,7 @@ export default function AppLayout() {
                             <div className="flex h-6 w-6 items-center justify-center rounded-badge border border-accent/30 bg-accent/10 text-[10px] font-bold tracking-tight text-accent">
                                 jA
                             </div>
-                            <span className="text-sm font-semibold tracking-tight text-text-primary">jimAI</span>
+                            <span className="font-serif text-base font-medium tracking-tight text-text-primary">jimAI</span>
                         </div>
                         <AppAssistDock hidden={builderFullChrome || isAtlasTab} />
                     </div>

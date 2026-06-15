@@ -42,12 +42,9 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
     return (
         <div ref={scrollRef} className={`h-full overflow-y-auto ${isMobile ? 'px-3 py-4' : 'px-6 py-8'}`}>
             {messages.length === 0 ? (
-                <div className={`relative flex flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[16vh]' : 'h-full justify-center'}`}>
-                    {/* aurora backdrop — decorative, sits behind the orb */}
-                    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-                        <div className="hero-aurora left-1/2 top-[8%] h-44 w-72 -translate-x-[70%] bg-accent" />
-                        <div className="hero-aurora left-1/2 top-[14%] h-40 w-64 -translate-x-[20%] bg-accent-amber [animation-delay:-8s]" />
-                    </div>
+                <div className={`relative flex h-full flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[16vh]' : 'justify-center'}`}>
+                    {/* full-bleed ambient gradient backdrop */}
+                    <div aria-hidden className="hero-bg" />
                     <div className="hero-orb-scene relative mb-6">
                         <div className={`hero-orb flex items-center justify-center font-bold text-white ${isMobile ? 'h-16 w-16 text-lg' : 'h-20 w-20 text-xl'}`}>
                             <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)]">AI</span>

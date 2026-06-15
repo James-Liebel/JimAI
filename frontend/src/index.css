@@ -24,17 +24,17 @@
     --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.25);
     --mobile-nav-h: calc(60px + var(--mobile-nav-pad));
 
-    /* Design system tokens — warm charcoal surfaces, cream text, clay accent. */
-    --bg-base: #1A1714;
-    --bg-surface: #211D18;
-    --bg-elevated: #2A251F;
-    --bg-hover: #332D24;
-    --border: #352F26;
-    --border-subtle: #272118;
-    --border-strong: #473F33;
-    --text-primary: #ECE7DC;
-    --text-secondary: #ADA491;
-    --text-muted: #867C69;
+    /* Design system tokens — warm-neutral charcoal surfaces, cream text, clay accent. */
+    --bg-base: #1B1A18;
+    --bg-surface: #222120;
+    --bg-elevated: #2A2826;
+    --bg-hover: #34322F;
+    --border: #34312E;
+    --border-subtle: #282624;
+    --border-strong: #46423D;
+    --text-primary: #F3F1EC;
+    --text-secondary: #B6B2AB;
+    --text-muted: #837F78;
     --accent: #C96442;
     --accent-dim: rgba(201, 100, 66, 0.12);
     --success: #7BA05B;
@@ -42,16 +42,16 @@
     --danger: #C0584B;
 
     /* Legacy compat aliases */
-    --bg-0: #1A1714;
-    --bg-1: #211D18;
-    --bg-2: #2A251F;
-    --panel-0: #211D18;
-    --panel-1: #2A251F;
-    --line-0: #352F26;
-    --line-1: #473F33;
-    --text-0: #ECE7DC;
-    --text-1: #ADA491;
-    --text-2: #867C69;
+    --bg-0: #1B1A18;
+    --bg-1: #222120;
+    --bg-2: #2A2826;
+    --panel-0: #222120;
+    --panel-1: #2A2826;
+    --line-0: #34312E;
+    --line-1: #46423D;
+    --text-0: #F3F1EC;
+    --text-1: #B6B2AB;
+    --text-2: #837F78;
     --focus: #C96442;
     --ok: #7BA05B;
     --warn: #D9A441;
@@ -356,7 +356,7 @@ button:disabled {
 
 .prose p,
 .prose li {
-    color: #D4CCBC;
+    color: #CDC9C0;
 }
 
 .prose table,
@@ -378,11 +378,11 @@ button:disabled {
 }
 
 .react-flow__background {
-    background: #1A1714 !important;
+    background: #1B1A18 !important;
 }
 
 .react-flow__background pattern circle {
-    fill: #3B342A !important;
+    fill: #3C3A36 !important;
 }
 
 .react-flow__controls {
@@ -416,7 +416,7 @@ button:disabled {
 }
 
 .react-flow__minimap-mask {
-    fill: rgba(26, 23, 20, 0.75) !important;
+    fill: rgba(27, 26, 24, 0.75) !important;
 }
 
 .react-flow__minimap-node {
@@ -473,14 +473,17 @@ button:disabled {
     animation: orb-spin 8s linear infinite;
 }
 
-.hero-aurora {
+/* Full-bleed ambient wash behind the empty-state hero: a clay glow pooled where
+   the orb sits, a soft top-down warm light, and a faint gold lift from the
+   bottom. Layered radials read as an intentional mesh, not loose blobs. */
+.hero-bg {
     position: absolute;
-    border-radius: 9999px;
-    filter: blur(52px);
-    opacity: 0.14;
+    inset: 0;
     pointer-events: none;
-    will-change: transform;
-    animation: aurora-drift 16s ease-in-out infinite alternate;
+    background:
+        radial-gradient(58% 48% at 50% 38%, rgba(201, 100, 66, 0.22), transparent 72%),
+        radial-gradient(130% 85% at 50% -12%, rgba(201, 100, 66, 0.10), transparent 58%),
+        radial-gradient(100% 70% at 50% 114%, rgba(217, 164, 65, 0.06), transparent 64%);
 }
 
 @keyframes orb-float {
@@ -492,15 +495,9 @@ button:disabled {
     to { transform: rotate(360deg); }
 }
 
-@keyframes aurora-drift {
-    from { transform: translate3d(-10%, -6%, 0) scale(1); }
-    to { transform: translate3d(10%, 8%, 0) scale(1.18); }
-}
-
 @media (prefers-reduced-motion: reduce) {
     .hero-orb,
-    .hero-orb-ring,
-    .hero-aurora {
+    .hero-orb-ring {
         animation: none;
     }
 }

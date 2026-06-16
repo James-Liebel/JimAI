@@ -39,6 +39,12 @@ OLLAMA_KEEP_ALIVE_DEFAULT: str = os.getenv("OLLAMA_KEEP_ALIVE_DEFAULT", "60s")
 # Browser/Atlas agent — its loop spans many short requests with think-time gaps,
 # so it gets its own knob. Still much shorter than the previous 10m default.
 OLLAMA_BROWSER_KEEP_ALIVE: str = os.getenv("OLLAMA_BROWSER_KEEP_ALIVE", "120s")
+# Background AI that touches Ollama with NO user action: the startup model warmup
+# and the autonomous "thought generator" reflection loop. These keep a model
+# resident (and the GPU warm) while you're idle. Set JIMAI_BACKGROUND_AI=0 to turn
+# them off — e.g. while developing on this repo — so Ollama only loads a model when
+# you actually send a request, then evicts it per OLLAMA_KEEP_ALIVE_DEFAULT.
+BACKGROUND_AI_ENABLED: bool = os.getenv("JIMAI_BACKGROUND_AI", "true").lower() in ("true", "1", "yes")
 BACKEND_PORT: int = int(os.getenv("BACKEND_PORT", "8000"))
 N8N_BASE_URL: str = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 QDRANT_BASE_URL: str = os.getenv("QDRANT_BASE_URL", "http://localhost:6333")

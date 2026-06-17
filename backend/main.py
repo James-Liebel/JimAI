@@ -118,6 +118,15 @@ async def lifespan(app: FastAPI):
         message hits a warm model (saves several seconds of cold load on big
         Qwen/Llama variants). Failures are non-fatal — Ollama may not be up yet.
         """
+        # Respect the global power switch: if the user has the AI turned off, don't
+        # preload a model on startup — "off" should mean nothing loads on its own.
+        try:
+            from agent_space.runtime import power_manager
+            if not power_manager.is_enabled():
+                logger.info("Ollama warmup skipped: AI is powered off.")
+                return
+        except Exception:
+            pass
         # Wait for the startup probe to confirm Ollama is live before warming.
         # Without this, the warmup would race the probe and silently fail on
         # cold start, leaving the user's first chat hit cold.

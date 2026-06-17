@@ -38,6 +38,16 @@ GENERATION_KIND: ContextVar[str] = ContextVar("ollama_generation_kind", default=
 # present. Wired to the app-instance tracker in agent_space/runtime.py.
 _client_presence_check: Callable[[], bool] | None = None
 
+# Idle model reaper state. _stream_json_lines is the single point every
+# generation flows through, so it tracks whether a model is actively working
+# (_inflight_generations) and when it last finished (_last_generation_ts). The
+# instance lifecycle polls unload_idle_models() to free models once idle —
+# a hard backstop to Ollama's keep_alive. _idle_unloaded_for_ts makes that reap
+# fire once per idle period instead of on every poll.
+_inflight_generations: int = 0
+_last_generation_ts: float = 0.0
+_idle_unloaded_for_ts: float = -1.0
+
 
 def set_global_abort_check(fn: Callable[[], bool] | None) -> None:
     """Register a predicate that returns True when ALL generation must stop now."""
@@ -112,45 +122,53 @@ async def _stream_json_lines(
     payload: dict,
     base_url: str | None = None,
 ) -> AsyncGenerator[dict, None]:
+    global _inflight_generations, _last_generation_ts
     last_exc: Exception | None = None
     # Don't even open a connection while paused — a new request issued during a
     # pause must not spin up the GPU.
     if _should_abort():
         logger.info("Generation suppressed: global kill-switch is active (power off/pause).")
         return
-    for attempt in range(1, RETRY_ATTEMPTS + 1):
-        client = await _get_client(base_url)
-        try:
-            async with client.stream("POST", path, json=payload) as resp:
-                resp.raise_for_status()
-                next_abort_check = 0.0
-                async for line in resp.aiter_lines():
-                    # Cooperative kill-switch: poll at most every ABORT_POLL_SECONDS
-                    # so the cost is negligible at token rate. Returning here exits
-                    # the `async with`, closing the connection and aborting Ollama.
-                    now = time.monotonic()
-                    if now >= next_abort_check:
-                        next_abort_check = now + ABORT_POLL_SECONDS
-                        if _should_abort():
-                            logger.info("Generation aborted by global kill-switch (power off/pause).")
+    # Count this stream as in flight so the idle reaper never unloads the model
+    # mid-generation; the finally stamps the finish time so it can reap once idle.
+    _inflight_generations += 1
+    try:
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            client = await _get_client(base_url)
+            try:
+                async with client.stream("POST", path, json=payload) as resp:
+                    resp.raise_for_status()
+                    next_abort_check = 0.0
+                    async for line in resp.aiter_lines():
+                        # Cooperative kill-switch: poll at most every ABORT_POLL_SECONDS
+                        # so the cost is negligible at token rate. Returning here exits
+                        # the `async with`, closing the connection and aborting Ollama.
+                        now = time.monotonic()
+                        if now >= next_abort_check:
+                            next_abort_check = now + ABORT_POLL_SECONDS
+                            if _should_abort():
+                                logger.info("Generation aborted by global kill-switch (power off/pause).")
+                                return
+                        if not line:
+                            continue
+                        try:
+                            parsed = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        yield parsed
+                        if parsed.get("done"):
                             return
-                    if not line:
-                        continue
-                    try:
-                        parsed = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    yield parsed
-                    if parsed.get("done"):
-                        return
-            return
-        except Exception as exc:  # noqa: PERF203
-            last_exc = exc
-            if attempt >= RETRY_ATTEMPTS or not _is_retryable_error(exc):
-                break
-            await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
-    assert last_exc is not None
-    raise last_exc
+                return
+            except Exception as exc:  # noqa: PERF203
+                last_exc = exc
+                if attempt >= RETRY_ATTEMPTS or not _is_retryable_error(exc):
+                    break
+                await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * attempt)
+        assert last_exc is not None
+        raise last_exc
+    finally:
+        _inflight_generations = max(0, _inflight_generations - 1)
+        _last_generation_ts = time.time()
 
 
 async def _get_client(base_url: str | None = None) -> httpx.AsyncClient:
@@ -511,6 +529,35 @@ async def unload_all_models() -> None:
             await unload_model(model)
         except Exception:
             pass
+
+
+def has_inflight_generation() -> bool:
+    """True while at least one streaming generation is active."""
+    return _inflight_generations > 0
+
+
+async def unload_idle_models(idle_window_seconds: float) -> bool:
+    """Unload every resident model once generation has been idle for
+    ``idle_window_seconds`` with nothing in flight. Idempotent within an idle
+    period. Returns True if it unloaded.
+
+    This is the hard guarantee that no model — large or small — is left resident
+    while JimAI sits idle, independent of Ollama's keep_alive (which an
+    OLLAMA_KEEP_ALIVE override could otherwise defeat). Polled by the instance
+    lifecycle so it fires even while the app stays connected.
+    """
+    global _idle_unloaded_for_ts
+    if _inflight_generations > 0:
+        return False
+    if _last_generation_ts <= 0.0:
+        return False  # nothing has generated this run — nothing to reap
+    if (time.time() - _last_generation_ts) < idle_window_seconds:
+        return False
+    if _idle_unloaded_for_ts == _last_generation_ts:
+        return False  # already reaped for this idle period
+    _idle_unloaded_for_ts = _last_generation_ts
+    await unload_all_models()
+    return True
 
 
 async def prepare_for_deep_mode() -> None:

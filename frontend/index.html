@@ -11,14 +11,19 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0A0A0B" />
+    <meta name="theme-color" content="#1B1A18" />
+    <!-- Paint the warm base color before CSS/JS load so the status-bar/notch and
+         home-indicator safe areas (and any first-paint frame) never flash black. -->
+    <style>
+      html, body { background-color: #1B1A18; }
+    </style>
     <meta name="description" content="jimAI — Local-only AI system with autonomous app building and orchestration" />
 
     <title>jimAI</title>
     <!-- Fonts are self-hosted (bundled woff2 via @fontsource, imported in
          main.tsx) — no external font CDN, so cold/offline starts stay instant. -->
   </head>
-  <body class="bg-[#0A0A0B] text-[#F0F0F5] antialiased">
+  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

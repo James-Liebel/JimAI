@@ -87,7 +87,8 @@ async def stream_team_run(team: Team, task: str) -> AsyncGenerator[str, None]:
             system=sys_p,
             stream=True,
             temperature=0.5,
-            num_ctx=32768,
+            # 16K, not 32K: 32K overflows a 16GB GPU with a 14B and spills to CPU.
+            num_ctx=16384,
         ):
             yield f"data: {json.dumps({'type': 'chunk', 'agent': lead.slug, 'text': chunk})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"

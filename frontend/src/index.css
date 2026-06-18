@@ -506,14 +506,22 @@ html,
 body {
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
+    /* Warm base behind everything: the safe-area regions, overscroll rubber-band,
+       and any dynamic-viewport shortfall show the app color, never a black band. */
+    background: var(--bg-base);
 }
 
 @media (display-mode: standalone) {
     body {
-        /* Top inset only. A bottom inset here pads the <body> box, and iOS
-           standalone anchors `position: fixed; bottom: 0` to that padded box —
-           so it left a ~34px dead band UNDER the tab bar. The fixed nav owns its
-           own home-indicator clearance via --mobile-nav-pad instead. */
+        /* Installed PWAs have no dynamic browser toolbar, so pin the shell to the
+           real screen with fixed insets instead of 100dvh — on some iOS builds
+           100dvh falls a few px short of the home-indicator edge, which left the
+           tab bar floating above the bottom. `height: auto` lets top/bottom:0
+           size the box; the bottom nav still owns its home-indicator clearance
+           via its own safe-area padding. */
+        position: fixed;
+        inset: 0;
+        height: auto;
         padding-top: var(--sat);
     }
 }

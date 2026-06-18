@@ -16,7 +16,7 @@ from fastapi.security import APIKeyHeader
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from config.settings import LOG_LEVEL
+from config.settings import LOG_LEVEL, BACKGROUND_AI_ENABLED
 from models import ollama_client
 from agent_space import background_tasks
 from observability.logging_config import configure as configure_logging
@@ -118,6 +118,15 @@ async def lifespan(app: FastAPI):
         message hits a warm model (saves several seconds of cold load on big
         Qwen/Llama variants). Failures are non-fatal — Ollama may not be up yet.
         """
+        # Respect the global power switch: if the user has the AI turned off, don't
+        # preload a model on startup — "off" should mean nothing loads on its own.
+        try:
+            from agent_space.runtime import power_manager
+            if not power_manager.is_enabled():
+                logger.info("Ollama warmup skipped: AI is powered off.")
+                return
+        except Exception:
+            pass
         # Wait for the startup probe to confirm Ollama is live before warming.
         # Without this, the warmup would race the probe and silently fail on
         # cold start, leaving the user's first chat hit cold.
@@ -152,16 +161,25 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.debug("Ollama embed warmup skipped", exc_info=True)
 
-    background_tasks.spawn(_warm_models_task(), name="ollama_warmup")
+    # Background AI (model warmup + autonomous reflection) is what touches Ollama
+    # with no user action — and what holds a model in memory while idle. Gate both
+    # behind JIMAI_BACKGROUND_AI so it can be turned off (e.g. while developing).
+    if BACKGROUND_AI_ENABLED:
+        background_tasks.spawn(_warm_models_task(), name="ollama_warmup")
 
-    # Spawn the autonomous reflection loop. The loop self-rate-limits via an
-    # idle-window check, so kicking it off at startup is cheap.
-    try:
-        from agents.thought_generator import start_background_loop
-        start_background_loop()
-        logger.info("Autonomous thought-generator loop started.")
-    except Exception as exc:
-        logger.debug("Autonomous thought loop not started: %s", exc)
+        # Spawn the autonomous reflection loop. The loop self-rate-limits via an
+        # idle-window check, so kicking it off at startup is cheap.
+        try:
+            from agents.thought_generator import start_background_loop
+            start_background_loop()
+            logger.info("Autonomous thought-generator loop started.")
+        except Exception as exc:
+            logger.debug("Autonomous thought loop not started: %s", exc)
+    else:
+        logger.info(
+            "Background AI disabled (JIMAI_BACKGROUND_AI=0): skipping Ollama warmup "
+            "and the autonomous reflection loop — models load on demand only."
+        )
     try:
         yield
     finally:

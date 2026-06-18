@@ -23,10 +23,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any
 
-from config.models import get_config
+from config.models import TURBO_CONFIGS
 from memory import db, vectordb
 from models import ollama_client
 
@@ -37,6 +38,11 @@ _MAX_BATCHES = 8
 _IDLE_WINDOW_SECONDS = 180.0     # consider the system idle if no activity in this window
 _TICK_INTERVAL_SECONDS = 600.0   # how often the loop wakes up
 _MIN_TURNS_FOR_REFLECTION = 4    # don't reflect with too little material
+
+# Background reflection runs with no user present, so it must stay cheap: always
+# use the smallest installed chat model (turbo tier — a 3B), never the user's
+# active speed tier (up to 32B on Deep). Override via JIMAI_BACKGROUND_MODEL.
+_BACKGROUND_MODEL = os.getenv("JIMAI_BACKGROUND_MODEL", TURBO_CONFIGS["chat"].model)
 
 _REFLECTION_SYSTEM = (
     "You are the user's quiet thinking partner. The user is not in the room. "
@@ -198,9 +204,22 @@ async def _collect_recent_fragments(user_id: str, n: int = 12) -> list[str]:
         return []
 
 
+def _ai_power_enabled() -> bool:
+    """Honor the global power switch: when the user turns the AI off, background
+    reflection must not load a model on its own. Defaults to enabled if the power
+    manager can't be reached, so an import hiccup doesn't silently kill the feature."""
+    try:
+        from agent_space.runtime import power_manager
+        return power_manager.is_enabled()
+    except Exception:
+        return True
+
+
 async def reflect_once(user_id: str = db.DEFAULT_USER_ID) -> dict[str, Any]:
     """Run one reflection pass and persist the result. Returns the new batch
     (or {} on failure). Public so a route can trigger reflection on demand."""
+    if not _ai_power_enabled():
+        return {}
     fragments = await _collect_recent_fragments(user_id)
     if len(fragments) < _MIN_TURNS_FOR_REFLECTION:
         return {}
@@ -209,15 +228,14 @@ async def reflect_once(user_id: str = db.DEFAULT_USER_ID) -> dict[str, Any]:
     prompt = _REFLECTION_PROMPT_TEMPLATE.format(
         fragments="\n\n---\n\n".join(capped),
     )
-    chat_cfg = get_config("chat")
     try:
         raw = await ollama_client.generate_full(
-            model=chat_cfg.model,
+            model=_BACKGROUND_MODEL,
             prompt=prompt,
             system=_REFLECTION_SYSTEM,
             temperature=0.4,
-            num_ctx=16384,
-            num_predict=1024,
+            num_ctx=8192,
+            num_predict=768,
             repeat_penalty=1.05,
         )
     except Exception as exc:

@@ -60,6 +60,7 @@ class InstanceLifecycleManager:
         stop_grace_seconds: int = 12,
         cleanup_interval_seconds: int = 5,
         client_presence_window_seconds: int = 75,
+        idle_unload_seconds: int = 90,
     ) -> None:
         ensure_layout()
         self._lock = asyncio.Lock()
@@ -76,6 +77,10 @@ class InstanceLifecycleManager:
         self._instance_ttl_seconds = max(10, int(instance_ttl_seconds))
         self._stop_grace_seconds = max(1, int(stop_grace_seconds))
         self._cleanup_interval_seconds = max(1, int(cleanup_interval_seconds))
+        # Hard idle guarantee: unload all models after this many seconds with no
+        # generation, even while the app stays connected — a backstop to Ollama's
+        # keep_alive so a large model is never left resident while idle.
+        self._idle_unload_seconds = max(15, int(os.getenv("JIMAI_IDLE_UNLOAD_SECONDS", idle_unload_seconds)))
         self._pending_stop_at: float | None = None
         self._managed_ollama_pid: int | None = None
         self._last_ollama_error = ""
@@ -191,6 +196,11 @@ class InstanceLifecycleManager:
             self._persist_state_locked()
         if should_stop:
             await self._reap_idle_ollama()
+        elif not self._runs_active():
+            # Even with the app still connected, never leave a model resident once
+            # generation has been idle past the window (no-op while a run is active
+            # or a stream is in flight).
+            await ollama_client.unload_idle_models(self._idle_unload_seconds)
         return {"stale_instances": stale_ids, "active_instances": len(self._instances)}
 
     async def _reap_idle_ollama(self) -> dict[str, Any]:

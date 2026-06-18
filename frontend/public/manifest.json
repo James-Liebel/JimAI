@@ -4,8 +4,8 @@
   "description": "jimAI local autonomous coding workspace",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#1B1A18",
+  "theme_color": "#1B1A18",
   "orientation": "portrait-primary",
   "icons": [
     {

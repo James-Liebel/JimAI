@@ -326,7 +326,7 @@ export default function AppLayout() {
 
     return (
         <div className={cn(
-            'h-full flex flex-col bg-surface-0 overflow-hidden font-sans text-text-primary',
+            'mobile-shell h-full flex flex-col bg-surface-0 overflow-hidden font-sans text-text-primary',
             isDeep && 'ring-1 ring-inset ring-accent-amber/20',
         )}>
             {!isMobile && !builderFullChrome && (

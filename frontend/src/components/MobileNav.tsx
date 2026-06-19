@@ -20,8 +20,7 @@ const QUICK_ACTIONS = [
 export default function MobileNav() {
     return (
         <nav
-            className="flex shrink-0 items-center justify-around border-t border-surface-5 bg-surface-1 md:hidden"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            className="mobile-tab-bar flex shrink-0 items-center justify-around border-t border-surface-5 bg-surface-1 md:hidden"
         >
             {TABS.map(({ to, label, icon: Icon }) => (
                 <NavLink

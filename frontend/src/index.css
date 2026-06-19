@@ -513,16 +513,37 @@ body {
 
 @media (display-mode: standalone) {
     body {
-        /* Installed PWAs have no dynamic browser toolbar, so pin the shell to the
-           real screen with fixed insets instead of 100dvh — on some iOS builds
-           100dvh falls a few px short of the home-indicator edge, which left the
-           tab bar floating above the bottom. `height: auto` lets top/bottom:0
-           size the box; the bottom nav still owns its home-indicator clearance
-           via its own safe-area padding. */
+        /* Definite full-screen height so the inner height:100% chain (#root → main →
+           page) resolves and content shrinks to leave room for the fixed bottom bar
+           rather than overlapping it. On iOS standalone, 100dvh stops at the safe-area
+           bottom, so add the inset to span the true physical screen. (height:auto here
+           collapsed that chain, letting the chat input box overlap the tab bar.) */
         position: fixed;
-        inset: 0;
-        height: auto;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: calc(100dvh + env(safe-area-inset-bottom, 0px));
         padding-top: var(--sat);
+    }
+}
+
+/* Installed phone (standalone): the in-flow tab bar sat short of the screen edge
+   on iOS, so anchor it to the viewport bottom and reserve its height on the shell
+   so page content (e.g. the chat input) clears it. */
+@media (display-mode: standalone) and (max-width: 767px) {
+    .mobile-tab-bar {
+        position: fixed;
+        /* Pull the bar all the way to the physical bottom edge — iOS anchors fixed
+           bottom:0 to the safe area, so push down by the inset. Buttons sit low into
+           the home-indicator zone, Snapchat-style (no extra clearance). */
+        bottom: calc(env(safe-area-inset-bottom, 0px) * -1);
+        left: 0;
+        right: 0;
+        z-index: 50;
+    }
+
+    .mobile-shell {
+        padding-bottom: 60px;
     }
 }
 

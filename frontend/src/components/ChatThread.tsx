@@ -45,7 +45,7 @@ export default function ChatThread({ messages, isStreaming, searchingWeb = false
                 <>
                     {/* full-bleed ambient gradient — fills the whole thread area edge to edge */}
                     <div aria-hidden className="hero-bg" />
-                    <div className={`relative flex h-full flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[16vh]' : 'justify-center'}`}>
+                    <div className={`relative z-10 flex h-full flex-col items-center text-text-muted animate-fade-in px-4 ${isMobile ? 'pt-[16vh]' : 'justify-center'}`}>
                     <div className="hero-orb-scene relative mb-6">
                         <div className={`hero-orb flex items-center justify-center font-bold text-white ${isMobile ? 'h-16 w-16 text-lg' : 'h-20 w-20 text-xl'}`}>
                             <span className="drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)]">AI</span>

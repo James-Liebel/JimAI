@@ -477,8 +477,12 @@ button:disabled {
    the orb sits, a soft top-down warm light, and a faint gold lift from the
    bottom. Layered radials read as an intentional mesh, not loose blobs. */
 .hero-bg {
-    position: absolute;
+    /* Fixed (not absolute) so the warm wash spans the whole screen behind the chat
+       home — the thread only covers the middle band, which left the header/input
+       areas un-tinted. pointer-events:none + low z keeps it a backdrop. */
+    position: fixed;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     background:
         radial-gradient(60% 50% at 50% 40%, rgba(201, 100, 66, 0.22), transparent 72%),
@@ -533,17 +537,19 @@ body {
 @media (display-mode: standalone) and (max-width: 767px) {
     .mobile-tab-bar {
         position: fixed;
-        /* Pull the bar all the way to the physical bottom edge — iOS anchors fixed
-           bottom:0 to the safe area, so push down by the inset. Buttons sit low into
-           the home-indicator zone, Snapchat-style (no extra clearance). */
+        /* Pull the bar's background to the physical bottom edge (iOS anchors fixed
+           bottom:0 to the safe area, so push down by the inset), then lift the icons
+           a little (0.5x the inset) so the labels clear the home indicator and the
+           whole bar stays visible — low like Snapchat, but not clipped. */
         bottom: calc(env(safe-area-inset-bottom, 0px) * -1);
+        padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5);
         left: 0;
         right: 0;
         z-index: 50;
     }
 
     .mobile-shell {
-        padding-bottom: 60px;
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) * 0.5);
     }
 }
 

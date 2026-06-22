@@ -23,7 +23,7 @@ export default function MobileNav() {
             className="mobile-tab-bar flex shrink-0 items-center justify-around border-t border-surface-5 bg-surface-1 md:hidden"
             // Inline so the opaque fill + safe-area padding can't be lost to CSS
             // specificity, a media-query miss, or a stale cached stylesheet.
-            style={{ backgroundColor: '#1B1A18', paddingBottom: 'env(safe-area-inset-bottom)' }}
+            style={{ backgroundColor: '#1B1A18', paddingBottom: 'calc(env(safe-area-inset-bottom) * 0.75)' }}
         >
             {TABS.map(({ to, label, icon: Icon }) => (
                 <NavLink

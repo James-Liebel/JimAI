@@ -517,39 +517,35 @@ body {
 
 @media (display-mode: standalone) {
     body {
-        /* Definite full-screen height so the inner height:100% chain (#root → main →
-           page) resolves and content shrinks to leave room for the fixed bottom bar
-           rather than overlapping it. On iOS standalone, 100dvh stops at the safe-area
-           bottom, so add the inset to span the true physical screen. (height:auto here
-           collapsed that chain, letting the chat input box overlap the tab bar.) */
+        /* Full-screen height (definite) so the inner height:100% chain (#root → main →
+           page) resolves and content leaves room for the fixed bottom bar. */
         position: fixed;
         top: 0;
         left: 0;
         right: 0;
-        height: calc(100dvh + env(safe-area-inset-bottom, 0px));
+        height: 100dvh;
         padding-top: var(--sat);
     }
 }
 
-/* Installed phone (standalone): the in-flow tab bar sat short of the screen edge
-   on iOS, so anchor it to the viewport bottom and reserve its height on the shell
-   so page content (e.g. the chat input) clears it. */
+/* Installed phone (standalone): fixed bottom nav, standard safe-area pattern. */
 @media (display-mode: standalone) and (max-width: 767px) {
     .mobile-tab-bar {
+        /* Anchor to the bottom edge and pad the bottom by the safe-area inset. The
+           padding extends the bar's background down behind the home indicator (no
+           gap/cutout), while the nav items sit above the safe area. */
         position: fixed;
-        /* Pull the bar's background to the physical bottom edge (iOS anchors fixed
-           bottom:0 to the safe area, so push down by the inset), then lift the icons
-           a little (0.5x the inset) so the labels clear the home indicator and the
-           whole bar stays visible — low like Snapchat, but not clipped. */
-        bottom: calc(env(safe-area-inset-bottom, 0px) * -1);
-        padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5);
+        bottom: 0;
         left: 0;
         right: 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
         z-index: 50;
     }
 
+    /* Wrapping layout: reserve the bar's full height (items + safe-area inset) so page
+       content (e.g. the chat input) clears it. */
     .mobile-shell {
-        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) * 0.5);
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px));
     }
 }
 

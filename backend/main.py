@@ -491,6 +491,14 @@ if _FRONTEND_DIST.is_dir():
     from starlette.responses import FileResponse as _FileResponse
     from starlette.exceptions import HTTPException as _StarletteHTTPException
 
+    def _no_cache(response):
+        """Force the SPA shell to revalidate. index.html references content-hashed
+        asset bundles, so if the browser / service worker / installed PWA caches the
+        shell, new builds never load — the stale shell keeps pointing at old bundles.
+        Hashed files under /assets/ are immutable, so they stay cacheable as-is."""
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
     def _spa_shell_or_none(path: str):
         """index.html for a client-side route, else None (keep the real 404).
 
@@ -501,7 +509,7 @@ if _FRONTEND_DIST.is_dir():
         if normalized.startswith(_NON_SPA_PREFIXES):
             return None
         index = _FRONTEND_DIST / "index.html"
-        return _FileResponse(index) if index.is_file() else None
+        return _no_cache(_FileResponse(index)) if index.is_file() else None
 
     class _SpaStaticFiles(_StaticFiles):
         """StaticFiles that falls back to index.html for client-side routes
@@ -524,6 +532,10 @@ if _FRONTEND_DIST.is_dir():
                 shell = _spa_shell_or_none(path)
                 if shell is not None:
                     return shell
+            # The HTML shell (index.html, including the root "/") must revalidate so
+            # new builds load; hashed /assets/ files keep their default caching.
+            if getattr(response, "media_type", None) == "text/html":
+                return _no_cache(response)
             return response
 
     app.mount("/", _SpaStaticFiles(directory=str(_FRONTEND_DIST), html=True), name="frontend")

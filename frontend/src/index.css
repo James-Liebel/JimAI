@@ -545,7 +545,7 @@ body {
     /* Wrapping layout: reserve the bar's full height (items + safe-area inset) so page
        content (e.g. the chat input) clears it. */
     .mobile-shell {
-        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) * 0.75);
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) * 0.5);
     }
 }
 

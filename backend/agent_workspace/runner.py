@@ -57,7 +57,10 @@ async def run_agent_task(
         system=system,
         stream=True,
         temperature=0.5,
-        num_ctx=32768,
+        # 16K, not 32K: at 32K a 14B's weights (~9GB) + KV cache (~6GB) overflow a
+        # 16GB GPU, so Ollama spills layers to CPU (100% CPU, model stuck loaded).
+        # 16K keeps the run fully on-GPU. Raise only with KV-cache quantization.
+        num_ctx=16384,
     ):
         yield f"data: {json.dumps({'text': chunk, 'done': False, 'model': agent.model, 'type': 'task'})}\n\n"
     yield f"data: {json.dumps({'text': '', 'done': True, 'model': agent.model, 'type': 'task'})}\n\n"

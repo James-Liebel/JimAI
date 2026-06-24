@@ -477,8 +477,12 @@ button:disabled {
    the orb sits, a soft top-down warm light, and a faint gold lift from the
    bottom. Layered radials read as an intentional mesh, not loose blobs. */
 .hero-bg {
-    position: absolute;
+    /* Fixed (not absolute) so the warm wash spans the whole screen behind the chat
+       home — the thread only covers the middle band, which left the header/input
+       areas un-tinted. pointer-events:none + low z keeps it a backdrop. */
+    position: fixed;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     background:
         radial-gradient(60% 50% at 50% 40%, rgba(201, 100, 66, 0.22), transparent 72%),
@@ -513,16 +517,35 @@ body {
 
 @media (display-mode: standalone) {
     body {
-        /* Installed PWAs have no dynamic browser toolbar, so pin the shell to the
-           real screen with fixed insets instead of 100dvh — on some iOS builds
-           100dvh falls a few px short of the home-indicator edge, which left the
-           tab bar floating above the bottom. `height: auto` lets top/bottom:0
-           size the box; the bottom nav still owns its home-indicator clearance
-           via its own safe-area padding. */
+        /* Full-screen height (definite) so the inner height:100% chain (#root → main →
+           page) resolves and content leaves room for the fixed bottom bar. */
         position: fixed;
-        inset: 0;
-        height: auto;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 100dvh;
         padding-top: var(--sat);
+    }
+}
+
+/* Installed phone (standalone): fixed bottom nav, standard safe-area pattern. */
+@media (display-mode: standalone) and (max-width: 767px) {
+    .mobile-tab-bar {
+        /* Anchor to the bottom edge and pad the bottom by the safe-area inset. The
+           padding extends the bar's background down behind the home indicator (no
+           gap/cutout), while the nav items sit above the safe area. */
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        z-index: 50;
+    }
+
+    /* Wrapping layout: reserve the bar's full height (items + safe-area inset) so page
+       content (e.g. the chat input) clears it. */
+    .mobile-shell {
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px) * 0.5);
     }
 }
 

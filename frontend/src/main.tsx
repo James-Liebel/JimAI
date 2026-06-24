@@ -20,7 +20,7 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';
 import './index.css';
 
-const SERVICE_WORKER_VERSION = '2026-06-14-1';
+const SERVICE_WORKER_VERSION = '2026-06-22-1';
 
 // Chat is the default landing route — keep a reference to its dynamic import so
 // we can warm it on requestIdleCallback before the user clicks anything.

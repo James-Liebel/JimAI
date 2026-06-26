@@ -347,6 +347,137 @@ class SkillStore:
                 "Record release decision log for every production-impacting change.",
             ],
         },
+        # ── Everyday power-user commands (invoke in chat with /slug, e.g. /goal) ──
+        {
+            "name": "Goal",
+            "slug": "goal",
+            "description": "Turn a fuzzy aim into a concrete plan: milestones, success criteria, and the next action.",
+            "tags": ["goal", "planning", "productivity", "milestones"],
+            "complexity": 3,
+            "workflow": [
+                "Restate the goal as a measurable outcome with a target date.",
+                "Break it into milestones and the single next concrete action.",
+                "Define success criteria and how progress will be tracked.",
+                "Flag the top risks/blockers with a fallback for each.",
+            ],
+        },
+        {
+            "name": "Ghostwriter",
+            "slug": "ghost",
+            "description": "Draft in the user's own voice and tone — emails, posts, replies — not generic AI prose.",
+            "tags": ["writing", "voice", "ghostwriter", "tone", "drafting"],
+            "complexity": 3,
+            "workflow": [
+                "Infer the user's tone, vocabulary, and sentence rhythm from their input and history.",
+                "Draft in that voice, matching length and register to the context.",
+                "Cut filler and cliches; keep it natural and human, never 'AI-sounding'.",
+                "Offer one alternative phrasing for the key lines.",
+            ],
+        },
+        {
+            "name": "Summarize",
+            "slug": "summarize",
+            "description": "Condense long text into a TL;DR, key points, and action items without losing specifics.",
+            "tags": ["summary", "tldr", "notes", "distill"],
+            "complexity": 2,
+            "workflow": [
+                "Lead with a one-sentence TL;DR.",
+                "List the key points as tight bullets.",
+                "Extract decisions, action items, and open questions separately.",
+                "Preserve names, numbers, and dates exactly.",
+            ],
+        },
+        {
+            "name": "Brainstorm",
+            "slug": "brainstorm",
+            "description": "Generate many diverse ideas across angles, then converge on the strongest few.",
+            "tags": ["ideation", "brainstorm", "creativity", "divergent"],
+            "complexity": 2,
+            "workflow": [
+                "Produce 8-12 varied ideas across different angles, no filtering yet.",
+                "Group them and note any non-obvious combinations.",
+                "Pick the top 3 with a one-line rationale each.",
+                "Suggest the cheapest next step to test the top pick.",
+            ],
+        },
+        {
+            "name": "Critique",
+            "slug": "critique",
+            "description": "Stress-test an idea, plan, or draft — surface flaws, risks, and the sharpest counterargument.",
+            "tags": ["critique", "red-team", "review", "risks", "feedback"],
+            "complexity": 3,
+            "workflow": [
+                "State the strongest version of the thing first (steelman it).",
+                "List concrete weaknesses, risks, and failure modes.",
+                "Give the sharpest counterargument an expert would raise.",
+                "Recommend specific fixes, ranked by impact.",
+            ],
+        },
+        {
+            "name": "Explain",
+            "slug": "explain",
+            "description": "Explain a concept clearly at a chosen depth, from ELI5 to expert.",
+            "tags": ["explain", "teaching", "eli5", "clarity"],
+            "complexity": 2,
+            "workflow": [
+                "State the core idea in one plain sentence.",
+                "Build intuition with a concrete analogy or example.",
+                "Add the precise/technical layer for depth.",
+                "End with the most common misconception to avoid.",
+            ],
+        },
+        {
+            "name": "Rewrite",
+            "slug": "rewrite",
+            "description": "Improve given text for clarity, concision, and tone without changing its meaning.",
+            "tags": ["editing", "rewrite", "polish", "clarity", "tone"],
+            "complexity": 2,
+            "workflow": [
+                "Preserve the original meaning and all key facts exactly.",
+                "Cut filler, tighten sentences, and fix the flow.",
+                "Match the requested tone, or keep the author's if unspecified.",
+                "Return the revised version and flag any meaning that was ambiguous.",
+            ],
+        },
+        {
+            "name": "Extract",
+            "slug": "extract",
+            "description": "Pull clean structured data (JSON/table/list) out of messy text.",
+            "tags": ["extract", "structured", "parsing", "data"],
+            "complexity": 2,
+            "workflow": [
+                "Identify the entities and fields to extract.",
+                "Output clean structured data (JSON or a table) and nothing else.",
+                "Mark missing or uncertain values explicitly instead of guessing.",
+                "Keep source values verbatim where exactness matters.",
+            ],
+        },
+        {
+            "name": "Decide",
+            "slug": "decide",
+            "description": "Weigh options against the criteria that matter and give a clear recommendation.",
+            "tags": ["decision", "tradeoffs", "comparison", "recommendation"],
+            "complexity": 3,
+            "workflow": [
+                "List the real options and the criteria that actually matter.",
+                "Score each option against the criteria, naming assumptions.",
+                "State the recommendation and the single biggest tradeoff.",
+                "Name the condition that would flip the decision.",
+            ],
+        },
+        {
+            "name": "Prompt",
+            "slug": "prompt",
+            "description": "Rewrite a vague prompt into a high-signal one: clear goal, context, and output spec.",
+            "tags": ["prompt", "meta", "llm", "instructions"],
+            "complexity": 2,
+            "workflow": [
+                "Identify the true goal and the context missing from the original.",
+                "Rewrite with explicit role, task, constraints, and output format.",
+                "Add one or two examples or edge cases if they sharpen it.",
+                "Keep it concise — every line must earn its place.",
+            ],
+        },
     ]
 
     _KEYWORD_SKILL_BOOSTS: dict[str, str] = {
@@ -614,6 +745,18 @@ class SkillStore:
         if cached is not None:
             return dict(cached)
         return self._read_skill(slug)
+
+    def resolve_command(self, message: str) -> dict[str, Any] | None:
+        """A leading /<slug> slash-command in a message invokes that skill — lets a
+        user fire a skill from any chat, e.g. '/goal launch a podcast'. Returns the
+        matched skill, or None when there's no leading slash-command or no match."""
+        text = str(message or "").lstrip()
+        if not text.startswith("/"):
+            return None
+        token = re.split(r"\s+", text[1:].strip(), maxsplit=1)[0].strip()
+        if not token:
+            return None
+        return self.get_skill(token)
 
     def upsert_skill(
         self,

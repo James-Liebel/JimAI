@@ -1217,12 +1217,21 @@ async def _stream_chat(
     except Exception:
         logger.debug("feedback lessons injection skipped", exc_info=True)
 
-    # Markdown skills from Agent Space (manual selection + optional auto-match on user message).
+    # Markdown skills from Agent Space: explicit /slash-command, manual selection, or auto-match.
     try:
         from agent_space.runtime import skill_store as _agent_skill_store
 
         skills_for_prompt: list[dict] = []
         seen_skill_slugs: set[str] = set()
+
+        # Explicit slash-command: a leading /<slug> invokes that skill directly (e.g. /goal).
+        commanded_name = ""
+        commanded = _agent_skill_store.resolve_command(message)
+        if isinstance(commanded, dict) and commanded.get("slug"):
+            skills_for_prompt.append(dict(commanded))
+            seen_skill_slugs.add(str(commanded.get("slug")))
+            commanded_name = str(commanded.get("name") or commanded.get("slug"))
+
         for raw in list(skill_slugs or []):
             sid = str(raw or "").strip()
             if not sid or sid in seen_skill_slugs:
@@ -1242,11 +1251,13 @@ async def _stream_chat(
         if skills_for_prompt:
             skill_ctx = _agent_skill_store.build_context(skills_for_prompt, max_chars=10000)
             if skill_ctx.strip():
-                system_prompt = (
-                    f"{system_prompt}\n\n## Active skills\n"
-                    "Apply these reusable procedures when they improve accuracy or consistency:\n"
-                    f"{skill_ctx}"
+                lead = (
+                    f"The user explicitly invoked the **{commanded_name}** skill via a slash-command — "
+                    "apply it directly to their request.\n"
+                    if commanded_name
+                    else "Apply these reusable procedures when they improve accuracy or consistency:\n"
                 )
+                system_prompt = f"{system_prompt}\n\n## Active skills\n{lead}{skill_ctx}"
     except Exception:
         logger.debug("Chat skill injection skipped", exc_info=True)
 

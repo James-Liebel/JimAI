@@ -524,7 +524,7 @@ export default function Agents() {
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-medium text-text-primary truncate leading-tight">{a.name}</div>
                                                 <div className="text-[11px] text-text-muted truncate mt-0.5">{a.role}</div>
-                                                <span className="mt-1 inline-block rounded-badge border border-surface-4 bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+                                                <span className="mt-1 inline-block max-w-full truncate align-bottom rounded-badge border border-surface-4 bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
                                                     {a.model}
                                                 </span>
                                             </div>

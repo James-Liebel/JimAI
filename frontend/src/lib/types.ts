@@ -121,14 +121,21 @@ export interface AgentUpdate {
     keepalive?: boolean;
 }
 
+/**
+ * `label` names the model in the dropdown, where there is room to be explicit.
+ * `short` is what the chip shows once one is picked — the chip sits on one line
+ * next to the routing preview, so a long label would push it off a phone screen.
+ */
 export const MODEL_OPTIONS = [
-    { value: '', label: 'Auto (recommended)', color: '' },
-    { value: 'math', label: 'Math model', color: 'border-accent-blue' },
-    { value: 'code', label: 'Code model', color: 'border-accent-green' },
-    { value: 'chat', label: 'Chat model', color: 'border-surface-4' },
-    { value: 'vision', label: 'Vision model', color: 'border-accent-purple' },
-    { value: 'writing', label: 'Chat (writing style)', color: 'border-accent-amber' },
-    { value: 'data', label: 'Data science model', color: 'border-accent-green' },
-    { value: 'finance', label: 'Finance model', color: 'border-accent-blue' },
-    { value: 'uncensored', label: 'Uncensored model', color: 'border-accent-purple' },
+    { value: '', label: 'Auto (recommended)', short: 'Auto', color: '' },
+    { value: 'math', label: 'Math model', short: 'Math', color: 'border-accent-blue' },
+    { value: 'code', label: 'Code model', short: 'Code', color: 'border-accent-green' },
+    { value: 'chat', label: 'Chat model', short: 'Chat', color: 'border-surface-4' },
+    { value: 'vision', label: 'Vision model', short: 'Vision', color: 'border-accent-purple' },
+    { value: 'writing', label: 'Chat (writing style)', short: 'Writing', color: 'border-accent-amber' },
+    { value: 'data', label: 'Data science model', short: 'Data', color: 'border-accent-green' },
+    { value: 'finance', label: 'Finance model', short: 'Finance', color: 'border-accent-blue' },
+    { value: 'uncensored-12b', label: 'Gemma 4 12B — uncensored', short: 'Gemma 12B', color: 'border-accent-purple' },
+    { value: 'uncensored-27b', label: 'Qwen3.8 27B — uncensored', short: 'Qwen 27B', color: 'border-accent-purple' },
+    { value: 'uncensored-vl', label: 'Qwen3-VL 8B — uncensored vision', short: 'Qwen VL 8B', color: 'border-accent-purple' },
 ] as const;

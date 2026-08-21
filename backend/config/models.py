@@ -301,17 +301,21 @@ UNCENSORED_PROMPT = """You are a direct, unfiltered assistant. Answer what was a
 # MODEL CONFIGS — THREE TIERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Uncensored GGUFs pulled straight from Hugging Face. Nothing here is ever auto-routed:
-# the `uncensored` role is reachable only from the model dropdown, and the abliterated
-# VL model only from Deep mode. Swap a string to try a different build — nothing else
-# needs to change.
-#
-# Gemma 4 12B carries the uncensored role in every tier but Deep: 8.6GB at Q5_K_M reads
-# better and runs faster than the 27B does at IQ2, since a 2-bit quant gives back most
-# of what the extra parameters buy. Deep gets the 27B for the cases where size wins.
-UNCENSORED_MODEL = "hf.co/culturerevolt/gemma-4-12b-heretic-abliterated-GGUF:Q5_K_M"
-UNCENSORED_DEEP_MODEL = "hf.co/HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF:IQ2_M"
-UNCENSORED_VISION_MODEL = "hf.co/mradermacher/Qwen3-VL-8B-Instruct-abliterated-GGUF:Q6_K"
+# Uncensored GGUFs pulled straight from Hugging Face. None of these are ever
+# auto-routed — each has its own role so it can be picked by name in the model
+# dropdown, and the speed tier then controls only how many tokens it may spend.
+# Swap a string to try a different build; nothing else needs to change.
+UNCENSORED_12B_MODEL = "hf.co/culturerevolt/gemma-4-12b-heretic-abliterated-GGUF:Q5_K_M"
+UNCENSORED_27B_MODEL = "hf.co/HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF:IQ2_M"
+UNCENSORED_VL_MODEL = "hf.co/mradermacher/Qwen3-VL-8B-Instruct-abliterated-GGUF:Q6_K"
+
+# Roles that are allowed to receive an attached image. Picking the abliterated VL
+# by name has to actually send the image, not silently drop it.
+VISION_ROLES = frozenset({"vision", "uncensored-vl"})
+
+
+def is_vision_role(role: str) -> bool:
+    return role in VISION_ROLES
 
 BALANCED_CONFIGS: dict[str, ModelConfig] = {
     "math": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=MATH_PROMPT_BALANCED),
@@ -321,7 +325,9 @@ BALANCED_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=FINANCE_PROMPT),
     "writing": ModelConfig(model="qwen3:8b", temperature=0.75, speed_mode=SpeedMode.BALANCED, system_prompt=""),  # dynamic from style_profile.json
     "data": ModelConfig(model="qwen2.5-coder:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=CODE_PROMPT_BALANCED),
-    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.BALANCED, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-12b": ModelConfig(model=UNCENSORED_12B_MODEL, temperature=0.7, speed_mode=SpeedMode.BALANCED, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-27b": ModelConfig(model=UNCENSORED_27B_MODEL, temperature=0.7, speed_mode=SpeedMode.BALANCED, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-vl": ModelConfig(model=UNCENSORED_VL_MODEL, temperature=0.2, speed_mode=SpeedMode.BALANCED, system_prompt=VISION_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.BALANCED, system_prompt=""),
 }
 
@@ -333,7 +339,9 @@ FAST_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen2-math:7b-instruct", temperature=0.1, speed_mode=SpeedMode.FAST, system_prompt=MATH_PROMPT_FAST),
     "writing": ModelConfig(model="qwen3:8b", temperature=0.75, speed_mode=SpeedMode.FAST, system_prompt=""),
     "data": ModelConfig(model="qwen2.5-coder:7b", temperature=0.1, speed_mode=SpeedMode.FAST, system_prompt=DATA_PROMPT_FAST),
-    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.FAST, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-12b": ModelConfig(model=UNCENSORED_12B_MODEL, temperature=0.7, speed_mode=SpeedMode.FAST, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-27b": ModelConfig(model=UNCENSORED_27B_MODEL, temperature=0.7, speed_mode=SpeedMode.FAST, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-vl": ModelConfig(model=UNCENSORED_VL_MODEL, temperature=0.2, speed_mode=SpeedMode.FAST, system_prompt=VISION_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.FAST, system_prompt=""),
 }
 
@@ -341,11 +349,13 @@ DEEP_CONFIGS: dict[str, ModelConfig] = {
     "math": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "code": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.05, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "chat": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "vision": ModelConfig(model=UNCENSORED_VISION_MODEL, temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),  # Deep is explicit-only, so the abliterated VL lives here
+    "vision": ModelConfig(model="qwen2.5vl:7b", temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),   # no 32B vision
     "finance": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "writing": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.75, speed_mode=SpeedMode.DEEP, system_prompt=""),
     "data": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "uncensored": ModelConfig(model=UNCENSORED_DEEP_MODEL, temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-12b": ModelConfig(model=UNCENSORED_12B_MODEL, temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-27b": ModelConfig(model=UNCENSORED_27B_MODEL, temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-vl": ModelConfig(model=UNCENSORED_VL_MODEL, temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.DEEP, system_prompt=""),
 }
 
@@ -359,7 +369,9 @@ TURBO_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen3:8b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=MATH_PROMPT_FAST),
     "writing": ModelConfig(model="qwen2.5-coder:3b", temperature=0.75, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CHAT),
     "data": ModelConfig(model="qwen2.5-coder:3b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CODE),
-    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.TURBO, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-12b": ModelConfig(model=UNCENSORED_12B_MODEL, temperature=0.7, speed_mode=SpeedMode.TURBO, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-27b": ModelConfig(model=UNCENSORED_27B_MODEL, temperature=0.7, speed_mode=SpeedMode.TURBO, system_prompt=UNCENSORED_PROMPT),
+    "uncensored-vl": ModelConfig(model=UNCENSORED_VL_MODEL, temperature=0.2, speed_mode=SpeedMode.TURBO, system_prompt=VISION_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.TURBO, system_prompt=""),
 }
 
@@ -472,9 +484,9 @@ MODEL_DISPLAY: dict[str, dict] = {
     "qwen2.5:32b-instruct-q4_K_M": {"label": "32B·Q4", "color": "amber"},
     "qwen2.5-coder:32b-instruct-q4_K_M": {"label": "Coder·32B", "color": "green"},
     "qwen3:32b": {"label": "Qwen3·32B", "color": "amber"},
-    UNCENSORED_MODEL: {"label": "Uncensored·12B", "color": "red"},
-    UNCENSORED_DEEP_MODEL: {"label": "Uncensored·27B", "color": "red"},
-    UNCENSORED_VISION_MODEL: {"label": "Uncensored·VL·8B", "color": "red"},
+    UNCENSORED_12B_MODEL: {"label": "Gemma·12B", "color": "purple"},
+    UNCENSORED_27B_MODEL: {"label": "Qwen·27B", "color": "purple"},
+    UNCENSORED_VL_MODEL: {"label": "Qwen·VL·8B", "color": "purple"},
     "nomic-embed-text": {"label": "Embed", "color": "gray"},
     # legacy — kept for display if old model name appears in history
     "deepseek-r1:14b": {"label": "R1·14B", "color": "blue"},

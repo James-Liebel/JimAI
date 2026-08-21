@@ -570,7 +570,7 @@ export default function SelfCode() {
                         </button>
                     </div>
                     {analyzerSnap.model && (
-                        <p className="mt-2 font-mono text-[10px] text-text-muted">model: {analyzerSnap.model}</p>
+                        <p className="mt-2 break-all font-mono text-[10px] text-text-muted">model: {analyzerSnap.model}</p>
                     )}
                     {(analyzerSnap.message || analyzerSnap.error) && (
                         <p

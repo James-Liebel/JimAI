@@ -23,7 +23,16 @@ const ROLE_MODEL_MAP: Record<string, Record<string, string>> = {
     deep:     { math: 'qwen2.5:32b-q3',   code: 'qwen2.5:32b-q3',    chat: 'qwen2.5:32b-q3',    vision: 'qwen2.5vl:7b', data: 'qwen2.5:32b-q3' },
 };
 
+// Roles pinned to one model regardless of tier — the tier map below does not cover them.
+const FIXED_ROLE_MODELS: Record<string, string> = {
+    'uncensored-12b': 'gemma-4-12b',
+    'uncensored-27b': 'qwen3.8-27b',
+    'uncensored-vl': 'qwen3-vl-8b',
+};
+
 function resolveModelLabel(role: string, speedMode: string): string {
+    const fixed = FIXED_ROLE_MODELS[role];
+    if (fixed) return fixed;
     const models = ROLE_MODEL_MAP[speedMode] || ROLE_MODEL_MAP.balanced;
     const model = models[role] || models.chat;
     const suffix: Record<string, string> = { turbo: ' turbo', fast: ' (fast)', deep: ' (deep)' };
@@ -151,7 +160,7 @@ export default function InputBar({
     const modelSelectValue = modelOverride || (validSpeedModes.has(speedMode) ? `__speed_${speedMode}` : '__speed_balanced');
     const SPEED_SHORT: Record<string, string> = { turbo: 'Turbo 3B', fast: 'Fast 7B', balanced: 'Balanced 14B', deep: 'Deep 32B' };
     const chipLabel = modelOverride
-        ? overrideOption?.label ?? modelOverride
+        ? overrideOption?.short ?? modelOverride
         : `Auto · ${SPEED_SHORT[speedMode] ?? 'Balanced 14B'}`;
 
     return (
@@ -224,9 +233,10 @@ export default function InputBar({
                         </>
                     )}
                     {modelOverride && (
-                        <span className="animate-fade-in flex items-center gap-1">
-                            <Lock size={10} className="opacity-70" />
-                            <span className="opacity-50">→</span> {overrideOption?.label} (manual)
+                        <span className="animate-fade-in flex min-w-0 items-center gap-1">
+                            <Lock size={10} className="shrink-0 opacity-70" />
+                            <span className="shrink-0 opacity-50">→</span>
+                            <span className="truncate">{overrideOption?.label} (manual)</span>
                         </span>
                     )}
                 </div>

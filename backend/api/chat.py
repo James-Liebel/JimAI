@@ -23,7 +23,7 @@ from agents.reasoner import (
 )
 from agents.self_consistency import self_consistent_quant
 from config.inference_params import get_inference_params
-from config.models import MODEL_ROUTES, get_speed_mode
+from config.models import MODEL_ROUTES, get_speed_mode, is_vision_role
 from config.settings import (
     LAYERED_REVIEW_ENABLED,
     REVIEW_MODEL_ROLE,
@@ -1397,7 +1397,7 @@ async def _stream_chat(
         cfg_a = get_model_config(role_a)
         cfg_b = get_model_config(role_b)
         judge_config = get_model_config(judge_role)
-        images = [image_b64] if image_b64 and mode == "vision" else None
+        images = [image_b64] if image_b64 and is_vision_role(mode) else None
         chat_messages_compare = ollama_client._build_chat_messages(
             history_for_model,
             augmented_prompt,
@@ -1483,7 +1483,7 @@ async def _stream_chat(
         big_code_chars = sum(len(m) for m in re.findall(r"```[\s\S]*?```", message))
         if big_code_chars >= 800:
             params["num_predict"] = max(int(params.get("num_predict") or 0), 4096)
-    images = [image_b64] if image_b64 and mode == "vision" else None
+    images = [image_b64] if image_b64 and is_vision_role(mode) else None
     chat_messages = ollama_client._build_chat_messages(
         history_for_model,
         augmented_prompt,

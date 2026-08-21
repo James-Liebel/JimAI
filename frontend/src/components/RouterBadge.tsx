@@ -16,6 +16,9 @@ const ROLE_STYLES: Record<string, string> = {
     data: 'bg-accent-green/15 text-accent-green border-accent-green/25',
     finance: 'bg-accent-blue/15 text-accent-blue border-accent-blue/25',
     override: 'bg-surface-4/50 text-text-secondary border-surface-4',
+    'uncensored-12b': 'bg-accent-purple/15 text-accent-purple border-accent-purple/25',
+    'uncensored-27b': 'bg-accent-purple/15 text-accent-purple border-accent-purple/25',
+    'uncensored-vl': 'bg-accent-purple/15 text-accent-purple border-accent-purple/25',
     deep: 'bg-status-warning/15 text-status-warning border-status-warning/25',
 };
 
@@ -32,7 +35,13 @@ function modelShortName(model: string): string {
     if (model.includes('qwen2-math')) return 'Math-7B';
     if (model.includes('qwen2.5:32b')) return 'Qwen2.5-32B';
     if (model.includes('nomic-embed')) return 'Embed';
-    return model.split(':')[0];
+    if (model.includes('gemma-4-12b-heretic')) return 'Gemma-12B';
+    if (model.includes('Qwen3.8-27B-Uncensored')) return 'Qwen-27B';
+    if (model.includes('Qwen3-VL-8B-Instruct-abliterated')) return 'Qwen-VL-8B';
+    // Hugging Face refs are a full repo path (hf.co/owner/name-GGUF:QUANT); splitting
+    // on ':' leaves ~56 characters, which overflows the badge on a phone.
+    const leaf = model.split('/').pop() ?? model;
+    return leaf.split(':')[0].replace(/-GGUF$/i, '').slice(0, 18);
 }
 
 const SPEED_STYLES: Record<string, string> = {

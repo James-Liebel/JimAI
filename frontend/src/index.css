@@ -24,7 +24,11 @@
     --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.25);
     --mobile-nav-h: calc(60px + var(--mobile-nav-pad));
 
-    /* Design system tokens — warm-neutral charcoal surfaces, cream text, clay accent. */
+    /* Design system tokens — warm-neutral charcoal surfaces, cream text, UChicago maroon.
+       UChicago maroon is #800000, which fails contrast as text on these surfaces, so the
+       interactive accent is lifted to #CC605C — 4.47:1 here, matching the contrast of the
+       clay accent it replaces — and true maroon is kept as --accent-deep for fills that
+       carry white text, where it lands at 10.9:1. */
     --bg-base: #1B1A18;
     --bg-surface: #222120;
     --bg-elevated: #2A2826;
@@ -35,11 +39,12 @@
     --text-primary: #F3F1EC;
     --text-secondary: #B6B2AB;
     --text-muted: #837F78;
-    --accent: #C96442;
-    --accent-dim: rgba(201, 100, 66, 0.12);
-    --success: #7BA05B;
-    --warning: #D9A441;
-    --danger: #C0584B;
+    --accent: #CC605C;
+    --accent-deep: #800000;
+    --accent-dim: rgba(204, 96, 92, 0.12);
+    --success: #9BA45A;
+    --warning: #FFA319;
+    --danger: #E8776A;
 
     /* Legacy compat aliases */
     --bg-0: #1B1A18;
@@ -52,10 +57,10 @@
     --text-0: #F3F1EC;
     --text-1: #B6B2AB;
     --text-2: #837F78;
-    --focus: #C96442;
-    --ok: #7BA05B;
-    --warn: #D9A441;
-    --bad: #C0584B;
+    --focus: #CC605C;
+    --ok: #9BA45A;
+    --warn: #FFA319;
+    --bad: #E8776A;
 }
 
 html,
@@ -65,7 +70,7 @@ body,
     overflow: hidden;
     font-size: 15px;
     line-height: 1.6;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Size the shell to the *visible* (dynamic) viewport. Plain `height: 100%`
@@ -82,27 +87,26 @@ body,
 
 body {
     color: var(--text-primary);
-    /* Inter is designed for tight tracking; a hair negative reads cleaner than
-       the loose spacing the old geometric face needed. */
-    letter-spacing: -0.006em;
+    /* Montserrat is a geometric face drawn on its own metrics — it sets evenly at
+       default tracking, where the negative value Inter wanted would crowd it. */
+    letter-spacing: normal;
     background: var(--bg-base);
     /* Crisp type + no flash on tap — small things that read as "polished". */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     -webkit-tap-highlight-color: transparent;
-    font-feature-settings: 'cv11', 'ss01';
 }
 
-/* Serif display face for headings/wordmarks — the editorial, warm counterpart to
-   Inter's neutral body. Applied via the `font-serif` utility, not globally. */
+/* Serif display face for headings/wordmarks — stands in for Mercury against
+   Montserrat's Gotham-like body. Applied via the `font-serif` utility, not globally. */
 .font-serif {
     letter-spacing: -0.01em;
     font-feature-settings: normal;
 }
 
 ::selection {
-    background: rgba(201, 100, 66, 0.32);
+    background: rgba(204, 96, 92, 0.38);
     color: #FBF7EF;
 }
 
@@ -227,7 +231,7 @@ textarea:focus-visible,
 select:focus-visible {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.22);
+    box-shadow: 0 0 0 2px rgba(204, 96, 92, 0.24);
     background: var(--bg-elevated);
 }
 
@@ -330,8 +334,8 @@ button:disabled {
 
 .drag-overlay {
     backdrop-filter: blur(8px);
-    background: rgba(201, 100, 66, 0.08);
-    border: 1px solid rgba(201, 100, 66, 0.22);
+    background: rgba(204, 96, 92, 0.08);
+    border: 1px solid rgba(204, 96, 92, 0.22);
 }
 
 .prose pre {
@@ -349,7 +353,7 @@ button:disabled {
 .prose h2,
 .prose h3 {
     color: var(--text-primary);
-    font-family: 'Newsreader', Georgia, Cambria, serif;
+    font-family: 'Source Serif 4', Georgia, Cambria, serif;
     font-weight: 600;
     letter-spacing: -0.01em;
 }
@@ -368,11 +372,11 @@ button:disabled {
 /* React Flow dark theme overrides */
 .react-flow__node {
     font-size: 12px;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Montserrat', sans-serif;
 }
 
 .react-flow__edge-path {
-    stroke: #C96442;
+    stroke: #CC605C;
     stroke-width: 1.5;
     opacity: 0.7;
 }
@@ -448,13 +452,13 @@ button:disabled {
     position: relative;
     border-radius: 9999px;
     background:
-        radial-gradient(circle at 32% 26%, rgba(255, 248, 238, 0.92), rgba(255, 248, 238, 0) 30%),
-        radial-gradient(circle at 70% 80%, rgba(245, 180, 120, 0.5), rgba(245, 180, 120, 0) 48%),
-        radial-gradient(circle at 50% 45%, #E08A5E 0%, #C96442 50%, #5E2E1E 100%);
+        radial-gradient(circle at 32% 26%, rgba(255, 244, 244, 0.92), rgba(255, 244, 244, 0) 30%),
+        radial-gradient(circle at 70% 80%, rgba(214, 122, 122, 0.5), rgba(214, 122, 122, 0) 48%),
+        radial-gradient(circle at 50% 45%, #C4564F 0%, #CC605C 50%, #3D0F0F 100%);
     box-shadow:
-        inset -8px -10px 22px rgba(40, 18, 8, 0.6),
-        inset 6px 8px 14px rgba(255, 235, 210, 0.22),
-        0 14px 38px rgba(201, 100, 66, 0.4);
+        inset -8px -10px 22px rgba(30, 8, 8, 0.6),
+        inset 6px 8px 14px rgba(255, 226, 226, 0.22),
+        0 14px 38px rgba(204, 96, 92, 0.4);
     transform-style: preserve-3d;
     animation: orb-float 6s ease-in-out infinite;
 }
@@ -465,16 +469,16 @@ button:disabled {
     border-radius: 9999px;
     background: conic-gradient(
         from 0deg,
-        transparent 0%, rgba(245, 180, 120, 0.85) 12%, transparent 28%,
-        transparent 52%, rgba(201, 100, 66, 0.85) 66%, transparent 84%
+        transparent 0%, rgba(255, 163, 25, 0.85) 12%, transparent 28%,
+        transparent 52%, rgba(204, 96, 92, 0.85) 66%, transparent 84%
     );
     -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
     animation: orb-spin 8s linear infinite;
 }
 
-/* Full-bleed ambient wash behind the empty-state hero: a clay glow pooled where
-   the orb sits, a soft top-down warm light, and a faint gold lift from the
+/* Full-bleed ambient wash behind the empty-state hero: a maroon glow pooled where
+   the orb sits, a soft top-down light, and a faint UChicago-yellow lift from the
    bottom. Layered radials read as an intentional mesh, not loose blobs. */
 .hero-bg {
     /* Fixed (not absolute) so the warm wash spans the whole screen behind the chat
@@ -485,9 +489,9 @@ button:disabled {
     z-index: 0;
     pointer-events: none;
     background:
-        radial-gradient(60% 50% at 50% 40%, rgba(201, 100, 66, 0.22), transparent 72%),
-        radial-gradient(140% 90% at 50% -15%, rgba(201, 100, 66, 0.10), transparent 60%),
-        radial-gradient(120% 80% at 50% 115%, rgba(217, 164, 65, 0.09), transparent 62%);
+        radial-gradient(60% 50% at 50% 40%, rgba(204, 96, 92, 0.22), transparent 72%),
+        radial-gradient(140% 90% at 50% -15%, rgba(204, 96, 92, 0.10), transparent 60%),
+        radial-gradient(120% 80% at 50% 115%, rgba(255, 163, 25, 0.08), transparent 62%);
 }
 
 @keyframes orb-float {

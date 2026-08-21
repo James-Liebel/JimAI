@@ -6,15 +6,15 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingScreen from './components/LoadingScreen';
 import { prefetchRoute } from './lib/routePrefetch';
 // Self-hosted webfonts (bundled woff2 — no external egress, instant offline cold
-// start). Inter carries the UI/body; Newsreader is the serif display face for
-// headings and wordmarks; JetBrains Mono is code.
-import '@fontsource/inter/400.css';
-import '@fontsource/inter/500.css';
-import '@fontsource/inter/600.css';
-import '@fontsource/inter/700.css';
-import '@fontsource/newsreader/400.css';
-import '@fontsource/newsreader/500.css';
-import '@fontsource/newsreader/600.css';
+// start). Montserrat carries the UI/body; Source Serif 4 is the serif display face
+// for headings and wordmarks; JetBrains Mono is code.
+import '@fontsource/montserrat/400.css';
+import '@fontsource/montserrat/500.css';
+import '@fontsource/montserrat/600.css';
+import '@fontsource/montserrat/700.css';
+import '@fontsource/source-serif-4/400.css';
+import '@fontsource/source-serif-4/500.css';
+import '@fontsource/source-serif-4/600.css';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/600.css';

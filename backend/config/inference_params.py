@@ -63,8 +63,11 @@ INFERENCE_PARAMS: dict[tuple[str, SpeedMode], dict] = {
     # Turbo/Fast/Balanced run Gemma 4 12B at Q5_K_M (~8.6GB) — enough headroom left for a
     # full prefill batch. Deep runs the 27B at IQ2_M (~10.3GB), so ctx and batch go lean
     # there to keep the KV cache on the card.
-    ("uncensored", SpeedMode.TURBO): {"temperature": 0.7, "num_ctx": 4096, "num_predict": 768, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
-    ("uncensored", SpeedMode.FAST): {"temperature": 0.7, "num_ctx": 8192, "num_predict": 1024, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
+    # Both models reason before answering, and num_predict caps reasoning and answer
+    # together — a 200-token budget here returns a single token of visible content. Every
+    # row below carries several hundred tokens of headroom for the reasoning pass.
+    ("uncensored", SpeedMode.TURBO): {"temperature": 0.7, "num_ctx": 4096, "num_predict": 1024, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
+    ("uncensored", SpeedMode.FAST): {"temperature": 0.7, "num_ctx": 8192, "num_predict": 1536, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
     ("uncensored", SpeedMode.BALANCED): {"temperature": 0.7, "num_ctx": 16384, "num_predict": 2048, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
     ("uncensored", SpeedMode.DEEP): {"temperature": 0.7, "num_ctx": 16384, "num_predict": 3072, "num_batch": 512, "repeat_penalty": 1.15, **_QWEN3_NONTHINK},
 

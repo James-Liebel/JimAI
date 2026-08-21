@@ -27,15 +27,15 @@ const MODEL_CHOICES = [
 // Role accents mirror RouterBadge's color language (math=blue, code=green,
 // chat=neutral, vision=purple) so node borders actually distinguish models.
 const MODEL_COLORS: Record<string, string> = {
-    'qwen2-math:7b-instruct': '#6E86B8',
-    'qwen2.5-coder:7b': '#7BA05B',
-    'qwen3:8b': '#B6B2AB',
-    'qwen2.5vl:7b': '#A07CB0',
+    'qwen2-math:7b-instruct': '#155F83',
+    'qwen2.5-coder:7b': '#58593F',
+    'qwen3:8b': '#4D4B49',
+    'qwen2.5vl:7b': '#350E20',
 };
 
 function AgentNode({ data }: { data: Record<string, unknown> }) {
     const model = String(data.model || '');
-    const borderColor = MODEL_COLORS[model] || '#837F78';
+    const borderColor = MODEL_COLORS[model] || '#6B6A69';
     const role = String(data.role || '');
     return (
         <div
@@ -102,7 +102,7 @@ export default function AgentStudio() {
     const [savedTeamName, setSavedTeamName] = useState('');
 
     const onConnect = useCallback(
-        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#837F78' } }, rows)),
+        (params: Connection) => setEdges((rows) => addEdge({ ...params, animated: true, style: { stroke: '#6B6A69' } }, rows)),
         [setEdges],
     );
 

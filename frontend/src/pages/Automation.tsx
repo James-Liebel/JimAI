@@ -24,12 +24,12 @@ type FlowNodeData = {
 };
 
 const FLOW_NODE_LIBRARY: Record<FlowKind, { title: string; nodeType: string; color: string; description: string }> = {
-    trigger: { title: 'Trigger', nodeType: 'jimai.trigger.manual', color: '#6E86B8', description: 'Entry point.' },
-    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#B6B2AB', description: 'Transform payload.' },
-    logic: { title: 'Logic', nodeType: 'jimai.logic.condition', color: '#D9A441', description: 'Conditional gate.' },
-    ai: { title: 'Local AI', nodeType: 'jimai.ai.ollama', color: '#7BA05B', description: 'Local Ollama node.' },
-    integration: { title: 'Integration', nodeType: 'jimai.integration.http', color: '#A07CB0', description: 'HTTP integration.' },
-    research: { title: 'Research', nodeType: 'jimai.research.search', color: '#CC605C', description: 'Web research node.' },
+    trigger: { title: 'Trigger', nodeType: 'jimai.trigger.manual', color: '#155F83', description: 'Entry point.' },
+    action: { title: 'Action', nodeType: 'jimai.action.transform', color: '#4D4B49', description: 'Transform payload.' },
+    logic: { title: 'Logic', nodeType: 'jimai.logic.condition', color: '#A8561B', description: 'Conditional gate.' },
+    ai: { title: 'Local AI', nodeType: 'jimai.ai.ollama', color: '#58593F', description: 'Local Ollama node.' },
+    integration: { title: 'Integration', nodeType: 'jimai.integration.http', color: '#350E20', description: 'HTTP integration.' },
+    research: { title: 'Research', nodeType: 'jimai.research.search', color: '#800000', description: 'Web research node.' },
 };
 
 const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
@@ -58,7 +58,7 @@ const INITIAL_FLOW_NODES: Node<FlowNodeData>[] = [
 ];
 
 const INITIAL_FLOW_EDGES: Edge[] = [
-    { id: 'edge-1', source: 'trigger-1', target: 'ai-1', type: 'smoothstep', animated: true, style: { stroke: '#CC605C', strokeWidth: 1.5, opacity: 0.7 } },
+    { id: 'edge-1', source: 'trigger-1', target: 'ai-1', type: 'smoothstep', animated: true, style: { stroke: '#800000', strokeWidth: 1.5, opacity: 0.7 } },
 ];
 
 function nodeStyle(kind: FlowKind): Record<string, string | number> {
@@ -67,11 +67,11 @@ function nodeStyle(kind: FlowKind): Record<string, string | number> {
         border: `1px solid ${color}40`,
         borderRadius: 8,
         padding: '10px 14px',
-        color: '#F3F1EC',
-        background: '#2A2826',
-        boxShadow: `0 0 0 1px ${color}18, 0 2px 8px rgba(0,0,0,0.4)`,
+        color: '#1A1918',
+        background: '#FFFFFF',
+        boxShadow: `0 0 0 1px ${color}18, 0 2px 8px rgba(26,25,24,0.12)`,
         fontSize: '12px',
-        fontFamily: '"Inter", sans-serif',
+        fontFamily: '"Montserrat", sans-serif',
         minWidth: 140,
     };
 }
@@ -144,7 +144,7 @@ function fromGraph(graph: Record<string, unknown>): { nodes: Node<FlowNodeData>[
                 target,
                 type: 'smoothstep',
                 animated: true,
-                style: { stroke: '#837F78' },
+                style: { stroke: '#6B6A69' },
             } as Edge;
         })
         .filter((row): row is Edge => row !== null);
@@ -194,7 +194,7 @@ export default function Automation() {
     const onConnect = useCallback(
         (params: Connection) =>
             setEdges((current) =>
-                addEdge({ ...params, type: 'smoothstep', animated: true, style: { stroke: '#CC605C', strokeWidth: 1.5, opacity: 0.7 } }, current),
+                addEdge({ ...params, type: 'smoothstep', animated: true, style: { stroke: '#800000', strokeWidth: 1.5, opacity: 0.7 } }, current),
             ),
         [setEdges],
     );

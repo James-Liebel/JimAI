@@ -24,43 +24,43 @@
     --mobile-nav-pad: calc(env(safe-area-inset-bottom, 0px) * 0.25);
     --mobile-nav-h: calc(60px + var(--mobile-nav-pad));
 
-    /* Design system tokens — warm-neutral charcoal surfaces, cream text, UChicago maroon.
-       UChicago maroon is #800000, which fails contrast as text on these surfaces, so the
-       interactive accent is lifted to #CC605C — 4.47:1 here, matching the contrast of the
-       clay accent it replaces — and true maroon is kept as --accent-deep for fills that
-       carry white text, where it lands at 10.9:1. */
-    --bg-base: #1B1A18;
-    --bg-surface: #222120;
-    --bg-elevated: #2A2826;
-    --bg-hover: #34322F;
-    --border: #34312E;
-    --border-subtle: #282624;
-    --border-strong: #46423D;
-    --text-primary: #F3F1EC;
-    --text-secondary: #B6B2AB;
-    --text-muted: #837F78;
-    --accent: #CC605C;
-    --accent-deep: #800000;
-    --accent-dim: rgba(204, 96, 92, 0.12);
-    --success: #9BA45A;
-    --warning: #FFA319;
-    --danger: #E8776A;
+    /* Design system tokens — white page, UChicago greystone panels, true maroon accent.
+       On white, #800000 no longer has the contrast problem it had on charcoal: it reads at
+       10.9:1 as text and needs no substitute, so the whole published palette (blue #155F83,
+       green #58593F, red #8F3931) holds at brand strength; only orange needed
+       darkening, to #A8561B, to clear 4.5:1 as text. */
+    --bg-base: #FFFFFF;
+    --bg-surface: #F7F6F5;
+    --bg-elevated: #FFFFFF;
+    --bg-hover: #EDECEA;
+    --border: #D9D9D9;
+    --border-subtle: #E6E4E1;
+    --border-strong: #A6A6A6;
+    --text-primary: #1A1918;
+    --text-secondary: #4D4B49;
+    --text-muted: #6B6A69;
+    --accent: #800000;
+    --accent-deep: #5C0000;
+    --accent-dim: rgba(128, 0, 0, 0.10);
+    --success: #58593F;
+    --warning: #A8561B;
+    --danger: #8F3931;
 
     /* Legacy compat aliases */
-    --bg-0: #1B1A18;
-    --bg-1: #222120;
-    --bg-2: #2A2826;
-    --panel-0: #222120;
-    --panel-1: #2A2826;
-    --line-0: #34312E;
-    --line-1: #46423D;
-    --text-0: #F3F1EC;
-    --text-1: #B6B2AB;
-    --text-2: #837F78;
-    --focus: #CC605C;
-    --ok: #9BA45A;
-    --warn: #FFA319;
-    --bad: #E8776A;
+    --bg-0: #FFFFFF;
+    --bg-1: #F7F6F5;
+    --bg-2: #FFFFFF;
+    --panel-0: #F7F6F5;
+    --panel-1: #FFFFFF;
+    --line-0: #D9D9D9;
+    --line-1: #A6A6A6;
+    --text-0: #1A1918;
+    --text-1: #4D4B49;
+    --text-2: #6B6A69;
+    --focus: #800000;
+    --ok: #58593F;
+    --warn: #A8561B;
+    --bad: #8F3931;
 }
 
 html,
@@ -106,8 +106,8 @@ body {
 }
 
 ::selection {
-    background: rgba(204, 96, 92, 0.38);
-    color: #FBF7EF;
+    background: rgba(128, 0, 0, 0.16);
+    color: #1A1918;
 }
 
 a {
@@ -231,7 +231,7 @@ textarea:focus-visible,
 select:focus-visible {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(204, 96, 92, 0.24);
+    box-shadow: 0 0 0 2px rgba(128, 0, 0, 0.22);
     background: var(--bg-elevated);
 }
 
@@ -329,13 +329,13 @@ button:disabled {
 }
 
 .builder-workspace details > summary:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(26, 25, 24, 0.05);
 }
 
 .drag-overlay {
     backdrop-filter: blur(8px);
-    background: rgba(204, 96, 92, 0.08);
-    border: 1px solid rgba(204, 96, 92, 0.22);
+    background: rgba(128, 0, 0, 0.06);
+    border: 1px solid rgba(128, 0, 0, 0.28);
 }
 
 .prose pre {
@@ -376,17 +376,17 @@ button:disabled {
 }
 
 .react-flow__edge-path {
-    stroke: #CC605C;
+    stroke: #800000;
     stroke-width: 1.5;
     opacity: 0.7;
 }
 
 .react-flow__background {
-    background: #1B1A18 !important;
+    background: #F7F6F5 !important;
 }
 
 .react-flow__background pattern circle {
-    fill: #3C3A36 !important;
+    fill: #D2D0CD !important;
 }
 
 .react-flow__controls {
@@ -420,7 +420,7 @@ button:disabled {
 }
 
 .react-flow__minimap-mask {
-    fill: rgba(27, 26, 24, 0.75) !important;
+    fill: rgba(247, 246, 245, 0.75) !important;
 }
 
 .react-flow__minimap-node {
@@ -454,11 +454,11 @@ button:disabled {
     background:
         radial-gradient(circle at 32% 26%, rgba(255, 244, 244, 0.92), rgba(255, 244, 244, 0) 30%),
         radial-gradient(circle at 70% 80%, rgba(214, 122, 122, 0.5), rgba(214, 122, 122, 0) 48%),
-        radial-gradient(circle at 50% 45%, #C4564F 0%, #CC605C 50%, #3D0F0F 100%);
+        radial-gradient(circle at 50% 45%, #A63A3A 0%, #800000 50%, #3D0000 100%);
     box-shadow:
         inset -8px -10px 22px rgba(30, 8, 8, 0.6),
         inset 6px 8px 14px rgba(255, 226, 226, 0.22),
-        0 14px 38px rgba(204, 96, 92, 0.4);
+        0 14px 38px rgba(128, 0, 0, 0.25);
     transform-style: preserve-3d;
     animation: orb-float 6s ease-in-out infinite;
 }
@@ -469,8 +469,8 @@ button:disabled {
     border-radius: 9999px;
     background: conic-gradient(
         from 0deg,
-        transparent 0%, rgba(255, 163, 25, 0.85) 12%, transparent 28%,
-        transparent 52%, rgba(204, 96, 92, 0.85) 66%, transparent 84%
+        transparent 0%, rgba(193, 102, 34, 0.85) 12%, transparent 28%,
+        transparent 52%, rgba(128, 0, 0, 0.85) 66%, transparent 84%
     );
     -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
     mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
@@ -489,9 +489,9 @@ button:disabled {
     z-index: 0;
     pointer-events: none;
     background:
-        radial-gradient(60% 50% at 50% 40%, rgba(204, 96, 92, 0.22), transparent 72%),
-        radial-gradient(140% 90% at 50% -15%, rgba(204, 96, 92, 0.10), transparent 60%),
-        radial-gradient(120% 80% at 50% 115%, rgba(255, 163, 25, 0.08), transparent 62%);
+        radial-gradient(60% 50% at 50% 40%, rgba(128, 0, 0, 0.05), transparent 72%),
+        radial-gradient(140% 90% at 50% -15%, rgba(128, 0, 0, 0.035), transparent 60%),
+        radial-gradient(120% 80% at 50% 115%, rgba(193, 102, 34, 0.05), transparent 62%);
 }
 
 @keyframes orb-float {

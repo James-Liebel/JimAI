@@ -15,24 +15,31 @@ export default {
                     5: '#282624',
                 },
                 accent: {
-                    DEFAULT: '#C96442',
-                    hover: '#D4785A',
-                    dim: 'rgba(201,100,66,0.12)',
+                    DEFAULT: '#CC605C',
+                    hover: '#D97671',
+                    dim: 'rgba(204,96,92,0.12)',
                     // `accent-1` is the primary-action alias used across action buttons.
-                    1: '#C96442',
-                    // Hue aliases kept for existing usages — warmed to sit in the clay palette.
-                    blue: '#6E86B8',
-                    green: '#7BA05B',
-                    amber: '#D9A441',
-                    red: '#C0584B',
-                    purple: '#A07CB0',
+                    1: '#CC605C',
+                    // True UChicago maroon — reserved for fills that carry white text,
+                    // where its darkness is the point rather than a contrast problem.
+                    deep: '#800000',
+                    // Hue aliases from UChicago's expanded palette, lifted until each
+                    // clears 4.5:1 on the page background — the published values (blue
+                    // #155F83, violet #350E20, red #8F3931) are far too dark to read on
+                    // charcoal. Red is also kept light on purpose: at brand strength it
+                    // is indistinguishable from the maroon accent.
+                    blue: '#4E90B8',
+                    green: '#9BA45A',
+                    amber: '#FFA319',
+                    red: '#E8776A',
+                    purple: '#B07E96',
                 },
                 // Semantic status palette (success/warning/error) used by stat tiles,
                 // verdict badges, and audit rows — warmed to match the clay accent.
                 status: {
-                    success: '#7BA05B',
-                    warning: '#D9A441',
-                    error: '#C0584B',
+                    success: '#9BA45A',
+                    warning: '#FFA319',
+                    error: '#E8776A',
                 },
                 text: {
                     primary: '#F3F1EC',
@@ -41,8 +48,10 @@ export default {
                 },
             },
             fontFamily: {
-                sans: ['"Inter"', '-apple-system', '"Segoe UI"', 'sans-serif'],
-                serif: ['"Newsreader"', 'Georgia', 'Cambria', 'serif'],
+                // Gotham and Mercury are UChicago's brand faces but are proprietary;
+                // Montserrat and Source Serif 4 are the closest self-hostable analogs.
+                sans: ['"Montserrat"', '-apple-system', '"Segoe UI"', 'sans-serif'],
+                serif: ['"Source Serif 4"', 'Georgia', 'Cambria', 'serif'],
                 mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
             },
             fontSize: {

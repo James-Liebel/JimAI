@@ -4,47 +4,47 @@ export default {
     theme: {
         extend: {
             colors: {
-                // Warm-neutral charcoal ramp. Low chroma (R/G/B within a few points)
-                // so it reads as a sophisticated warm grey, never brown/muddy.
+                // UChicago greystone ramp on a white page. Ordering is unchanged from
+                // the dark theme — higher index still means "further from the page" —
+                // so every existing bg-surface-N / border-surface-N usage still reads
+                // correctly, it just runs light-to-dark instead of dark-to-light.
                 surface: {
-                    0: '#1B1A18',
-                    1: '#222120',
-                    2: '#2A2826',
-                    3: '#34322F',
-                    4: '#3D3A37',
-                    5: '#282624',
+                    0: '#FFFFFF',
+                    1: '#F7F6F5',
+                    2: '#F1F0EE',
+                    3: '#E8E7E4',
+                    4: '#D3D1CE',
+                    5: '#E6E4E1',
                 },
                 accent: {
-                    DEFAULT: '#CC605C',
-                    hover: '#D97671',
-                    dim: 'rgba(204,96,92,0.12)',
+                    DEFAULT: '#800000',
+                    hover: '#660000',
+                    dim: 'rgba(128,0,0,0.10)',
                     // `accent-1` is the primary-action alias used across action buttons.
-                    1: '#CC605C',
-                    // True UChicago maroon — reserved for fills that carry white text,
-                    // where its darkness is the point rather than a contrast problem.
-                    deep: '#800000',
-                    // Hue aliases from UChicago's expanded palette, lifted until each
-                    // clears 4.5:1 on the page background — the published values (blue
-                    // #155F83, violet #350E20, red #8F3931) are far too dark to read on
-                    // charcoal. Red is also kept light on purpose: at brand strength it
-                    // is indistinguishable from the maroon accent.
-                    blue: '#4E90B8',
-                    green: '#9BA45A',
-                    amber: '#FFA319',
-                    red: '#E8776A',
-                    purple: '#B07E96',
+                    1: '#800000',
+                    // Pressed/active maroon, a step below the resting accent.
+                    deep: '#5C0000',
+                    // UChicago's expanded palette. On white these hold at published
+                    // strength, unlike the dark theme where every one needed lifting.
+                    // The exception is orange: #C16622 is only 4.05:1 here, so it is
+                    // darkened one step to clear 4.5:1 as text on panels too.
+                    blue: '#155F83',
+                    green: '#58593F',
+                    amber: '#A8561B',
+                    red: '#8F3931',
+                    purple: '#350E20',
                 },
                 // Semantic status palette (success/warning/error) used by stat tiles,
                 // verdict badges, and audit rows — warmed to match the clay accent.
                 status: {
-                    success: '#9BA45A',
-                    warning: '#FFA319',
-                    error: '#E8776A',
+                    success: '#58593F',
+                    warning: '#A8561B',
+                    error: '#8F3931',
                 },
                 text: {
-                    primary: '#F3F1EC',
-                    secondary: '#B6B2AB',
-                    muted: '#837F78',
+                    primary: '#1A1918',
+                    secondary: '#4D4B49',
+                    muted: '#6B6A69',
                 },
             },
             fontFamily: {
@@ -66,13 +66,13 @@ export default {
                 badge: '6px',
                 panel: '14px',
             },
-            // Dark-theme elevation: shadows stay deep to read against warm near-black
-            // surfaces, but softer than before so cards feel layered, not boxed-in.
+            // Light-theme elevation: on white, a shadow at dark-theme opacity reads as
+            // a smudge, so these drop to the alpha a paper-like surface needs.
             boxShadow: {
-                'elevation-1': '0 1px 2px 0 rgba(0, 0, 0, 0.40)',
-                'elevation-2': '0 4px 14px -3px rgba(0, 0, 0, 0.50)',
-                'elevation-3': '0 16px 44px -8px rgba(0, 0, 0, 0.62)',
-                'focus-ring': '0 0 0 2px rgba(201, 100, 66, 0.45)',
+                'elevation-1': '0 1px 2px 0 rgba(26, 25, 24, 0.08)',
+                'elevation-2': '0 4px 14px -3px rgba(26, 25, 24, 0.12)',
+                'elevation-3': '0 16px 44px -8px rgba(26, 25, 24, 0.18)',
+                'focus-ring': '0 0 0 2px rgba(128, 0, 0, 0.35)',
             },
             transitionTimingFunction: {
                 'out-soft': 'cubic-bezier(0.22, 1, 0.36, 1)',

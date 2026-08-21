@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
-import { Button } from './ui/Button';
-
 /**
  * Shows a tap-to-update button when the server is serving a newer build than the
  * one this tab booted from.
@@ -75,21 +73,22 @@ export function UpdateBanner() {
 
     if (!isUpdateReady) return null;
 
+    // Full-bleed rather than a floating pill: this is the one thing that has to be
+    // impossible to miss on the first screen after opening the app.
     return (
         <div
-            className="pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4"
-            style={{ top: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+            className="fixed inset-x-0 top-0 z-50 animate-fade-in"
+            style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
         >
-            <Button
-                variant="primary"
-                size="md"
+            <button
+                type="button"
                 disabled={isApplying}
                 onClick={() => void handleUpdate()}
-                className="pointer-events-auto rounded-full shadow-elevation-2 animate-fade-in"
+                className="flex w-full items-center justify-center gap-2 bg-accent px-4 py-3 text-sm font-semibold text-white shadow-elevation-2 disabled:opacity-80"
             >
-                <RefreshCw size={14} className={isApplying ? 'animate-spin' : undefined} />
-                {isApplying ? 'Updating…' : 'Update available — tap to refresh'}
-            </Button>
+                <RefreshCw size={15} className={isApplying ? 'animate-spin' : undefined} />
+                {isApplying ? 'Updating…' : 'New version available — tap to update'}
+            </button>
         </div>
     );
 }

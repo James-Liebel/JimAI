@@ -16,6 +16,9 @@ from config.models import SpeedMode
 # lets us merge per-row without repeating three keys 12 times.
 _QWEN3_NONTHINK = {"top_p": 0.8, "top_k": 20, "min_p": 0.0}
 
+# Gemma 4 wants a wider tail than qwen3 — its own card recommends top_p=0.95, top_k=64.
+_GEMMA_SAMPLING = {"top_p": 0.95, "top_k": 64}
+
 INFERENCE_PARAMS: dict[tuple[str, SpeedMode], dict] = {
     # ── TURBO: 3B-8B, minimal ctx, instant TTFT ──────────────────────────────
     ("math", SpeedMode.TURBO): {"temperature": 0.1, "num_ctx": 4096, "num_predict": 768, "num_batch": 2048, "repeat_penalty": 1.05, "think": False},
@@ -56,6 +59,14 @@ INFERENCE_PARAMS: dict[tuple[str, SpeedMode], dict] = {
     ("writing", SpeedMode.FAST): {"temperature": 0.75, "num_ctx": 4096, "num_predict": 768, "num_batch": 2048, "repeat_penalty": 1.15, "think": False, **_QWEN3_NONTHINK},
     ("writing", SpeedMode.BALANCED): {"temperature": 0.75, "num_ctx": 8192, "num_predict": 1536, "num_batch": 2048, "repeat_penalty": 1.15, "think": False, **_QWEN3_NONTHINK},
     ("writing", SpeedMode.DEEP): {"temperature": 0.75, "num_ctx": 16384, "num_predict": 3072, "num_batch": 1024, "repeat_penalty": 1.15},
+
+    # Turbo/Fast/Balanced run Gemma 4 12B at Q5_K_M (~8.6GB) — enough headroom left for a
+    # full prefill batch. Deep runs the 27B at IQ2_M (~10.3GB), so ctx and batch go lean
+    # there to keep the KV cache on the card.
+    ("uncensored", SpeedMode.TURBO): {"temperature": 0.7, "num_ctx": 4096, "num_predict": 768, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
+    ("uncensored", SpeedMode.FAST): {"temperature": 0.7, "num_ctx": 8192, "num_predict": 1024, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
+    ("uncensored", SpeedMode.BALANCED): {"temperature": 0.7, "num_ctx": 16384, "num_predict": 2048, "num_batch": 2048, "repeat_penalty": 1.15, **_GEMMA_SAMPLING},
+    ("uncensored", SpeedMode.DEEP): {"temperature": 0.7, "num_ctx": 16384, "num_predict": 3072, "num_batch": 512, "repeat_penalty": 1.15, **_QWEN3_NONTHINK},
 
     ("completion", SpeedMode.FAST): {"temperature": 0.05, "num_ctx": 2048, "num_predict": 128, "num_batch": 2048, "repeat_penalty": 1.0, "think": False},
     ("completion", SpeedMode.BALANCED): {"temperature": 0.05, "num_ctx": 2048, "num_predict": 128, "num_batch": 2048, "repeat_penalty": 1.0, "think": False},

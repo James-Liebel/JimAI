@@ -9,6 +9,7 @@ ALL INSTALLED MODELS (exact strings):
   qwen2.5-coder:7b                 — fast code fallback
   qwen2.5-coder:3b                 — turbo chat/writing (speed > quality, explicit opt-in)
   qwen2.5:32b-instruct-q3_k_s     — deep mode only, explicit invocation, fits in 16GB VRAM
+  UNCENSORED_* (constants below)   — uncensored roles, explicit pick only, never auto-routed
   nomic-embed-text                 — embeddings, runs on NPU/CPU, never on GPU
 """
 
@@ -289,9 +290,28 @@ Think briefly but correctly. No filler. Concrete over abstract."""
 TURBO_PROMPT_CODE = """Fast coder. Write the working code first.
 Type annotations. Handle the main error case. One-line docstring."""
 
+UNCENSORED_PROMPT = """You are a direct, unfiltered assistant. Answer what was actually asked.
+
+- Lead with the answer. No preamble, no disclaimers, no moralizing.
+- Don't add caveats or warnings the user didn't ask for.
+- If you don't know, say so plainly and say what would settle it.
+- Concrete over abstract — specifics, numbers, worked examples."""
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MODEL CONFIGS — THREE TIERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Uncensored GGUFs pulled straight from Hugging Face. Nothing here is ever auto-routed:
+# the `uncensored` role is reachable only from the model dropdown, and the abliterated
+# VL model only from Deep mode. Swap a string to try a different build — nothing else
+# needs to change.
+#
+# Gemma 4 12B carries the uncensored role in every tier but Deep: 8.6GB at Q5_K_M reads
+# better and runs faster than the 27B does at IQ2, since a 2-bit quant gives back most
+# of what the extra parameters buy. Deep gets the 27B for the cases where size wins.
+UNCENSORED_MODEL = "hf.co/culturerevolt/gemma-4-12b-heretic-abliterated-GGUF:Q5_K_M"
+UNCENSORED_DEEP_MODEL = "hf.co/HauhauCS/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-MTP-GGUF:IQ2_M"
+UNCENSORED_VISION_MODEL = "hf.co/mradermacher/Qwen3-VL-8B-Instruct-abliterated-GGUF:Q6_K"
 
 BALANCED_CONFIGS: dict[str, ModelConfig] = {
     "math": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=MATH_PROMPT_BALANCED),
@@ -301,6 +321,7 @@ BALANCED_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen3:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=FINANCE_PROMPT),
     "writing": ModelConfig(model="qwen3:8b", temperature=0.75, speed_mode=SpeedMode.BALANCED, system_prompt=""),  # dynamic from style_profile.json
     "data": ModelConfig(model="qwen2.5-coder:14b", temperature=0.1, speed_mode=SpeedMode.BALANCED, system_prompt=CODE_PROMPT_BALANCED),
+    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.BALANCED, system_prompt=UNCENSORED_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.BALANCED, system_prompt=""),
 }
 
@@ -312,6 +333,7 @@ FAST_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen2-math:7b-instruct", temperature=0.1, speed_mode=SpeedMode.FAST, system_prompt=MATH_PROMPT_FAST),
     "writing": ModelConfig(model="qwen3:8b", temperature=0.75, speed_mode=SpeedMode.FAST, system_prompt=""),
     "data": ModelConfig(model="qwen2.5-coder:7b", temperature=0.1, speed_mode=SpeedMode.FAST, system_prompt=DATA_PROMPT_FAST),
+    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.FAST, system_prompt=UNCENSORED_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.FAST, system_prompt=""),
 }
 
@@ -319,10 +341,11 @@ DEEP_CONFIGS: dict[str, ModelConfig] = {
     "math": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "code": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.05, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "chat": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
-    "vision": ModelConfig(model="qwen2.5vl:7b", temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),   # no 32B vision
+    "vision": ModelConfig(model=UNCENSORED_VISION_MODEL, temperature=0.2, speed_mode=SpeedMode.DEEP, system_prompt=VISION_PROMPT),  # Deep is explicit-only, so the abliterated VL lives here
     "finance": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
     "writing": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.75, speed_mode=SpeedMode.DEEP, system_prompt=""),
     "data": ModelConfig(model="qwen2.5:32b-instruct-q3_k_s", temperature=0.1, speed_mode=SpeedMode.DEEP, system_prompt=DEEP_PROMPT),
+    "uncensored": ModelConfig(model=UNCENSORED_DEEP_MODEL, temperature=0.7, speed_mode=SpeedMode.DEEP, system_prompt=UNCENSORED_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.DEEP, system_prompt=""),
 }
 
@@ -336,6 +359,7 @@ TURBO_CONFIGS: dict[str, ModelConfig] = {
     "finance": ModelConfig(model="qwen3:8b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=MATH_PROMPT_FAST),
     "writing": ModelConfig(model="qwen2.5-coder:3b", temperature=0.75, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CHAT),
     "data": ModelConfig(model="qwen2.5-coder:3b", temperature=0.1, speed_mode=SpeedMode.TURBO, system_prompt=TURBO_PROMPT_CODE),
+    "uncensored": ModelConfig(model=UNCENSORED_MODEL, temperature=0.7, speed_mode=SpeedMode.TURBO, system_prompt=UNCENSORED_PROMPT),
     "embed": ModelConfig(model="nomic-embed-text", temperature=0.0, speed_mode=SpeedMode.TURBO, system_prompt=""),
 }
 
@@ -448,6 +472,9 @@ MODEL_DISPLAY: dict[str, dict] = {
     "qwen2.5:32b-instruct-q4_K_M": {"label": "32B·Q4", "color": "amber"},
     "qwen2.5-coder:32b-instruct-q4_K_M": {"label": "Coder·32B", "color": "green"},
     "qwen3:32b": {"label": "Qwen3·32B", "color": "amber"},
+    UNCENSORED_MODEL: {"label": "Uncensored·12B", "color": "red"},
+    UNCENSORED_DEEP_MODEL: {"label": "Uncensored·27B", "color": "red"},
+    UNCENSORED_VISION_MODEL: {"label": "Uncensored·VL·8B", "color": "red"},
     "nomic-embed-text": {"label": "Embed", "color": "gray"},
     # legacy — kept for display if old model name appears in history
     "deepseek-r1:14b": {"label": "R1·14B", "color": "blue"},

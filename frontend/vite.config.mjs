@@ -1,12 +1,31 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+// Stamped into the bundle as __BUILD_ID__ and written to dist/build-id.json. A
+// running tab compares the two to tell whether the server is on a newer build
+// than the one it booted from — see components/UpdateBanner.tsx.
+const BUILD_ID = new Date().toISOString();
+
+function emitBuildId() {
+    return {
+        name: 'jimai-build-id',
+        generateBundle() {
+            this.emitFile({
+                type: 'asset',
+                fileName: 'build-id.json',
+                source: JSON.stringify({ id: BUILD_ID }),
+            });
+        },
+    };
+}
+
 // Split heavy third-party libs into their own chunks so:
 //   1. The initial route only loads what it needs (react + router + app shell).
 //   2. Heavy deps (markdown/katex/syntax-highlighter/monaco/reactflow) cache across deploys.
 // The result: faster first paint and cheaper subsequent navigations.
 export default defineConfig({
-    plugins: [react()],
+    plugins: [react(), emitBuildId()],
+    define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
     server: {
         host: '0.0.0.0',
         port: 5173,

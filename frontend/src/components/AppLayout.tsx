@@ -10,6 +10,7 @@ import MobileNav from './MobileNav';
 import GlobalPauseButton from './GlobalPauseButton';
 import { AppAssistDock } from './AppAssistDock';
 import CommandPalette from './CommandPalette';
+import { UpdateBanner } from './UpdateBanner';
 import type { SpeedMode } from '../lib/types';
 import * as api from '../lib/api';
 import * as agentApi from '../lib/agentSpaceApi';
@@ -329,6 +330,7 @@ export default function AppLayout() {
             'mobile-shell h-full flex flex-col bg-surface-0 overflow-hidden font-sans text-text-primary',
             isDeep && 'ring-1 ring-inset ring-accent-amber/20',
         )}>
+            <UpdateBanner />
             {!isMobile && !builderFullChrome && (
                 <nav className="flex h-12 shrink-0 items-center justify-between border-b border-surface-5 bg-surface-1 px-4 md:px-5">
                     {/* Logo + Assist trigger */}
